@@ -183,7 +183,7 @@ def test_theme_files(tmp_path, monkeypatch):
     (tmp_path / "src").mkdir()
     src = tmp_path / "src" / "in.json"
     src.write_text('{"format": "radarforge-theme", "name": "Imported one", "dark": false, '
-                   '"map": {"map_bg": "#ffffff"}, "widths": {"states": 9}}')
+                   '"map": {"map_bg": "#ffffff"}, "widths": {"states": 9}}', encoding="utf-8")
     assert themes.looks_like_theme(src)
     got = themes.import_file(src)
     assert got["widths"]["states"] == 6.0          # clamped
@@ -246,8 +246,10 @@ def test_workspace_layout_ops():
     ws.set_side_hidden(False)
 
 
-def test_gl_attempt_order():
+def test_gl_attempt_order(monkeypatch):
+    """The Linux choices (X11 / software fallbacks) – checked on every OS."""
     from radarforge import gl_setup
+    monkeypatch.setattr(gl_setup, "IS_LINUX", True)
     order = gl_setup.attempt_order("x11", "core", None)
     assert order[0] == ("x11", "core")
     assert len(order) == len(set(order))
