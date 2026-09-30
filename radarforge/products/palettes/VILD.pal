@@ -1,0 +1,12 @@
+; RadarForge VIL density
+Product: VILD
+Units: g/m3
+Step: 0.5
+Decimals: 2
+Color: 0.5   60 60 90        0 120 255
+Color: 1.5   0 120 255       0 220 100
+Color: 2.5   0 220 100       255 255 0
+Color: 3.25  255 255 0       255 90 0
+Color: 4.0   255 90 0        210 0 0
+Color: 5.0   210 0 0         255 0 220
+SolidColor: 6 255 255 255

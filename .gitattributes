@@ -1,0 +1,8 @@
+# keep the right line endings for each platform's scripts, whatever git's settings are
+*.sh    text eol=lf
+*.py    text eol=lf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.npz   binary
+*.png   binary
+*.ico   binary

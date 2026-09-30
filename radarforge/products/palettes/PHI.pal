@@ -1,0 +1,11 @@
+; RadarForge default differential phase
+Product: PHI
+Units: deg
+Step: 30
+Color: 0     60 0 120        0 60 255
+Color: 60    0 60 255        0 220 220
+Color: 120   0 220 220       0 200 0
+Color: 180   0 200 0         255 255 0
+Color: 240   255 255 0       255 90 0
+Color: 300   255 90 0        255 0 180
+SolidColor: 360 255 255 255

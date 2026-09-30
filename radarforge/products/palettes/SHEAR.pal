@@ -1,0 +1,14 @@
+; RadarForge azimuthal shear / divergence (1/s x 10^-3)
+Product: AzShear
+Units: /s x1e-3
+Step: 5
+Color: -25   170 0 255       0 20 200
+Color: -12   0 40 210        40 110 170
+Color: -5    50 100 140      70 85 100
+SolidColor4: -3 0 0 0 0
+Color: 3     120 110 60      210 190 0
+Color: 6     240 220 0       255 120 0
+Color: 10    255 100 0       215 0 0
+Color: 16    230 0 60        255 90 255
+Color: 25    255 140 255     255 255 255
+SolidColor: 35 255 255 255

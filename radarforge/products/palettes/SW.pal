@@ -1,0 +1,13 @@
+; RadarForge default spectrum width
+Product: SW
+Units: KTS
+Step: 5
+RF: 119 0 125
+Color: 0     60 60 60        140 140 140
+Color: 5     140 140 140     0 110 255
+Color: 10    0 110 255       0 220 90
+Color: 15    0 220 90        255 255 0
+Color: 20    255 255 0       255 90 0
+Color: 25    255 90 0        220 0 0
+Color: 30    220 0 0         255 120 255
+SolidColor: 40 255 255 255

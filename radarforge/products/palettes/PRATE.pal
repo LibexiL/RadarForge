@@ -1,0 +1,12 @@
+; RadarForge precipitation rate
+Product: DPR
+Units: in/hr
+Step: 1
+Decimals: 2
+Color: 0.01  60 90 60        0 170 60
+Color: 0.1   0 170 60        0 110 255
+Color: 0.5   0 110 255       255 255 0
+Color: 1.0   255 255 0       255 120 0
+Color: 2.0   255 120 0       220 0 0
+Color: 4.0   220 0 0         255 0 255
+SolidColor: 8 255 255 255

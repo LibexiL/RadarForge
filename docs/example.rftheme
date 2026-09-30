@@ -1,0 +1,50 @@
+{
+  "format": "radarforge-theme",
+  "version": 1,
+  "name": "Example (copy me)",
+  "dark": true,
+  "author": "RadarForge",
+  "ui": {
+    "window": "#1a2030",
+    "panel": "#131826",
+    "alt": "#1a2132",
+    "header": "#121724",
+    "button": "#232c40",
+    "border": "#2d3850",
+    "text": "#dde5f3",
+    "dim": "#8793ab",
+    "accent": "#4c8dff",
+    "accent_text": "#ffffff"
+  },
+  "map": {
+    "map_bg": "#05070d",
+    "map_gap": "#121724",
+    "states": "#d8e0f0",
+    "countries": "#c8d2e6",
+    "counties": "#5a6478dc",
+    "roads": "#b4505ae6",
+    "roads2": "#78553cdc",
+    "lakes": "#466eaac8",
+    "city_text": "#e1e1e1",
+    "city_dot": "#e6e6e6",
+    "site_text": "#cde6d2",
+    "site_88d": "#2f8f9d",
+    "site_tdwr": "#966ec8",
+    "site_current": "#ffd700",
+    "rings": "#c8c8d796",
+    "label_bg": "#0a0f1cc8",
+    "label_text": "#f0f0f5",
+    "halo": "#000000dc",
+    "panel_border": "#2d3850",
+    "active_border": "#4c8dff",
+    "cursor": "#ffffffe6"
+  },
+  "widths": {
+    "states": 1.8,
+    "countries": 1.8,
+    "counties": 1.0,
+    "roads": 1.4,
+    "roads2": 1.0,
+    "lakes": 1.0
+  }
+}

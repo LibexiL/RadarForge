@@ -1,0 +1,10 @@
+; RadarForge probability of severe hail
+Product: POSH
+Units: %
+Step: 10
+Color: 5     0 100 200       0 220 150
+Color: 30    0 220 150       255 255 0
+Color: 50    255 255 0       255 100 0
+Color: 70    255 100 0       220 0 0
+Color: 90    220 0 0         255 0 220
+SolidColor: 100 255 0 220

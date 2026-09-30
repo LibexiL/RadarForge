@@ -1,0 +1,13 @@
+; RadarForge precipitation accumulation
+Product: DAA
+Units: in
+Step: 1
+Decimals: 2
+Color: 0.01  90 130 90       0 190 60
+Color: 0.25  0 190 60        0 110 20
+Color: 0.5   0 90 255        0 200 255
+Color: 1.0   255 255 0       255 150 0
+Color: 2.0   255 100 0       200 0 0
+Color: 4.0   255 0 200       140 0 200
+Color: 8.0   200 200 255     255 255 255
+SolidColor: 15 255 255 255

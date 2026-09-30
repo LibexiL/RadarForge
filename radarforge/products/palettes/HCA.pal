@@ -1,0 +1,33 @@
+; RadarForge hydrometeor classification (Level III HCA index = code/10)
+Product: HCA
+Units:
+SolidColor: 0.5  170 170 170
+SolidColor: 1.5  110 110 110
+SolidColor: 2.5  240 130 240
+SolidColor: 3.5  140 170 255
+SolidColor: 4.5  0 90 255
+SolidColor: 5.5  110 235 110
+SolidColor: 6.5  0 160 0
+SolidColor: 7.5  255 255 0
+SolidColor: 8.5  170 100 255
+SolidColor: 9.5  255 0 0
+SolidColor: 10.5 200 0 110
+SolidColor: 11.5 255 0 255
+SolidColor: 12.5 0 0 0
+SolidColor4: 13.5 125 0 160 255
+SolidColor: 14.5 119 0 125
+SolidColor4: 15.5 0 0 0 0
+Label: 1 BI Biological
+Label: 2 GC Ground clutter
+Label: 3 IC Ice crystals
+Label: 4 DS Dry snow
+Label: 5 WS Wet snow
+Label: 6 RA Rain
+Label: 7 HR Heavy rain
+Label: 8 BD Big drops
+Label: 9 GR Graupel
+Label: 10 HA Hail/rain
+Label: 11 LH Large hail
+Label: 12 GH Giant hail
+Label: 14 UK Unknown
+Label: 15 RF Range folded
