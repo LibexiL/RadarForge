@@ -1,0 +1,41 @@
+RadarForge for Windows 10 / 11
+==============================
+
+INSTALL (one time)
+------------------
+1. Install Python, if you don't have it:
+     - Go to https://www.python.org/downloads/ and click the big yellow "Download Python" button.
+     - Run it. On the FIRST screen tick "Add python.exe to PATH", then click "Install Now".
+
+2. Make sure the RadarForge download is extracted (unzipped):
+     - Right-click the ZIP file you downloaded -> "Extract All..." -> "Extract".
+     - Work in the extracted folder, not inside the ZIP.
+
+3. Double-click  install.bat  (in this Windows folder).
+     - If Windows says "Windows protected your PC", click "More info" -> "Run anyway".
+     - A black window shows the progress. The first install takes a few minutes.
+     - When it says "Done!", press any key to close it.
+
+4. Start RadarForge from the Start Menu or the "RadarForge" icon on your desktop.
+
+
+FILES IN THIS FOLDER
+--------------------
+  install.bat     installs RadarForge (run it again later to update - your settings are kept)
+  run.bat         tries RadarForge without installing it (first start takes a few minutes)
+  uninstall.bat   removes RadarForge (it asks whether to delete your settings too)
+  helpers\        used by the scripts above - you don't need to open it
+
+
+PROBLEMS?
+---------
+  "Python was not found"   Install Python as in step 1 - don't forget "Add python.exe to PATH".
+                           Then double-click install.bat again.
+  Map is black or blank    Update your graphics driver (NVIDIA, AMD or Intel website).
+                           Still broken? Press Windows key + R, paste this and press Enter:
+                             %LOCALAPPDATA%\RadarForge\radarforge.bat --safe-graphics
+  Anything else            The log file is at  %LOCALAPPDATA%\RadarForge\cache\radarforge.log
+                           (paste that into the address bar of File Explorer).
+
+More help and a full user guide: see README.md in the main RadarForge folder,
+or the RadarForge page on GitHub.

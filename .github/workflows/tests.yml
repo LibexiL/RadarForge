@@ -12,6 +12,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         python: ["3.11", "3.13"]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -30,3 +31,35 @@ jobs:
         run: python -m pyflakes radarforge tests
       - name: Tests
         run: python -m pytest -q tests
+
+  # runs the real installers the way a user would, from their OS folder
+  installer:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Linux installer
+        if: runner.os == 'Linux'
+        run: |
+          bash Linux/install.sh
+          ~/.local/bin/radarforge --help
+          test -f ~/.local/share/applications/radarforge.desktop
+          bash Linux/uninstall.sh < /dev/null
+          test ! -e ~/.local/bin/radarforge
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          echo.| Windows\install.bat
+          if errorlevel 1 exit /b 1
+          "%LOCALAPPDATA%\RadarForge\venv\Scripts\python.exe" -m radarforge --help
+          if errorlevel 1 exit /b 1
+          if not exist "%LOCALAPPDATA%\RadarForge\radarforge.bat" exit /b 1
+          if not exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\RadarForge.lnk" exit /b 1

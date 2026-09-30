@@ -1,10 +1,24 @@
 # RadarForge
 
-A fast, **NEXRAD weather radar viewer** for **Windows and Linux**.
+A fast, GR2Analyst-style **NEXRAD weather radar viewer** for **Windows and Linux**.
 Live and archived Level II / Level III data, 1–6 linked panels, derived products, GRLevelX
 placefiles and colour tables, cross sections, a 3-D storm view, warnings, and themes.
 
 ![RadarForge showing the 2013 Moore, OK tornado: reflectivity, storm-relative velocity, correlation coefficient and azimuthal shear with warnings and Level III storm tracks](docs/screenshot.png)
+
+## Download
+
+**[⬇ Download RadarForge](https://github.com/LibexiL/RadarForge/releases)** – under **Assets** of the newest
+version, click **Source code (zip)** (or use the green **Code** button above → **Download ZIP**).
+Extract it, then open the folder for your computer:
+
+| Windows 10 / 11 | Linux |
+|---|---|
+| **[`Windows`](Windows)** folder | **[`Linux`](Linux)** folder |
+| [How to install ↓](#install-on-windows) | [How to install ↓](#install-on-linux) |
+
+Each folder also has a short **`HOW TO INSTALL.txt`**. You only need to open your system's folder, but
+keep the extracted files together – everything else is the program itself, shared by both systems.
 
 **Contents:** [Features](#features) · [Requirements](#requirements) ·
 [Install on Windows](#install-on-windows) · [Install on Linux](#install-on-linux) ·
@@ -48,10 +62,10 @@ placefiles and colour tables, cross sections, a 3-D storm view, warnings, and th
 
 1. **Install Python** (skip if you already have 3.10 or newer):
    download it from **<https://www.python.org/downloads/>**, run the installer, tick
-   **"Add python.exe to PATH"**, then click **Install Now**.
-2. **Download RadarForge**: on this GitHub page click **Code → Download ZIP**, then right-click the
-   ZIP → **Extract All…**. (Or `git clone` the repository.)
-3. Open the extracted folder and **double-click `install.bat`**.
+   **"Add python.exe to PATH"** on the first screen, then click **Install Now**.
+2. **[Download RadarForge](https://github.com/LibexiL/RadarForge/releases)** (**Source code (zip)**
+   under **Assets** of the newest version), then right-click the ZIP → **Extract All…** → **Extract**.
+3. In the extracted folder, open the **`Windows`** folder and **double-click `install.bat`**.
    It sets everything up (a few minutes the first time) and adds **RadarForge** to the Start Menu and
    the desktop.
 
@@ -60,28 +74,42 @@ placefiles and colour tables, cross sections, a 3-D storm view, warnings, and th
 
 That's it – start **RadarForge** from the Start Menu or the desktop icon.
 
+| In the `Windows` folder | |
+|---|---|
+| `install.bat` | install, or update (run it again – settings are kept) |
+| `run.bat` | try RadarForge without installing it |
+| `uninstall.bat` | remove RadarForge |
+| `helpers\` | used by the scripts – no need to open it |
+
 ## Install on Linux
 
-1. **Python 3.10+ and git** (most distributions already have Python):
+1. **Python 3.10+** (most distributions already have it):
 
    | Distribution | Command |
    |---|---|
-   | Fedora / Nobara | `sudo dnf install python3 git` |
-   | Ubuntu / Debian / Mint | `sudo apt install python3 python3-venv git` |
-   | Arch / Manjaro | `sudo pacman -S python git` |
+   | Fedora / Nobara | `sudo dnf install python3` |
+   | Ubuntu / Debian / Mint | `sudo apt install python3 python3-venv` |
+   | Arch / Manjaro | `sudo pacman -S python` |
 
-2. **Download and install** (in a terminal):
+2. **[Download RadarForge](https://github.com/LibexiL/RadarForge/releases)** (**Source code (zip)**
+   under **Assets** of the newest version) and extract it.
+3. Open a terminal in the extracted **`Linux`** folder (right-click inside it → **Open Terminal Here**)
+   and run:
 
    ```bash
-   git clone https://github.com/LibexiL/RadarForge.git    # use this repository's URL
-   cd RadarForge
    bash install.sh
    ```
 
-   (Or use **Code → Download ZIP**, extract it, open a terminal in the folder and run `bash install.sh`.)
+   Prefer git? `git clone https://github.com/LibexiL/RadarForge.git && bash RadarForge/Linux/install.sh`
 
 The installer puts RadarForge in `~/.local/share/radarforge`, adds the `radarforge` command and an
 app-menu entry with an icon.
+
+| In the `Linux` folder | |
+|---|---|
+| `install.sh` | install, or update (run it again – settings are kept) |
+| `run.sh` | try RadarForge without installing it |
+| `uninstall.sh` | remove RadarForge |
 
 ---
 
@@ -91,7 +119,7 @@ app-menu entry with an icon.
 |---|---|---|
 | **Normal start** | Start Menu or desktop → **RadarForge** | App menu → **RadarForge**, or run `radarforge` |
 | **With a console window showing messages** | `%LOCALAPPDATA%\RadarForge\radarforge.bat` | run `radarforge` in a terminal |
-| **Without installing** (straight from the folder) | double-click `run.bat` | `bash run.sh` |
+| **Without installing** (straight from the download) | double-click `Windows\run.bat` | `bash Linux/run.sh` |
 
 The first start opens live data from **KTLX (Oklahoma City)**; after that it remembers your radar,
 panels and layout. Click any radar square on the map (or **Ctrl+R**) to change radar.
@@ -112,11 +140,12 @@ Add these after `radarforge` (Linux), `radarforge.bat` or `run.bat` (Windows):
 
 ## Updating & uninstalling
 
-**Update:** download the new version (or `git pull`) and run the installer again –
-`install.bat` on Windows, `bash install.sh` on Linux. Your settings, themes and layout are kept.
+**Update:** download the new version and run the installer again – `Windows\install.bat`, or
+`bash install.sh` in the `Linux` folder (git users: `git pull` first). Your settings, themes and layout
+are kept.
 
-**Uninstall:** run `uninstall.bat` (Windows) or `bash uninstall.sh` (Linux). It asks whether to
-delete your settings and downloaded data too.
+**Uninstall:** run `Windows\uninstall.bat`, or `bash uninstall.sh` in the `Linux` folder. It asks
+whether to delete your settings and downloaded data too.
 
 ### Where things are stored
 
@@ -240,7 +269,7 @@ panel title). Level III products are checked once a minute.
 
 | Problem | Fix |
 |---|---|
-| **"Python was not found"** during install (Windows) | Install Python from python.org and tick **"Add python.exe to PATH"**, then run `install.bat` again. |
+| **"Python was not found"** during install (Windows) | Install Python from python.org and tick **"Add python.exe to PATH"**, then double-click `Windows\install.bat` again. |
 | **Black map, frozen window or garbled picture** | Update the graphics driver. RadarForge tests several OpenGL setups by itself and remembers the one that works; `--gl-reset` makes it test again, `--safe-graphics` uses the plainest setup. |
 | **Everything is slow** | **Settings → Performance** shows the OpenGL renderer. *llvmpipe* or *Software* means the GPU driver isn't being used – update it, then start once with `--gl-reset`. |
 | **A panel is gone / messy layout** | **Panels** menu to show it again, or **Panels → Reset panel layout**. |
@@ -267,10 +296,13 @@ Tests run automatically on Windows and Linux for every push (`.github/workflows/
 ### Project layout
 
 ```
-radarforge/
-├── install.bat · run.bat · uninstall.bat      Windows scripts
-├── install.sh  · run.sh  · uninstall.sh       Linux scripts
-├── radarforge/                                the application (Python package)
+RadarForge/
+├── Windows/              everything a Windows user needs
+│   ├── install.bat · run.bat · uninstall.bat · HOW TO INSTALL.txt
+│   └── helpers/          shortcut maker used by the scripts
+├── Linux/                everything a Linux user needs
+│   └── install.sh · run.sh · uninstall.sh · HOW TO INSTALL.txt
+├── radarforge/           the application itself (Python package, shared by both)
 │   ├── app.py            start-up, OpenGL detection, logging
 │   ├── config.py         settings and per-OS folders
 │   ├── themes.py         themes and theme files
@@ -282,7 +314,7 @@ radarforge/
 │   ├── tools/            cross section, 3-D view
 │   ├── ui/               main window, panels, workspace (docking), dialogs, settings, icons
 │   └── assets/           basemap, icons
-├── scripts/              helpers used by the installers
+├── scripts/              Python check shared by the installers
 ├── tests/                automated tests
 ├── tools/                developer tools (basemap builder)
 ├── docs/                 screenshots, example theme

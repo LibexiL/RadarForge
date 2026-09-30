@@ -9,7 +9,11 @@ rem  * running it again updates an existing install (settings are kept)
 rem ---------------------------------------------------------------------------
 setlocal EnableExtensions
 title RadarForge installer
-cd /d "%~dp0"
+
+rem the program files live one folder up from this Windows folder
+for %%I in ("%~dp0..") do set "ROOT=%%~fI"
+if not exist "%ROOT%\radarforge\__init__.py" goto :notextracted
+cd /d "%ROOT%"
 
 set "APPDIR=%LOCALAPPDATA%\RadarForge"
 set "VENV=%APPDIR%\venv"
@@ -48,7 +52,7 @@ if errorlevel 1 goto :fail
 rem ---- icon, command-line launcher, shortcuts ---------------------------------
 copy /y "radarforge\assets\radarforge.ico" "%APPDIR%\radarforge.ico" >nul
 > "%APPDIR%\radarforge.bat" echo @"%VENV%\Scripts\python.exe" -m radarforge %%*
-powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\windows\shortcuts.ps1" -Action create -Target "%VENV%\Scripts\pythonw.exe" -Icon "%APPDIR%\radarforge.ico" -WorkDir "%APPDIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0helpers\shortcuts.ps1" -Action create -Target "%VENV%\Scripts\pythonw.exe" -Icon "%APPDIR%\radarforge.ico" -WorkDir "%APPDIR%"
 if errorlevel 1 echo     Could not create the shortcuts - start RadarForge with "%APPDIR%\radarforge.bat" instead.
 
 echo.
@@ -59,13 +63,24 @@ echo.
 pause
 exit /b 0
 
+:notextracted
+echo.
+echo This file was started from inside the ZIP, or away from the rest of RadarForge.
+echo.
+echo  1. Close this window.
+echo  2. Right-click the downloaded ZIP file and choose "Extract All...", then "Extract".
+echo  3. In the extracted folder, open the "Windows" folder and double-click install.bat.
+echo.
+pause
+exit /b 1
+
 :nopython
 echo.
 echo Python 3.10 or newer (64-bit) was not found.
 echo.
 echo  1. Download Python from https://www.python.org/downloads/
 echo  2. In the installer, tick "Add python.exe to PATH", then click "Install Now".
-echo  3. Run install.bat again.
+echo  3. Double-click install.bat again.
 echo.
 pause
 exit /b 1

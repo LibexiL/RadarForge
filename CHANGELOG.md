@@ -4,6 +4,9 @@
 
 * **Windows 10 / 11 support**: `install.bat`, `run.bat` and `uninstall.bat`, Start Menu and desktop
   shortcuts, and settings / downloads in the usual Windows folders (`%APPDATA%`, `%LOCALAPPDATA%`).
+* The download has a **`Windows`** and a **`Linux`** folder with that system's install, run and
+  uninstall scripts and a short `HOW TO INSTALL.txt`. Starting a script from inside the ZIP (without
+  extracting it) now explains what to do instead of failing.
 * Text on the map uses the system font on every platform.
 * Repository tidied for GitHub: clear install instructions, changelog, licence, and automatic tests on
   Windows and Linux.

@@ -1,0 +1,40 @@
+RadarForge for Linux
+====================
+
+INSTALL (one time)
+------------------
+1. Make sure Python 3.10 or newer is installed. Most distributions already have it.
+   If not, open a terminal and run the line for your system:
+     Fedora / Nobara:          sudo dnf install python3
+     Ubuntu / Debian / Mint:   sudo apt install python3 python3-venv
+     Arch / Manjaro:           sudo pacman -S python
+
+2. Extract (unzip) the RadarForge download if you haven't already.
+
+3. Open a terminal in this Linux folder
+   (in most file managers: right-click inside the folder -> "Open Terminal Here")
+   and run:
+
+     bash install.sh
+
+   The first install takes a few minutes.
+
+4. Start RadarForge from your app menu, or type  radarforge  in a terminal.
+
+
+FILES IN THIS FOLDER
+--------------------
+  install.sh     installs RadarForge (run it again later to update - your settings are kept)
+  run.sh         tries RadarForge without installing it:  bash run.sh
+  uninstall.sh   removes RadarForge (it asks whether to delete your settings too):  bash uninstall.sh
+
+
+PROBLEMS?
+---------
+  Map is black or the window freezes   Start it once with:  radarforge --safe-graphics
+  Everything is slow                   Update your graphics driver, then run:  radarforge --gl-reset
+  Anything else                        The log file is  ~/.cache/radarforge/radarforge.log
+                                       (open it with:  xdg-open ~/.cache/radarforge/radarforge.log)
+
+More help and a full user guide: see README.md in the main RadarForge folder,
+or the RadarForge page on GitHub.

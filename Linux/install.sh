@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 #  RadarForge installer for Linux
-#  Usage:  bash install.sh
+#  Usage:  bash install.sh          (run it from this Linux folder)
 #
 #  * creates a private Python environment in ~/.local/share/radarforge/venv
 #  * adds the 'radarforge' command (~/.local/bin) and an app-menu entry
@@ -10,6 +10,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$HERE/.." && pwd)"          # the program files live one folder up from this Linux folder
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 PREFIX="$DATA/radarforge"
 VENV="$PREFIX/venv"
@@ -18,11 +19,14 @@ BIN="$HOME/.local/bin"
 say() { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 die() { printf '\n\033[1;31mError:\033[0m %s\n' "$*" >&2; exit 1; }
 
+[ -f "$ROOT/radarforge/__init__.py" ] || die "the RadarForge program files were not found next to this Linux folder.
+  Extract the whole download first, then run  bash install.sh  inside its Linux folder."
+
 # ---- find Python 3.10+ -------------------------------------------------------
 PY=""
 for cand in "${PYTHON:-}" python3 python3.14 python3.13 python3.12 python3.11 python3.10; do
   [ -n "$cand" ] || continue
-  if command -v "$cand" >/dev/null 2>&1 && "$cand" "$HERE/scripts/check_python.py" >/dev/null 2>&1; then
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" "$ROOT/scripts/check_python.py" >/dev/null 2>&1; then
     PY="$cand"; break
   fi
 done
@@ -30,7 +34,7 @@ done
   Fedora / Nobara:  sudo dnf install python3
   Ubuntu / Debian:  sudo apt install python3 python3-venv
   Arch:             sudo pacman -S python"
-say "Using $("$PY" "$HERE/scripts/check_python.py")"
+say "Using $("$PY" "$ROOT/scripts/check_python.py")"
 
 # ---- virtual environment -----------------------------------------------------
 if [ ! -x "$VENV/bin/python" ]; then
@@ -44,10 +48,10 @@ fi
 "$VENV/bin/python" -m pip install --quiet --upgrade pip wheel
 
 say "Installing dependencies (PySide6, NumPy, SciPy, MetPy, scikit-image, PyOpenGL) – this can take a few minutes"
-"$VENV/bin/python" -m pip install --upgrade -r "$HERE/requirements.txt"
+"$VENV/bin/python" -m pip install --upgrade -r "$ROOT/requirements.txt"
 
 say "Installing RadarForge"
-"$VENV/bin/python" -m pip install --quiet --force-reinstall --no-deps "$HERE"
+"$VENV/bin/python" -m pip install --quiet --force-reinstall --no-deps "$ROOT"
 
 # ---- launcher, icon, app-menu entry ------------------------------------------
 mkdir -p "$BIN" "$DATA/applications" "$DATA/icons/hicolor/scalable/apps" "$DATA/icons/hicolor/256x256/apps"
@@ -57,8 +61,8 @@ cat > "$BIN/radarforge" <<LAUNCH
 exec "$VENV/bin/python" -m radarforge "\$@"
 LAUNCH
 chmod +x "$BIN/radarforge"
-cp "$HERE/radarforge/assets/radarforge.svg" "$DATA/icons/hicolor/scalable/apps/radarforge.svg"
-cp "$HERE/radarforge/assets/radarforge.png" "$DATA/icons/hicolor/256x256/apps/radarforge.png"
+cp "$ROOT/radarforge/assets/radarforge.svg" "$DATA/icons/hicolor/scalable/apps/radarforge.svg"
+cp "$ROOT/radarforge/assets/radarforge.png" "$DATA/icons/hicolor/256x256/apps/radarforge.png"
 cat > "$DATA/applications/radarforge.desktop" <<DESK
 [Desktop Entry]
 Type=Application
