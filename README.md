@@ -73,8 +73,8 @@ That's it – start **RadarForge** from the Start Menu or the desktop icon.
 2. **Download and install** (in a terminal):
 
    ```bash
-   git clone https://github.com/LibexiL/radarforge.git    # use this repository's URL
-   cd radarforge
+   git clone https://github.com/LibexiL/RadarForge.git    # use this repository's URL
+   cd RadarForge
    bash install.sh
    ```
 
