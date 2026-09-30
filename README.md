@@ -1,6 +1,6 @@
 # RadarForge
 
-A fast,**NEXRAD weather radar viewer** for **Windows and Linux**.
+A fast, **NEXRAD weather radar viewer** for **Windows and Linux**.
 Live and archived Level II / Level III data, 1–6 linked panels, derived products, GRLevelX
 placefiles and colour tables, cross sections, a 3-D storm view, warnings, and themes.
 
