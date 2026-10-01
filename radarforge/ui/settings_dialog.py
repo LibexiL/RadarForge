@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QColorDialog, QComb
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from .. import themes
-from ..features.warnings import NWS_COLORS, STYLES
+from ..features.warnings import BASE_CODE, CLASSIC_PRESET, LINE_KINDS, VARIANT, VARIANTS, default_line, hex_rgb
 from ..products import catalog, colortable
 from . import icons
 
@@ -242,38 +242,68 @@ class SettingsDialog(QDialog):
         return w
 
     def _page_warnings(self):
-        w, lay = _page("Warnings", "Outline colours for NWS warnings and watches. The defaults are the National "
-                                   "Weather Service's own hazard colours. Tornado and flash flood emergencies "
-                                   "have no NWS colour of their own, so they use the warning's colour, drawn "
-                                   "thicker – give them their own colour here if you like.")
+        w, lay = _page("Warnings", "Warning lines: every warning type and threat level has its own line. "
+                                   "Click a line to change its colour, width and style. The defaults "
+                                   "use the National Weather Service's colours; the NWS has no separate colours "
+                                   "for threat levels, so those are told apart by the line style.")
+        self.warn_lines = {}
+        user = dict(self.s["warning_lines"] or {})
+        legacy = dict(self.s["warning_colors"] or {})
         grid = QGridLayout()
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(6)
-        custom = dict(self.s["warning_colors"] or {})
-        self.warn_btns = {}
-        events = sorted(NWS_COLORS, key=lambda e: -STYLES[e][3])
-        for row, ev in enumerate(events):
-            btn = _ColorButton(custom.get(ev) or NWS_COLORS[ev], lambda: None, alpha=False)
-            self.warn_btns[ev] = btn
-            reset = QToolButton()
-            reset.setText("NWS")
-            reset.setToolTip(f"Use the NWS colour ({NWS_COLORS[ev]})")
-            reset.clicked.connect(lambda _c=False, e=ev: self.warn_btns[e].set_hex(NWS_COLORS[e]))
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(5)
+        for row, (code, ev, label, _d, _p) in enumerate(VARIANTS):
+            color, width, kind = default_line(code)
+            if BASE_CODE.get(ev) == code and legacy.get(ev):
+                color = legacy[ev]
+            o = user.get(code) or {}
+            line = {"color": o.get("color", color), "width": float(o.get("width", width)),
+                    "kind": o.get("kind", kind) if o.get("kind", kind) in LINE_KINDS else kind}
+            self.warn_lines[code] = line
+            btn = _LineButton(line)
+            btn.setToolTip(f"Change the {label} line")
+            btn.clicked.connect(lambda _c=False, c=code, b=btn: self._edit_line(c, b))
             grid.addWidget(btn, row, 0)
-            grid.addWidget(QLabel(ev), row, 1)
-            grid.addWidget(reset, row, 2)
-        grid.setColumnStretch(1, 1)
-        lay.addLayout(grid)
+            cl = QLabel(code)
+            cl.setStyleSheet("font-weight: bold;")
+            grid.addWidget(cl, row, 1)
+            grid.addWidget(QLabel(label.replace(" - ", " – ")), row, 2)
+        grid.setColumnStretch(2, 1)
+        self._line_buttons = {grid.itemAtPosition(r, 0).widget(): VARIANTS[r][0] for r in range(len(VARIANTS))}
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        inner = QWidget()
+        inner.setLayout(grid)
+        scroll.setWidget(inner)
+        lay.addWidget(scroll, 1)
         hb = QHBoxLayout()
-        all_btn = QPushButton("Reset all to NWS colours")
-        all_btn.clicked.connect(lambda: [b.set_hex(NWS_COLORS[e]) for e, b in self.warn_btns.items()])
-        hb.addWidget(all_btn)
+        nws = QPushButton("NWS colours")
+        nws.setToolTip("Reset every line to the defaults (NWS colours)")
+        classic = QPushButton("Classic colours")
+        classic.setToolTip("Green flash flood, yellow severe thunderstorm, magenta reported / PDS / emergency tornado")
+        nws.clicked.connect(lambda: self._line_preset({}))
+        classic.clicked.connect(lambda: self._line_preset(CLASSIC_PRESET))
+        hb.addWidget(nws)
+        hb.addWidget(classic)
         hb.addStretch(1)
         lay.addLayout(hb)
-        lay.addWidget(_hint("Which warning types are shown is set with the buttons in the Warnings panel "
-                            "(and Map → NWS warnings / Watches)."))
-        lay.addStretch(1)
+        self.go_nearest = QCheckBox("Going to a warning switches to the radar nearest it")
+        self.go_nearest.setChecked(bool(self.s["go_to_nearest_radar"]))
+        lay.addWidget(self.go_nearest)
         return w
+
+    def _edit_line(self, code, btn):
+        d = WarningLineDialog(code, self.warn_lines[code], self)
+        if d.exec():
+            self.warn_lines[code] = d.line
+            btn.set_line(d.line)
+
+    def _line_preset(self, preset):
+        for b, code in self._line_buttons.items():
+            c, wdt, k = preset.get(code) or default_line(code)
+            self.warn_lines[code] = {"color": c, "width": wdt, "kind": k}
+            b.set_line(self.warn_lines[code])
 
     def _page_themes(self):
         w, lay = _page("Themes", "Pick a theme to try it right away. Themes are .rftheme files; drop one onto the "
@@ -536,8 +566,14 @@ class SettingsDialog(QDialog):
         s["freezing_level_ft"] = self.fz.value()
         s["minus20_level_ft"] = self.m20.value()
         s["palette_overrides"] = self.overrides
-        s["warning_colors"] = {ev: b.hex for ev, b in self.warn_btns.items()
-                               if b.hex.lower()[:7] != NWS_COLORS[ev].lower()}
+        lines = {}
+        for code, line in self.warn_lines.items():
+            c, wdt, k = default_line(code)
+            if (line["color"].lower()[:7], round(line["width"], 2), line["kind"]) != (c, round(wdt, 2), k):
+                lines[code] = {"color": line["color"].lower()[:7], "width": round(line["width"], 2), "kind": line["kind"]}
+        s["warning_lines"] = lines
+        s["warning_colors"] = {}           # 1.5.0 colours now live in warning_lines
+        s["go_to_nearest_radar"] = self.go_nearest.isChecked()
         s["volume_cache"] = self.vcache.value()
         s["image_cache_mb"] = self.icache.value()
         s["scene_cache"] = self.scene_cache.isChecked()
@@ -581,6 +617,92 @@ class _ColorButton(QToolButton):
         if c.isValid():
             self.set_hex(themes.to_hex((c.red(), c.green(), c.blue(), c.alpha() if self.alpha else 255)))
             self.on_change()
+
+
+def _paint_line(p, rect, line):
+    """Draws a warning line sample (colour, width, style) across rect."""
+    from PySide6.QtCore import QLineF, QPointF
+    from ..features.warnings import draw_line
+    p.fillRect(rect, QColor(16, 17, 22))
+    y = rect.center().y()
+    seg = QLineF(QPointF(rect.left() + 6, y), QPointF(rect.right() - 6, y))
+    draw_line(p, (seg,), hex_rgb(line["color"]), float(line["width"]), line["kind"], halo=False)
+
+
+class _LineButton(QToolButton):
+    """A clickable warning line sample."""
+    def __init__(self, line):
+        super().__init__()
+        self.setFixedSize(92, 28)
+        self.set_line(line)
+
+    def set_line(self, line):
+        self.line = dict(line)
+        pm = QPixmap(80, 18)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        _paint_line(p, pm.rect(), self.line)
+        p.end()
+        self.setIcon(QIcon(pm))
+        self.setIconSize(QSize(80, 18))
+
+
+class WarningLineDialog(QDialog):
+    """Edit one warning line: colour, width and style, with a live sample."""
+    KIND_LABELS = {"solid": "Solid", "center": "Black centre line", "double": "Double"}
+
+    def __init__(self, code, line, parent=None):
+        super().__init__(parent)
+        _c, ev, label, _d, _p = VARIANT[code]
+        self.code = code
+        self.line = dict(line)
+        self.setWindowTitle(f"{code} – {label.replace(' - ', ' – ')}")
+        lay = QVBoxLayout(self)
+        self.sample = QLabel()
+        self.sample.setFixedHeight(40)
+        self.sample.setMinimumWidth(320)
+        lay.addWidget(self.sample)
+        f = _form()
+        self.color_btn = _ColorButton(self.line["color"], self._changed, alpha=False)
+        f.addRow("Colour", self.color_btn)
+        self.width = QDoubleSpinBox()
+        self.width.setRange(0.5, 12.0)
+        self.width.setSingleStep(0.5)
+        self.width.setDecimals(1)
+        self.width.setSuffix(" px")
+        self.width.setValue(float(self.line["width"]))
+        self.width.valueChanged.connect(self._changed)
+        f.addRow("Width", self.width)
+        self.kind = QComboBox()
+        for k in LINE_KINDS:
+            self.kind.addItem(self.KIND_LABELS[k], k)
+        self.kind.setCurrentIndex(LINE_KINDS.index(self.line["kind"]) if self.line["kind"] in LINE_KINDS else 0)
+        self.kind.currentIndexChanged.connect(self._changed)
+        f.addRow("Style", self.kind)
+        lay.addLayout(f)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.RestoreDefaults)
+        bb.button(QDialogButtonBox.RestoreDefaults).setText("Default")
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        bb.button(QDialogButtonBox.RestoreDefaults).clicked.connect(self._default)
+        lay.addWidget(bb)
+        self._changed()
+
+    def _default(self):
+        c, w, k = default_line(self.code)
+        self.color_btn.set_hex(c)
+        self.width.setValue(w)
+        self.kind.setCurrentIndex(LINE_KINDS.index(k))
+        self._changed()
+
+    def _changed(self, *_):
+        self.line = {"color": self.color_btn.hex[:7], "width": self.width.value(), "kind": self.kind.currentData()}
+        pm = QPixmap(max(320, self.sample.width()), 40)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        _paint_line(p, pm.rect(), self.line)
+        p.end()
+        self.sample.setPixmap(pm)
 
 
 class ThemeEditor(QDialog):

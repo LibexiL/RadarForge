@@ -307,3 +307,38 @@ def test_warning_colors_and_visibility(tmp_path):
     s["warning_types"] = {"TOR": True, "SVR": True, "FFW": True, "OTH": True}
     assert not ov.visible(svr)
     assert set(w.NWS_COLORS) == set(w.STYLES) == set(w.EVENT_GROUP)
+
+
+def test_warning_line_variants(tmp_path):
+    """Warning lines: threat-level codes from NWS tags, per-code colour/width/style."""
+    from pathlib import Path
+    from radarforge.config import Settings
+    from radarforge.features import warnings as w
+    v = w.variant_of
+    assert v("Tornado Warning", {"tornadoDetection": ["RADAR INDICATED"]}) == "TOR"
+    assert v("Tornado Warning", {"tornadoDetection": ["OBSERVED"]}) == "TORR"
+    assert v("Tornado Warning", {"tornadoDetection": ["OBSERVED"], "tornadoDamageThreat": ["CONSIDERABLE"]}) == "TORP"
+    assert v("Tornado Warning", {"tornadoDamageThreat": ["CATASTROPHIC"]}) == "TORE"
+    assert v("Tornado Emergency", {}) == "TORE"
+    assert v("Severe Thunderstorm Warning", {"thunderstormDamageThreat": ["CONSIDERABLE"]}) == "SVRC"
+    assert v("Severe Thunderstorm Warning", {"thunderstormDamageThreat": ["DESTRUCTIVE"]}) == "SVRD"
+    assert v("Severe Thunderstorm Warning", {"tornadoDetection": ["POSSIBLE"]}) == "SVR"
+    assert v("Flash Flood Warning", {"flashFloodDamageThreat": ["CONSIDERABLE"]}) == "FFWC"
+    assert v("Flash Flood Emergency", {}) == "FFWE"
+    # archive (IEM) tags
+    assert v("Tornado Warning", {"tornadotag": "OBSERVED", "damagetag": "CONSIDERABLE"}) == "TORP"
+    assert v("Tornado Warning", {"is_pds": True}) == "TORP"
+    assert v("Severe Thunderstorm Warning", {"damagetag": "DESTRUCTIVE"}) == "SVRD"
+    assert v("Snow Squall Warning", {}) == "SQW" and v("Tornado Watch", {}) == "TOA"
+    assert set(w.BASE_CODE.values()) <= set(w.VARIANT) and set(w.CLASSIC_PRESET) <= set(w.VARIANT)
+    s = Settings(path=Path(tmp_path) / "s.json")
+    assert w.line_style(s, "TORE") == ((255, 0, 0), 6.0, "double")
+    assert w.line_style(s, "SVRD")[2] == "center"
+    s["warning_lines"] = {"TORR": {"color": "#ff00ff", "width": 3.5, "kind": "solid"}, "SVR": {"kind": "zigzag"}}
+    assert w.line_style(s, "TORR") == ((255, 0, 255), 3.5, "solid")
+    assert w.line_style(s, "SVR")[2] == "solid"                            # unknown style -> default
+    s["warning_colors"] = {"Tornado Warning": "#00ff00"}                   # 1.5.0 setting still honoured
+    assert w.line_style(s, "TOR")[0] == (0, 255, 0) and w.line_style(s, "TORP")[0] == (255, 0, 0)
+    a = w.Alert("Tornado Warning", [], "x", None, None, variant="TORP")
+    assert a.style[3] == 13 and a.variant_label == "Tornado - PDS"
+    assert w.Alert("Tornado Warning", [], "x", None, None).variant == "TOR"

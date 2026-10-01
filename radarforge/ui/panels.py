@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QFram
                                QScrollArea, QSizePolicy, QStackedWidget, QTabWidget, QToolButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from ..data.sites import get_site
+from ..data.sites import get_site, nearest_site
 from ..features.warnings import FILTERS
 from ..products import catalog
 from ..products.geometry import aeqd_forward
@@ -301,7 +301,7 @@ class WarningsPanel(QWidget):
         self.tree.itemSelectionChanged.connect(self._selected)
         self.tree.itemDoubleClicked.connect(self._zoom)
         wl.addWidget(self.tree, 1)
-        wl.addWidget(_hint("Click a warning to highlight it, double-click to zoom to it."))
+        wl.addWidget(_hint("Click a warning to highlight it, double-click to go to it (switches to the nearest radar)."))
         self.tabs.addTab(w, "Warnings")
         # --- reports tab
         r = QWidget()
@@ -408,9 +408,10 @@ class WarningsPanel(QWidget):
         self.tree.clear()
         self._items = {}
         for a in alerts:
-            it = QTreeWidgetItem([a.event.replace(" Warning", "").replace("Severe Thunderstorm", "Severe T-storm"),
-                                  a.office, _left(a.expires, now), ", ".join(a.tags) or a.area[:80]])
-            it.setIcon(0, _swatch(m.warnings.color(a.event)))
+            name = a.variant_label.replace("Severe Thunderstorm", "Severe T-storm").replace(" - ", " – ")
+            it = QTreeWidgetItem([f"{name}  ({a.variant})", a.office, _left(a.expires, now),
+                                  ", ".join(a.tags) or a.area[:80]])
+            it.setIcon(0, _swatch(m.warnings.color(a)))
             it.setToolTip(0, a.hover)
             it.setToolTip(3, a.area)
             it.setData(0, Qt.UserRole, a.uid)
@@ -456,8 +457,17 @@ class WarningsPanel(QWidget):
         a = self._items.get(item.data(0, Qt.UserRole))
         if a is None:
             return
+        m = self.main
+        if m.settings["go_to_nearest_radar"]:
+            # switch to the radar nearest the warning first (Settings -> Warnings)
+            lat, lon = a.centroid()
+            near = nearest_site(lat, lon)
+            if near is not None and near.id != m.data.site_id:
+                m.switch_site(near.id)
         xy = np.concatenate(self._alert_xy(a))
-        _zoom_to(self.main, xy[:, 0], xy[:, 1])
+        _zoom_to(m, xy[:, 0], xy[:, 1])
+        m.warnings.selected_uid = a.uid
+        m.view.update()
 
     def _zoom_report(self, item, _col=0):
         lat, lon = item.data(0, Qt.UserRole)

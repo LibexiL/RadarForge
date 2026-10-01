@@ -16,8 +16,6 @@ from ..render.fonts import ui_font
 UA = {"User-Agent": "RadarForge/1.0 (NEXRAD viewer)", "Accept": "application/geo+json"}
 
 # Default outline colours: the National Weather Service hazard map colours (weather.gov/help-map).
-# Tornado / flash flood emergencies have no NWS colour of their own, so by default they use the
-# warning's colour and are drawn thicker. Every colour can be changed in Settings -> Warnings.
 NWS_COLORS = {
     "Tornado Warning": "#ff0000",
     "Tornado Emergency": "#ff0000",
@@ -42,23 +40,51 @@ def hex_rgb(text: str) -> tuple:
     return int(t[0:2], 16), int(t[2:4], 16), int(t[4:6], 16)
 
 
-# event name -> (default rgb, outline width, fill alpha, priority)
-STYLES = {
-    ev: (hex_rgb(NWS_COLORS[ev]), width, fill, pri) for ev, width, fill, pri in (
-        ("Tornado Warning", 3.0, 0, 10),
-        ("Tornado Emergency", 4.0, 0, 11),
-        ("Severe Thunderstorm Warning", 2.5, 0, 8),
-        ("Flash Flood Warning", 2.5, 0, 7),
-        ("Flash Flood Emergency", 3.5, 0, 9),
-        ("Special Marine Warning", 2.0, 0, 6),
-        ("Extreme Wind Warning", 3.0, 0, 10),
-        ("Snow Squall Warning", 2.5, 0, 6),
-        ("Dust Storm Warning", 2.0, 0, 5),
-        ("Special Weather Statement", 1.5, 0, 2),
-        ("Tornado Watch", 1.5, 45, 1),
-        ("Severe Thunderstorm Watch", 1.5, 45, 1),
-    )
+# Warning lines: every warning type and threat level has a code and its own line - colour,
+# width (px) and kind: "solid", "center" (black centre line) or "double". Defaults use the NWS
+# colours; the NWS has no separate colours for threat levels, so higher levels are told apart
+# by the line style.
+#   code, event, label, (colour, width, kind), priority
+VARIANTS = [
+    ("TORE", "Tornado Emergency", "Tornado - Emergency", ("#ff0000", 6.0, "double"), 14),
+    ("TORP", "Tornado Warning", "Tornado - PDS", ("#ff0000", 4.0, "center"), 13),
+    ("TORR", "Tornado Warning", "Tornado - Reported", ("#ff0000", 4.0, "solid"), 12),
+    ("TOR", "Tornado Warning", "Tornado", ("#ff0000", 3.0, "solid"), 11),
+    ("EWW", "Extreme Wind Warning", "Extreme Wind", ("#ff8c00", 3.0, "solid"), 10),
+    ("FFWE", "Flash Flood Emergency", "Flash Flood - Emergency", ("#8b0000", 5.5, "double"), 9.5),
+    ("SVRD", "Severe Thunderstorm Warning", "Severe Thunderstorm - Destructive", ("#ffa500", 4.0, "center"), 9),
+    ("SVRC", "Severe Thunderstorm Warning", "Severe Thunderstorm - Considerable", ("#ffa500", 3.5, "solid"), 8.5),
+    ("SVR", "Severe Thunderstorm Warning", "Severe Thunderstorm", ("#ffa500", 2.5, "solid"), 8),
+    ("FFWC", "Flash Flood Warning", "Flash Flood - Considerable", ("#8b0000", 3.5, "solid"), 7.5),
+    ("FFW", "Flash Flood Warning", "Flash Flood", ("#8b0000", 2.5, "solid"), 7),
+    ("SMW", "Special Marine Warning", "Special Marine", ("#ffa500", 2.0, "solid"), 6),
+    ("SQW", "Snow Squall Warning", "Snow Squall", ("#c71585", 2.5, "solid"), 6),
+    ("DSW", "Dust Storm Warning", "Dust Storm", ("#ffe4c4", 2.0, "solid"), 5),
+    ("SPS", "Special Weather Statement", "Special Weather Statement", ("#ffe4b5", 1.5, "solid"), 2),
+    ("TOA", "Tornado Watch", "Tornado Watch", ("#ffff00", 1.5, "solid"), 1),
+    ("SVA", "Severe Thunderstorm Watch", "Severe Thunderstorm Watch", ("#db7093", 1.5, "solid"), 1),
+]
+VARIANT = {v[0]: v for v in VARIANTS}
+LINE_KINDS = ("solid", "center", "double")
+BASE_CODE = {"Tornado Warning": "TOR", "Tornado Emergency": "TORE", "Severe Thunderstorm Warning": "SVR",
+             "Flash Flood Warning": "FFW", "Flash Flood Emergency": "FFWE", "Special Marine Warning": "SMW",
+             "Extreme Wind Warning": "EWW", "Snow Squall Warning": "SQW", "Dust Storm Warning": "DSW",
+             "Special Weather Statement": "SPS", "Tornado Watch": "TOA", "Severe Thunderstorm Watch": "SVA"}
+
+# "Classic colours" preset: green flash flood, yellow severe, magenta reported/PDS/emergency tornado
+CLASSIC_PRESET = {
+    "SQW": ("#8080ff", 2.5, "solid"), "SMW": ("#00e0e0", 2.0, "solid"),
+    "FFW": ("#00ff00", 2.5, "solid"), "FFWC": ("#00ff00", 3.5, "solid"), "FFWE": ("#00ff00", 5.5, "double"),
+    "SVR": ("#ffff00", 2.5, "solid"), "SVRC": ("#ffff00", 3.5, "solid"), "SVRD": ("#ffff00", 4.0, "center"),
+    "TOR": ("#ff0000", 3.0, "solid"), "TORR": ("#ff00ff", 3.5, "solid"), "TORP": ("#ff00ff", 4.0, "center"),
+    "TORE": ("#ff00ff", 6.0, "double"),
 }
+
+# event name -> (default rgb, outline width, fill alpha, priority) of the event's base line
+STYLES = {}
+for _ev, _code in BASE_CODE.items():
+    _c, _w, _k = VARIANT[_code][3]
+    STYLES[_ev] = (hex_rgb(_c), _w, 45 if _ev.endswith("Watch") else 0, VARIANT[_code][4])
 
 # filter groups (Warnings panel buttons); "WAT" is the same switch as Map -> Watches
 FILTERS = [("TOR", "Tornado", ("Tornado Warning", "Tornado Emergency")),
@@ -70,15 +96,67 @@ FILTERS = [("TOR", "Tornado", ("Tornado Warning", "Tornado Emergency")),
 EVENT_GROUP = {ev: key for key, _label, events in FILTERS for ev in events}
 
 
-def warning_color(settings, event: str) -> tuple:
-    """The outline colour for an event: the user's choice, else the NWS colour."""
-    custom = (settings["warning_colors"] or {}).get(event)
-    if custom:
-        try:
-            return hex_rgb(custom)
-        except ValueError:
-            pass
-    return hex_rgb(NWS_COLORS.get(event, "#ffffff"))
+def _first(params, key):
+    v = params.get(key)
+    if isinstance(v, (list, tuple)):
+        v = v[0] if v else ""
+    return str(v or "").strip().upper()
+
+
+def variant_of(event: str, params: dict) -> str:
+    """Warning-line code from the NWS impact tags (api.weather.gov parameters, or IEM tags)."""
+    tor_det = _first(params, "tornadoDetection") or _first(params, "tornadotag")
+    dmg = (_first(params, "tornadoDamageThreat") or _first(params, "thunderstormDamageThreat")
+           or _first(params, "flashFloodDamageThreat") or _first(params, "damagetag"))
+    if event == "Tornado Emergency":
+        return "TORE"
+    if event == "Tornado Warning":
+        if dmg == "CATASTROPHIC":
+            return "TORE"
+        if dmg == "CONSIDERABLE" or params.get("is_pds"):
+            return "TORP"
+        if tor_det == "OBSERVED":
+            return "TORR"
+        return "TOR"
+    if event == "Severe Thunderstorm Warning":
+        return {"DESTRUCTIVE": "SVRD", "CONSIDERABLE": "SVRC"}.get(dmg, "SVR")
+    if event == "Flash Flood Emergency":
+        return "FFWE"
+    if event == "Flash Flood Warning":
+        return {"CATASTROPHIC": "FFWE", "CONSIDERABLE": "FFWC"}.get(dmg, "FFW")
+    return BASE_CODE.get(event, "SPS")
+
+
+def default_line(code: str) -> tuple:
+    """(colour hex, width, kind) the code has by default."""
+    return VARIANT.get(code, VARIANT["SPS"])[3]
+
+
+def line_style(settings, code: str) -> tuple:
+    """((r, g, b), width, kind) for a warning-line code: the user's choice, else the default."""
+    color, width, kind = default_line(code)
+    legacy = settings["warning_colors"] or {}           # 1.5.0 stored one colour per event
+    ev = VARIANT.get(code, VARIANT["SPS"])[1]
+    if BASE_CODE.get(ev) == code and legacy.get(ev):
+        color = legacy[ev]
+    o = (settings["warning_lines"] or {}).get(code) or {}
+    color = o.get("color", color)
+    try:
+        width = float(o.get("width", width))
+    except (TypeError, ValueError):
+        pass
+    kind = o.get("kind", kind) if o.get("kind", kind) in LINE_KINDS else kind
+    try:
+        rgb = hex_rgb(color)
+    except ValueError:
+        rgb = hex_rgb(default_line(code)[0])
+    return rgb, max(0.5, min(width, 12.0)), kind
+
+
+def warning_color(settings, event_or_code: str) -> tuple:
+    """The outline colour for a warning-line code (or an event's base line)."""
+    code = event_or_code if event_or_code in VARIANT else BASE_CODE.get(event_or_code, "SPS")
+    return line_style(settings, code)[0]
 
 
 VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm Warning",
@@ -90,21 +168,27 @@ VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm 
 
 class Alert:
     __slots__ = ("event", "rings", "hover", "issued", "expires", "style", "xy", "_proj", "office", "area",
-                 "tags", "uid")
+                 "tags", "uid", "variant")
 
-    def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid=""):
+    def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid="", variant=None):
         self.event = event
+        self.variant = variant if variant in VARIANT else BASE_CODE.get(event, "SPS")
         self.rings = rings          # list of (lon, lat) arrays
         self.hover = hover
         self.issued = issued
         self.expires = expires
-        self.style = STYLES.get(event)
+        rgb, width, fill, _pri = STYLES.get(event, STYLES["Special Weather Statement"])
+        self.style = (rgb, width, fill, VARIANT[self.variant][4])      # priority of the variant
         self.xy = None
         self._proj = None
         self.office = office
         self.area = area
         self.tags = list(tags)
         self.uid = uid or f"{event}|{office}|{issued}"
+
+    @property
+    def variant_label(self):
+        return VARIANT[self.variant][2]
 
     def centroid(self):
         pts = np.concatenate(self.rings)
@@ -144,10 +228,13 @@ def fetch_live_alerts(county_polys: dict) -> list:
         if ev not in STYLES:
             continue
         desc = (p.get("description") or "")
-        if ev == "Tornado Warning" and "TORNADO EMERGENCY" in desc.upper():
+        if ev == "Tornado Warning" and ("TORNADO EMERGENCY" in desc.upper() or
+                                        _first(params, "tornadoDamageThreat") == "CATASTROPHIC"):
             ev = "Tornado Emergency"
-        if ev == "Flash Flood Warning" and "FLASH FLOOD EMERGENCY" in desc.upper():
+        if ev == "Flash Flood Warning" and ("FLASH FLOOD EMERGENCY" in desc.upper() or
+                                            _first(params, "flashFloodDamageThreat") == "CATASTROPHIC"):
             ev = "Flash Flood Emergency"
+        variant = variant_of(ev, params)
         rings = _rings(f.get("geometry"))
         if not rings and ev.endswith("Watch"):
             for same in (p.get("geocode") or {}).get("SAME", []):
@@ -164,7 +251,8 @@ def fetch_live_alerts(county_polys: dict) -> list:
                   "tornadoDamageThreat", "flashFloodDamageThreat"):
             if params.get(k):
                 tags.append(f"{k}: {', '.join(map(str, params[k]))}")
-        hover = f"{ev}\n{p.get('senderName', '')}\nIssued {p.get('sent', '')[:16]}  Expires {p.get('expires', '')[:16]}"
+        hover = (f"{VARIANT[variant][2]} ({variant})\n{p.get('senderName', '')}\n"
+                 f"Issued {p.get('sent', '')[:16]}  Expires {p.get('expires', '')[:16]}")
         if tags:
             hover += "\n" + "\n".join(tags)
         if p.get("headline"):
@@ -176,7 +264,7 @@ def fetch_live_alerts(county_polys: dict) -> list:
                 short.append(f"{lab}{params[k][0]}")
         office = (p.get("senderName") or "").replace("NWS ", "")
         out.append(Alert(ev, rings, hover, _t(p.get("sent")), _t(p.get("expires")), office,
-                         p.get("areaDesc") or "", short, p.get("id") or ""))
+                         p.get("areaDesc") or "", short, p.get("id") or "", variant))
     return out
 
 
@@ -190,19 +278,24 @@ def fetch_archive_alerts(ts: datetime) -> list:
         ev = VTEC_EVENT.get((p.get("phenomena"), p.get("significance")))
         if ev is None:
             continue
-        if ev == "Tornado Warning" and p.get("is_emergency"):
+        dmg = str(p.get("damagetag") or "").upper()
+        if ev == "Tornado Warning" and (p.get("is_emergency") or dmg == "CATASTROPHIC"):
             ev = "Tornado Emergency"
+        if ev == "Flash Flood Warning" and (p.get("is_emergency") or dmg == "CATASTROPHIC"):
+            ev = "Flash Flood Emergency"
+        variant = variant_of(ev, p)
         rings = _rings(f.get("geometry"))
         if not rings:
             continue
-        hover = f"{ev} #{p.get('eventid')} ({p.get('wfo')})\n{p.get('polygon_begin', '')} → {p.get('polygon_end', '')}"
+        hover = (f"{VARIANT[variant][2]} ({variant}) #{p.get('eventid')} ({p.get('wfo')})\n"
+                 f"{p.get('polygon_begin', '')} → {p.get('polygon_end', '')}")
         for k in ("hailtag", "windtag", "tornadotag", "damagetag"):
             if p.get(k):
                 hover += f"\n{k}: {p[k]}"
         short = [f"{k[:-3]} {p[k]}" for k in ("tornadotag", "hailtag", "windtag", "damagetag") if p.get(k)]
         out.append(Alert(ev, rings, hover, _t(p.get("polygon_begin")), _t(p.get("polygon_end")),
                          p.get("wfo") or "", f"#{p.get('eventid')}", short,
-                         f"{p.get('wfo')}.{p.get('phenomena')}.{p.get('significance')}.{p.get('eventid')}"))
+                         f"{p.get('wfo')}.{p.get('phenomena')}.{p.get('significance')}.{p.get('eventid')}", variant))
     return out
 
 
@@ -314,8 +407,11 @@ class WarningsOverlay(QObject):
 
     selected_uid = None
 
-    def color(self, event: str) -> tuple:
-        return warning_color(self.settings, event)
+    def color(self, a) -> tuple:
+        """Line colour of an alert (or of an event / code name)."""
+        if isinstance(a, str):
+            return warning_color(self.settings, a)
+        return line_style(self.settings, a.variant)[0]
 
     def visible(self, a) -> bool:
         """Whether an alert's type is switched on (Map menu and the Warnings panel buttons)."""
@@ -351,8 +447,8 @@ class WarningsOverlay(QObject):
             if not self.visible(a) or not self._in_time(a):
                 continue
             is_watch = a.event.endswith("Watch")
-            _rgb, width, fill, _pri = a.style
-            rgb = self.color(a.event)
+            _rgb, _w, fill, _pri = a.style
+            rgb, width, kind = line_style(self.settings, a.variant)
             for xy in self._xy(a, view.lat0, view.lon0):
                 if xy[:, 0].max() < x0 or xy[:, 0].min() > x1 or xy[:, 1].max() < y0 or xy[:, 1].min() > y1:
                     continue
@@ -363,11 +459,7 @@ class WarningsOverlay(QObject):
                     painter.setBrush(QColor(*rgb, fill))
                     painter.drawPolygon(poly)
                 painter.setBrush(Qt.NoBrush)
-                if not is_watch:
-                    painter.setPen(QPen(QColor(0, 0, 0, 220), width + 2.5))
-                    painter.drawPolygon(poly)
-                painter.setPen(QPen(QColor(*rgb), width))
-                painter.drawPolygon(poly)
+                draw_line(painter, poly, rgb, width, kind, halo=not is_watch)
                 if a.uid == self.selected_uid:
                     painter.setPen(QPen(QColor(255, 255, 255), width + 1.5, Qt.DashLine))
                     painter.drawPolygon(poly)
@@ -405,6 +497,22 @@ class WarningsOverlay(QObject):
                     if best is None or a.style[3] > best.style[3]:
                         best = a
         return best.hover if best else None
+
+
+def draw_line(painter, shape, rgb, width, kind, halo=True):
+    """A warning line: dark halo, the colour, then a black centre for "center" / "double"."""
+    poly = isinstance(shape, QPolygonF)
+    draw = painter.drawPolygon if poly else painter.drawLine
+    args = (shape,) if poly else shape
+    if halo:
+        painter.setPen(QPen(QColor(0, 0, 0, 220), width + 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        draw(*args)
+    painter.setPen(QPen(QColor(*rgb), width, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+    draw(*args)
+    inner = {"center": 0.25, "double": 0.46}.get(kind, 0.0) * width
+    if inner > 0:
+        painter.setPen(QPen(QColor(0, 0, 0), max(1.0, inner), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        draw(*args)
 
 
 def _inside(x, y, poly):

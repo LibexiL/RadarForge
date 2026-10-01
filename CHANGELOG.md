@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.6.0 – 2026-10-01
+
+* **Warning lines** (Settings → Warnings): every warning type and threat level has its own line –
+  colour, width and style (solid, black centre line or double). Codes: TOR, TORR (reported),
+  TORP (PDS), TORE (emergency); SVR, SVRC (considerable), SVRD (destructive); FFW, FFWC, FFWE;
+  SMW, SQW, EWW, DSW, SPS and the watches (TOA, SVA). The level comes from each warning's NWS
+  impact tags (live and archive).
+* Defaults use the NWS colours with the threat levels told apart by line style; the **Classic
+  colours** preset gives green flash flood, yellow severe and magenta reported / PDS / emergency
+  tornado.
+* Double-clicking a warning in the Warnings panel switches to the radar nearest it before zooming
+  in (can be turned off in Settings → Warnings).
+* The Warnings list and hover text show the threat level and its code.
+
 ## 1.5.0 – 2026-10-01
 
 * Warning outlines use the **National Weather Service hazard colours** by default (flash flood
