@@ -261,13 +261,22 @@ def _lock(p, col, pen):
     p.drawLine(QPointF(16, 10), QPointF(16, 10.5))
 
 
+def _warning(p, col, pen):
+    p.drawPolygon(QPolygonF([QPointF(12, 3.5), QPointF(21.5, 20), QPointF(2.5, 20)]))
+    p.drawLine(QPointF(12, 9.5), QPointF(12, 14))
+    _fill(p, col)
+    p.drawEllipse(QPointF(12, 17), 1.2, 1.2)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+
+
 _DRAW = {
     "live": _live, "archive": _archive, "open": _open,
     "up": _tri("up"), "down": _tri("down"), "play": _play, "pause": _pause,
     "first": _step(False, True), "prev": _step(False, False), "next": _step(True, False), "last": _step(True, True),
     "pan": _pan, "xsection": _xsection, "measure": _measure, "box3d": _cube, "motion": _motion,
     "side": _side, "settings": _gear, "radar": _radar, "save": _save, "theme": _theme, "layers": _layers,
-    "lock": _lock, "palette": _palette,
+    "lock": _lock, "palette": _palette, "warning": _warning,
 }
 for _n in range(1, 7):
     _DRAW[f"layout{_n}"] = _layout(_n)

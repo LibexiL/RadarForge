@@ -1381,6 +1381,8 @@ class MainWindow(QMainWindow):
                 a.setChecked(lv == int(self.settings["velocity_filter"]))
             self._panel_req.clear()
             self._show_frame()
+            self.warnings_panel.refresh()          # warning colours may have changed
+            self.view.update()
 
     def save_image(self):
         f = self.current_frame()
@@ -1445,6 +1447,8 @@ class MainWindow(QMainWindow):
         self.settings.save()
         if key in ("warnings", "watches", "reports") and on:
             self.warnings.refresh(force=True)
+        if key in ("warnings", "watches") and hasattr(self, "warnings_panel"):
+            self.warnings_panel.sync_filters()
         self._update_l3_needs()
         self.view.update()
 

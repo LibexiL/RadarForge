@@ -15,21 +15,72 @@ from ..render.fonts import ui_font
 
 UA = {"User-Agent": "RadarForge/1.0 (NEXRAD viewer)", "Accept": "application/geo+json"}
 
-# event name -> (rgb, outline width, fill alpha, priority)
-STYLES = {
-    "Tornado Warning": ((255, 0, 0), 3.0, 0, 10),
-    "Tornado Emergency": ((255, 0, 255), 3.5, 0, 11),
-    "Severe Thunderstorm Warning": ((255, 165, 0), 2.5, 0, 8),
-    "Flash Flood Warning": ((0, 210, 0), 2.5, 0, 7),
-    "Flash Flood Emergency": ((0, 255, 120), 3.0, 0, 9),
-    "Special Marine Warning": ((255, 128, 64), 2.0, 0, 6),
-    "Extreme Wind Warning": ((255, 105, 180), 3.0, 0, 10),
-    "Snow Squall Warning": ((199, 21, 133), 2.5, 0, 6),
-    "Dust Storm Warning": ((255, 228, 196), 2.0, 0, 5),
-    "Special Weather Statement": ((255, 228, 181), 1.5, 0, 2),
-    "Tornado Watch": ((255, 255, 0), 1.5, 45, 1),
-    "Severe Thunderstorm Watch": ((219, 112, 147), 1.5, 45, 1),
+# Default outline colours: the National Weather Service hazard map colours (weather.gov/help-map).
+# Tornado / flash flood emergencies have no NWS colour of their own, so by default they use the
+# warning's colour and are drawn thicker. Every colour can be changed in Settings -> Warnings.
+NWS_COLORS = {
+    "Tornado Warning": "#ff0000",
+    "Tornado Emergency": "#ff0000",
+    "Severe Thunderstorm Warning": "#ffa500",
+    "Flash Flood Warning": "#8b0000",
+    "Flash Flood Emergency": "#8b0000",
+    "Special Marine Warning": "#ffa500",
+    "Extreme Wind Warning": "#ff8c00",
+    "Snow Squall Warning": "#c71585",
+    "Dust Storm Warning": "#ffe4c4",
+    "Special Weather Statement": "#ffe4b5",
+    "Tornado Watch": "#ffff00",
+    "Severe Thunderstorm Watch": "#db7093",
 }
+
+
+def hex_rgb(text: str) -> tuple:
+    """'#rrggbb' or '#rrggbbaa' -> (r, g, b)."""
+    t = str(text).strip().lstrip("#")
+    if len(t) not in (6, 8):
+        raise ValueError(f"not a colour: {text}")
+    return int(t[0:2], 16), int(t[2:4], 16), int(t[4:6], 16)
+
+
+# event name -> (default rgb, outline width, fill alpha, priority)
+STYLES = {
+    ev: (hex_rgb(NWS_COLORS[ev]), width, fill, pri) for ev, width, fill, pri in (
+        ("Tornado Warning", 3.0, 0, 10),
+        ("Tornado Emergency", 4.0, 0, 11),
+        ("Severe Thunderstorm Warning", 2.5, 0, 8),
+        ("Flash Flood Warning", 2.5, 0, 7),
+        ("Flash Flood Emergency", 3.5, 0, 9),
+        ("Special Marine Warning", 2.0, 0, 6),
+        ("Extreme Wind Warning", 3.0, 0, 10),
+        ("Snow Squall Warning", 2.5, 0, 6),
+        ("Dust Storm Warning", 2.0, 0, 5),
+        ("Special Weather Statement", 1.5, 0, 2),
+        ("Tornado Watch", 1.5, 45, 1),
+        ("Severe Thunderstorm Watch", 1.5, 45, 1),
+    )
+}
+
+# filter groups (Warnings panel buttons); "WAT" is the same switch as Map -> Watches
+FILTERS = [("TOR", "Tornado", ("Tornado Warning", "Tornado Emergency")),
+           ("SVR", "Severe", ("Severe Thunderstorm Warning",)),
+           ("FFW", "Flood", ("Flash Flood Warning", "Flash Flood Emergency")),
+           ("OTH", "Other", ("Special Marine Warning", "Extreme Wind Warning", "Snow Squall Warning",
+                             "Dust Storm Warning", "Special Weather Statement")),
+           ("WAT", "Watches", ("Tornado Watch", "Severe Thunderstorm Watch"))]
+EVENT_GROUP = {ev: key for key, _label, events in FILTERS for ev in events}
+
+
+def warning_color(settings, event: str) -> tuple:
+    """The outline colour for an event: the user's choice, else the NWS colour."""
+    custom = (settings["warning_colors"] or {}).get(event)
+    if custom:
+        try:
+            return hex_rgb(custom)
+        except ValueError:
+            pass
+    return hex_rgb(NWS_COLORS.get(event, "#ffffff"))
+
+
 VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm Warning",
               ("FF", "W"): "Flash Flood Warning", ("MA", "W"): "Special Marine Warning",
               ("EW", "W"): "Extreme Wind Warning", ("SQ", "W"): "Snow Squall Warning",
@@ -263,6 +314,24 @@ class WarningsOverlay(QObject):
 
     selected_uid = None
 
+    def color(self, event: str) -> tuple:
+        return warning_color(self.settings, event)
+
+    def visible(self, a) -> bool:
+        """Whether an alert's type is switched on (Map menu and the Warnings panel buttons)."""
+        ov = self.settings["overlays"]
+        if a.event.endswith("Watch"):
+            return bool(ov.get("watches", True))
+        if not ov.get("warnings", True):
+            return False
+        return bool((self.settings["warning_types"] or {}).get(EVENT_GROUP.get(a.event, "OTH"), True))
+
+    def _in_time(self, a) -> bool:
+        t = self.frame_time
+        if self.mode == "archive" and t is not None and a.issued and a.expires:
+            return a.issued <= t <= a.expires
+        return True
+
     def active_alerts(self):
         """Alerts valid for the displayed time (all current alerts in live mode)."""
         t = self.frame_time
@@ -276,17 +345,14 @@ class WarningsOverlay(QObject):
 
     def paint(self, painter, vt, panel, view):
         ov = self.settings["overlays"]
-        show_w, show_a = ov.get("warnings", True), ov.get("watches", True)
         t = self.frame_time
         x0, y0, x1, y1 = vt.world_bounds(pad=10)
         for a in list(self.alerts):
-            is_watch = a.event.endswith("Watch")
-            if (is_watch and not show_a) or (not is_watch and not show_w):
+            if not self.visible(a) or not self._in_time(a):
                 continue
-            if self.mode == "archive" and t is not None and a.issued and a.expires:
-                if not (a.issued <= t <= a.expires):
-                    continue
-            rgb, width, fill, _pri = a.style
+            is_watch = a.event.endswith("Watch")
+            _rgb, width, fill, _pri = a.style
+            rgb = self.color(a.event)
             for xy in self._xy(a, view.lat0, view.lon0):
                 if xy[:, 0].max() < x0 or xy[:, 0].min() > x1 or xy[:, 1].max() < y0 or xy[:, 1].min() > y1:
                     continue
@@ -329,14 +395,10 @@ class WarningsOverlay(QObject):
             for r in self.reports:
                 if "xy" in r and math.hypot(r["xy"][0] - x, r["xy"][1] - y) < tol * 1.2:
                     return r["hover"]
-        if not (ov.get("warnings", True) or ov.get("watches", True)):
-            return None
         best = None
-        t = self.frame_time
-        for a in self.alerts:
-            if a.xy is None:
-                continue
-            if self.mode == "archive" and t is not None and a.issued and a.expires and not (a.issued <= t <= a.expires):
+        for a in list(self.alerts):
+            # only what is drawn: a hidden watch (or warning type) must not pop up its text
+            if a.xy is None or not self.visible(a) or not self._in_time(a):
                 continue
             for xy in a.xy:
                 if _inside(x, y, xy):

@@ -39,7 +39,8 @@ keep the extracted files together – everything else is the program itself, sha
 * **GRLevelX compatible**: your GR2Analyst `.pal` colour tables and placefiles work as they are.
   Drop a `.pal` onto a panel to use it; placefiles can be drawn above or below the radar data.
 * **Warnings & storm reports** from the NWS (live) and the Iowa Environmental Mesonet (archive),
-  with a warning list you can sort, filter and zoom to.
+  with a warning list you can sort, filter and zoom to. Outlines use the NWS's own hazard colours,
+  and you can pick your own colour for each warning type.
 * **Storm cell table** (hail, mesocyclone rank, TVS), a **cursor inspector**, **cross sections** and a
   **3-D isosurface view** of any storm.
 * **Movable panels with drop zones**: drag any tool panel to a new spot, stack panels as tabs, or float them.
@@ -186,7 +187,7 @@ whether to delete your settings and downloaded data too.
 | Tab | What it does |
 |---|---|
 | **Products** | radar and volume info, which panel you're changing, product and tilt buttons, colour table and storm motion |
-| **Warnings** | active warnings for the time shown (tornado / severe / flood / other / watches), time left and tags such as RADAR CONFIRMED. Click to highlight, double-click to zoom. **Reports** lists storm reports |
+| **Warnings** | active warnings for the time shown, time left and tags such as RADAR CONFIRMED. The buttons (tornado / severe / flood / other / watches) choose what is shown on the map and in the list. Click to highlight, double-click to zoom. **Reports** lists storm reports |
 | **Storm cells** | Level III cells sorted by threat: position, motion, hail probability and size, mesocyclone rank, TVS. Double-click to centre on a cell |
 | **Inspector** | the value of every panel under the mouse, plus pop-up text for anything there |
 | **Placefiles** | the placefile manager |
@@ -240,7 +241,8 @@ A complete example is [docs/example.rftheme](docs/example.rftheme).
 
 **File → Settings** (**Ctrl+,**) has: General (units, start-up, mouse), Display (smoothing, velocity
 noise filter, colour bars), Loop & live, Environment (0 °C / −20 °C heights for MESH/POSH),
-Colour tables, Themes and Performance (memory, graphics info, log file).
+Colour tables, Warnings (outline colour for each warning type), Themes and Performance
+(memory, graphics info, log file).
 
 ### Products
 

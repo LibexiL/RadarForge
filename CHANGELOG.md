@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0 – 2026-10-01
+
+* Warning outlines use the **National Weather Service hazard colours** by default (flash flood
+  warnings are now dark red, special marine orange, extreme wind dark orange).
+* **Settings → Warnings**: choose your own colour for each warning and watch type, or reset to the
+  NWS colours.
+* Hovering the map only shows warnings and watches that are switched on. Watches no longer pop up
+  their text when they're hidden.
+* The Warnings panel's buttons (Tornado, Severe, Flood, Other, Watches) now control the map as
+  well as the list, and are remembered. Watches is the same switch as Map → Watches.
+
 ## 1.4.0 – 2026-09-30
 
 * **Windows 10 / 11 support**: `install.bat`, `run.bat` and `uninstall.bat`, Start Menu and desktop

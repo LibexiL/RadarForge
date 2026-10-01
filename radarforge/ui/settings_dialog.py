@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QColorDialog, QComb
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from .. import themes
+from ..features.warnings import NWS_COLORS, STYLES
 from ..products import catalog, colortable
 from . import icons
 
@@ -84,7 +85,7 @@ def theme_preview_icon(t, w=72, h=40):
 
 
 class SettingsDialog(QDialog):
-    PAGES = ["General", "Display", "Loop & live", "Environment", "Colour tables", "Themes", "Performance"]
+    PAGES = ["General", "Display", "Loop & live", "Environment", "Colour tables", "Warnings", "Themes", "Performance"]
 
     def __init__(self, settings, parent=None, page=None):
         super().__init__(parent)
@@ -99,7 +100,7 @@ class SettingsDialog(QDialog):
         self.nav.setIconSize(QSize(18, 18))
         self.pages = QStackedWidget()
         nav_icons = {"General": "settings", "Display": "layers", "Loop & live": "play", "Environment": "radar",
-                     "Colour tables": "palette", "Themes": "theme", "Performance": "box3d"}
+                     "Colour tables": "palette", "Warnings": "warning", "Themes": "theme", "Performance": "box3d"}
         for name in self.PAGES:
             it = QListWidgetItem(icons.icon(nav_icons.get(name, "settings")), name)
             it.setSizeHint(QSize(0, 34))
@@ -238,6 +239,40 @@ class SettingsDialog(QDialog):
         self.ct.doubleClicked.connect(lambda _i: self._load_pal())
         self.overrides = dict(self.s["palette_overrides"])
         self._fill_ct()
+        return w
+
+    def _page_warnings(self):
+        w, lay = _page("Warnings", "Outline colours for NWS warnings and watches. The defaults are the National "
+                                   "Weather Service's own hazard colours. Tornado and flash flood emergencies "
+                                   "have no NWS colour of their own, so they use the warning's colour, drawn "
+                                   "thicker – give them their own colour here if you like.")
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(6)
+        custom = dict(self.s["warning_colors"] or {})
+        self.warn_btns = {}
+        events = sorted(NWS_COLORS, key=lambda e: -STYLES[e][3])
+        for row, ev in enumerate(events):
+            btn = _ColorButton(custom.get(ev) or NWS_COLORS[ev], lambda: None, alpha=False)
+            self.warn_btns[ev] = btn
+            reset = QToolButton()
+            reset.setText("NWS")
+            reset.setToolTip(f"Use the NWS colour ({NWS_COLORS[ev]})")
+            reset.clicked.connect(lambda _c=False, e=ev: self.warn_btns[e].set_hex(NWS_COLORS[e]))
+            grid.addWidget(btn, row, 0)
+            grid.addWidget(QLabel(ev), row, 1)
+            grid.addWidget(reset, row, 2)
+        grid.setColumnStretch(1, 1)
+        lay.addLayout(grid)
+        hb = QHBoxLayout()
+        all_btn = QPushButton("Reset all to NWS colours")
+        all_btn.clicked.connect(lambda: [b.set_hex(NWS_COLORS[e]) for e, b in self.warn_btns.items()])
+        hb.addWidget(all_btn)
+        hb.addStretch(1)
+        lay.addLayout(hb)
+        lay.addWidget(_hint("Which warning types are shown is set with the buttons in the Warnings panel "
+                            "(and Map → NWS warnings / Watches)."))
+        lay.addStretch(1)
         return w
 
     def _page_themes(self):
@@ -501,6 +536,8 @@ class SettingsDialog(QDialog):
         s["freezing_level_ft"] = self.fz.value()
         s["minus20_level_ft"] = self.m20.value()
         s["palette_overrides"] = self.overrides
+        s["warning_colors"] = {ev: b.hex for ev, b in self.warn_btns.items()
+                               if b.hex.lower()[:7] != NWS_COLORS[ev].lower()}
         s["volume_cache"] = self.vcache.value()
         s["image_cache_mb"] = self.icache.value()
         s["scene_cache"] = self.scene_cache.isChecked()
@@ -515,9 +552,10 @@ class SettingsDialog(QDialog):
 # theme editor
 # --------------------------------------------------------------------------- #
 class _ColorButton(QToolButton):
-    def __init__(self, hex_color, on_change):
+    def __init__(self, hex_color, on_change, alpha=True):
         super().__init__()
         self.on_change = on_change
+        self.alpha = alpha
         self.setFixedSize(46, 24)
         self.set_hex(hex_color)
         self.clicked.connect(self._pick)
@@ -538,9 +576,10 @@ class _ColorButton(QToolButton):
         self.setToolTip(self.hex)
 
     def _pick(self):
-        c = QColorDialog.getColor(themes.qcolor(self.hex), self, "Choose colour", QColorDialog.ShowAlphaChannel)
+        opts = QColorDialog.ShowAlphaChannel if self.alpha else QColorDialog.ColorDialogOption(0)
+        c = QColorDialog.getColor(themes.qcolor(self.hex), self, "Choose colour", opts)
         if c.isValid():
-            self.set_hex(themes.to_hex((c.red(), c.green(), c.blue(), c.alpha())))
+            self.set_hex(themes.to_hex((c.red(), c.green(), c.blue(), c.alpha() if self.alpha else 255)))
             self.on_change()
 
 

@@ -273,3 +273,37 @@ def test_windows_folders_and_graphics_order(monkeypatch):
     order = gl_setup.attempt_order("x11", "core", "x11-software")
     assert order == [("native", "core"), ("native", "core-msaa"), ("native", "compat")]
     assert not gl_setup._wayland_session()
+
+
+def test_warning_colors_and_visibility(tmp_path):
+    """NWS default colours, custom colours, and hidden types never show hover text."""
+    import numpy as np
+    from pathlib import Path
+    _qapp()
+    from radarforge.config import Settings
+    from radarforge.features import warnings as w
+    s = Settings(path=Path(tmp_path) / "s.json")
+    assert w.warning_color(s, "Flash Flood Warning") == (0x8b, 0, 0)       # NWS dark red
+    assert w.warning_color(s, "Tornado Watch") == (255, 255, 0)
+    s["warning_colors"] = {"Tornado Warning": "#ff00ff", "Tornado Watch": "bad"}
+    assert w.warning_color(s, "Tornado Warning") == (255, 0, 255)
+    assert w.warning_color(s, "Tornado Watch") == (255, 255, 0)           # invalid -> default
+    ov = w.WarningsOverlay(s, lambda: {})
+    ov._timer.stop()
+    square = [np.array([[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0], [-1.0, -1.0]])]
+    watch = w.Alert("Tornado Watch", square, "WATCH TEXT", None, None)
+    svr = w.Alert("Severe Thunderstorm Warning", square, "SVR TEXT", None, None)
+    for a in (watch, svr):
+        a.xy = square
+    ov.alerts = [watch]
+    assert ov.hover(0.0, 0.0, 1.0) == "WATCH TEXT"
+    s["overlays"]["watches"] = False                                       # watches switched off
+    assert not ov.visible(watch) and ov.hover(0.0, 0.0, 1.0) is None
+    ov.alerts = [watch, svr]
+    assert ov.hover(0.0, 0.0, 1.0) == "SVR TEXT"
+    s["warning_types"] = {"TOR": True, "SVR": False, "FFW": True, "OTH": True}
+    assert ov.hover(0.0, 0.0, 1.0) is None
+    s["overlays"]["warnings"] = False
+    s["warning_types"] = {"TOR": True, "SVR": True, "FFW": True, "OTH": True}
+    assert not ov.visible(svr)
+    assert set(w.NWS_COLORS) == set(w.STYLES) == set(w.EVENT_GROUP)

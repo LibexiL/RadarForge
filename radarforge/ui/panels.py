@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QFram
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..data.sites import get_site
+from ..features.warnings import FILTERS
 from ..products import catalog
 from ..products.geometry import aeqd_forward
 
@@ -245,14 +246,6 @@ class ProductsPanel(QWidget):
 # --------------------------------------------------------------------------- #
 # Warnings + storm reports
 # --------------------------------------------------------------------------- #
-FILTERS = [("TOR", "Tornado", ("Tornado Warning", "Tornado Emergency")),
-           ("SVR", "Severe", ("Severe Thunderstorm Warning",)),
-           ("FFW", "Flood", ("Flash Flood Warning", "Flash Flood Emergency")),
-           ("OTH", "Other", ("Special Marine Warning", "Extreme Wind Warning", "Snow Squall Warning",
-                             "Dust Storm Warning", "Special Weather Statement")),
-           ("WAT", "Watches", ("Tornado Watch", "Severe Thunderstorm Watch"))]
-
-
 def _left(t_end, now):
     if t_end is None:
         return ""
@@ -277,9 +270,9 @@ class WarningsPanel(QWidget):
         frow.setSpacing(3)
         self.filters = {}
         for key, label, events in FILTERS:
-            cb = _chip(label, "Show: " + ", ".join(events))
-            cb.setChecked(key != "OTH")
-            cb.toggled.connect(self.refresh)
+            cb = _chip(label, "Show on the map and in this list: " + ", ".join(events))
+            cb.setChecked(self._filter_on(key))
+            cb.toggled.connect(lambda on, k=key: self._filter_changed(k, on))
             self.filters[key] = cb
             frow.addWidget(cb)
         wl.addLayout(frow)
@@ -357,15 +350,46 @@ class WarningsPanel(QWidget):
         view = self.main.view
         return self.main.warnings._xy(a, view.lat0, view.lon0)
 
+    # the buttons are the same switches the map uses (Watches = Map -> Watches)
+    def _filter_on(self, key):
+        s = self.main.settings
+        if key == "WAT":
+            return bool(s["overlays"].get("watches", True))
+        return bool((s["warning_types"] or {}).get(key, True))
+
+    def _filter_changed(self, key, on):
+        m = self.main
+        s = m.settings
+        if key == "WAT":
+            s["overlays"]["watches"] = on
+            act = getattr(m, "overlay_acts", {}).get("watches")
+            if act is not None:
+                act.blockSignals(True)
+                act.setChecked(on)
+                act.blockSignals(False)
+            if on:
+                m.warnings.refresh(force=True)
+        else:
+            types = dict(s["warning_types"] or {})
+            types[key] = on
+            s["warning_types"] = types
+        s.save()
+        m.view.update()
+        self.refresh()
+
+    def sync_filters(self):
+        """Match the buttons to the settings (after the Map menu changed them)."""
+        for key, cb in self.filters.items():
+            cb.blockSignals(True)
+            cb.setChecked(self._filter_on(key))
+            cb.blockSignals(False)
+        self.refresh()
+
     def refresh(self):
         if not self.isVisible():
             return
         m = self.main
-        allowed = set()
-        for key, _l, events in FILTERS:
-            if self.filters[key].isChecked():
-                allowed.update(events)
-        alerts = [a for a in m.warnings.active_alerts() if a.event in allowed]
+        alerts = [a for a in m.warnings.active_alerts() if m.warnings.visible(a)]
         if self.in_view.isChecked() and m.view.panels:
             vt = m.view.transform(m.view.panels[min(m.view.active_panel, len(m.view.panels) - 1)])
             x0, y0, x1, y1 = vt.world_bounds()
@@ -386,7 +410,7 @@ class WarningsPanel(QWidget):
         for a in alerts:
             it = QTreeWidgetItem([a.event.replace(" Warning", "").replace("Severe Thunderstorm", "Severe T-storm"),
                                   a.office, _left(a.expires, now), ", ".join(a.tags) or a.area[:80]])
-            it.setIcon(0, _swatch(a.style[0]))
+            it.setIcon(0, _swatch(m.warnings.color(a.event)))
             it.setToolTip(0, a.hover)
             it.setToolTip(3, a.area)
             it.setData(0, Qt.UserRole, a.uid)

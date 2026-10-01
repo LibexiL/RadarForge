@@ -46,6 +46,8 @@ DEFAULTS = {
                    "lakes": True, "countries": True, "range_rings": False},
     "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "meso": True,
                  "tvs": True, "hail": False, "melting_layer": False, "reports": False},
+    "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
+    "warning_colors": {},          # event -> "#rrggbb" (NWS colours when not set)
     "loop_frames": 12,
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
