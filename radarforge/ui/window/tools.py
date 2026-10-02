@@ -9,7 +9,7 @@ from PySide6.QtWidgets import QMessageBox
 from ... import fmt
 from ...tools import track
 from ..dialogs import StormMotionDialog
-from ..settings_dialog import SettingsDialog
+from ..dialogs import SettingsDialog
 
 
 class ToolsMixin:

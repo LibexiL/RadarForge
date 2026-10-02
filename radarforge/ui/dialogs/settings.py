@@ -12,10 +12,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QColorDialog, QComb
                                QMessageBox, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QTableWidget,
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
-from .. import themes
-from ..overlays.warnings import BASE_CODE, CLASSIC_PRESET, LINE_KINDS, VARIANT, VARIANTS, default_line, hex_rgb
-from ..products import catalog, colortable
-from . import icons
+from ... import themes
+from ...overlays.warnings import BASE_CODE, CLASSIC_PRESET, LINE_KINDS, VARIANT, VARIANTS, default_line, hex_rgb
+from ...products import catalog, colortable
+from .. import icons
 
 
 def _hint(text):
@@ -355,7 +355,7 @@ class SettingsDialog(QDialog):
         lay.addWidget(_line())
         lay.addWidget(QLabel("<b>Graphics</b>"))
         info = getattr(getattr(self.main, "view", None), "gl_info", "") or "unknown"
-        from ..gl_setup import is_software, label
+        from ...gl_setup import is_software, label
         plat = s["gl_platform"]
         gl = QLabel(f"OpenGL: {info}<br>Display: {label(plat) if plat else 'automatic'}")
         gl.setWordWrap(True)
@@ -535,7 +535,7 @@ class SettingsDialog(QDialog):
     def _open_log(self):
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
-        from ..config import LOG_FILE
+        from ...config import LOG_FILE
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(LOG_FILE)))
 
     def _gl_reset(self):
@@ -622,7 +622,7 @@ class _ColorButton(QToolButton):
 def _paint_line(p, rect, line):
     """Draws a warning line sample (colour, width, style) across rect."""
     from PySide6.QtCore import QLineF, QPointF
-    from ..overlays.warnings import draw_line
+    from ...overlays.warnings import draw_line
     p.fillRect(rect, QColor(16, 17, 22))
     y = rect.center().y()
     seg = QLineF(QPointF(rect.left() + 6, y), QPointF(rect.right() - 6, y))
