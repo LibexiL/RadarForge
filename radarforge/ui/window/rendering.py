@@ -58,7 +58,7 @@ class RenderingMixin:
             if ov.get(key):
                 codes.add(code)
         cells = getattr(self, "cells_panel", None)
-        if cells is not None and cells.isVisible():
+        if (cells is not None and cells.isVisible()) or self.following():
             codes.update(CELL_CODES)
         self.data.set_l3_needed(codes)
 
@@ -80,6 +80,7 @@ class RenderingMixin:
             self._request_panel(p, frame)
         self.update_timed_layers()
         self.signatures.analyse(frame, self.tilt_elev)
+        self._follow_step(frame)
         self._fill_tilt_combo(frame)
         if self.xs_win is not None and self.xs_win.isVisible():
             self.xs_win.refresh()
@@ -231,6 +232,11 @@ class RenderingMixin:
                 a.triggered.connect(lambda: self.switch_site(ns.id, keep_view=True))
             a = menu.addAction("Centre here")
             a.triggered.connect(lambda: self.view.set_view(x, y, self.view.scale))
+            if self.following():
+                a = menu.addAction("Stop following the storm")
+                a.triggered.connect(self.stop_following)
+            a = menu.addAction("Follow the storm here")
+            a.triggered.connect(lambda: self.follow_storm_at(x, y))
             a = menu.addAction("Model sounding here (HRRR)…")
             a.triggered.connect(lambda: self.open_sounding_at(lat, lon))
             for a in self.warnings.alerts_at(lat, lon)[:4]:

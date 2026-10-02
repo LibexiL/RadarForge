@@ -33,13 +33,14 @@ from .window.tools import ToolsMixin
 from .window.locations import LocationsMixin
 from .window.layers import LayersMixin
 from .window.exporting import ExportMixin
+from .window.following import FollowMixin
 from .window.session import SessionMixin
 from .workspace import Workspace
 
 
 class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, SourcesMixin, TimelineMixin,
                  RenderingMixin, ToolsMixin, LocationsMixin, LayersMixin, ExportMixin, ViewsMixin, CommandsMixin,
-                 SessionMixin, QMainWindow):
+                 FollowMixin, SessionMixin, QMainWindow):
     """RadarForge main window.
 
     Each area of the interface lives in its own mixin under ui/window/; this class builds the window and
@@ -104,6 +105,7 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
         self.surface = SurfaceObsOverlay(settings, is_live, self)
         self.signatures = SignatureOverlay(settings, self.engine, self)
         self._init_locations()
+        self._init_follow()
         self.view.overlays = [self.satellite, self.mrms, self.lightning, self.surface, self.signatures, self.spc, self.warnings, self.placefiles, self.l3ov,
                               self.chasers, self.my_location]
         self.view.underlays = [self.satellite, self.placefiles]

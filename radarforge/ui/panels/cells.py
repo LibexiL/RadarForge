@@ -5,7 +5,7 @@ import math
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QHeaderView, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHeaderView, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ... import fmt
 from ...products.geometry import aeqd_forward
@@ -99,10 +99,23 @@ class CellsPanel(QWidget):
         lay.setContentsMargins(6, 6, 6, 6)
         lay.addWidget(self.hint)
         lay.addWidget(self.tree, 1)
+        follow_btn = QPushButton("Follow the selected cell")
+        follow_btn.setToolTip("Keep this storm centred as new frames arrive (changes radar if it moves out of range)")
+        follow_btn.clicked.connect(self._follow_selected)
+        lay.addWidget(follow_btn)
         lay.addWidget(_hint("Sorted by threat. Double-click a cell to centre on it."))
         self._prod = None
         self._key = None
         main.stateChanged.connect(self.refresh)
+
+    def _follow_selected(self):
+        it = self.tree.currentItem()
+        if it is None and self.tree.topLevelItemCount():
+            it = self.tree.topLevelItem(0)
+        if it is None:
+            return
+        x, y = it.data(0, Qt.UserRole)
+        self.main.follow_storm_at(x, y)
 
     def refresh(self):
         if not self.isVisible():

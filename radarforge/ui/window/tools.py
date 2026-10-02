@@ -32,9 +32,11 @@ class ToolsMixin:
         """Esc: back to pan; pressed again, clears the measurement and the storm track."""
         if self.view.tool != "pan":
             self.set_tool("pan")
-        else:
+        elif self.view.persistent_lines or self.view.track is not None:
             self.view.clear_lines("measure")
             self.view.clear_track()
+        else:
+            self.stop_following()
 
     def _track_start_time(self):
         f = self.current_frame()
