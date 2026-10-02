@@ -5,7 +5,7 @@ import math
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QHeaderView, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QHeaderView, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ... import fmt
 from ...products.geometry import aeqd_forward
@@ -102,7 +102,13 @@ class CellsPanel(QWidget):
         follow_btn = QPushButton("Follow the selected cell")
         follow_btn.setToolTip("Keep this storm centred as new frames arrive (changes radar if it moves out of range)")
         follow_btn.clicked.connect(self._follow_selected)
-        lay.addWidget(follow_btn)
+        trend_btn = QPushButton("Show trends for the selected cell")
+        trend_btn.setToolTip("Hail, rotation and speed of this cell over the loop")
+        trend_btn.clicked.connect(self._trends_selected)
+        row = QHBoxLayout()
+        row.addWidget(follow_btn)
+        row.addWidget(trend_btn)
+        lay.addLayout(row)
         lay.addWidget(_hint("Sorted by threat. Double-click a cell to centre on it."))
         self._prod = None
         self._key = None
@@ -116,6 +122,12 @@ class CellsPanel(QWidget):
             return
         x, y = it.data(0, Qt.UserRole)
         self.main.follow_storm_at(x, y)
+
+    def _trends_selected(self):
+        it = self.tree.currentItem()
+        if it is None and self.tree.topLevelItemCount():
+            it = self.tree.topLevelItem(0)
+        self.main.open_trends(it.data(1, Qt.UserRole) if it is not None else None)
 
     def refresh(self):
         if not self.isVisible():
@@ -148,6 +160,7 @@ class CellsPanel(QWidget):
             meso = (f"{c['meso']}" + (" E" if c["meso_elev"] else "")) if c["meso"] is not None else "—"
             it = QTreeWidgetItem([c["id"], f"{az:03.0f}/{rng:.0f}", mot, posh, size, meso, c["tvs"] or "—"])
             it.setData(0, Qt.UserRole, (c["x"], c["y"]))
+            it.setData(1, Qt.UserRole, c["id"])
             if c["tvs"] == "TVS":
                 for col in range(7):
                     it.setForeground(col, QColor(255, 110, 110))

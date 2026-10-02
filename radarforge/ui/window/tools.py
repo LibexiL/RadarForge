@@ -110,6 +110,15 @@ class ToolsMixin:
         else:
             self.ws.float_panel("sounding", None, QSize(1180, 780))
 
+    def open_trends(self, cell_id=None):
+        """Storm trends for one cell (the Storm cells panel's button), or the most threatening one."""
+        if self.ws.is_open("trends"):
+            self.show_panel("trends")
+        else:
+            self.ws.float_panel("trends", None, QSize(760, 620))
+        if cell_id:
+            self.trends_win.show_cell(cell_id)
+
     def open_sounding_at(self, lat, lon):
         """A model sounding at a map point (the right-click menu)."""
         self.open_sounding()

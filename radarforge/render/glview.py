@@ -66,6 +66,7 @@ class Panel:
     header: str = ""
     message: str = ""
     readout: str = ""
+    last_value: float | None = None          # the raw value under the cursor (for the in-words hint)
 
 
 class ViewTransform:

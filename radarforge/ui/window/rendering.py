@@ -10,6 +10,7 @@ from ... import fmt
 from ...data.sites import nearest_site
 from ...products import catalog
 from ...products.geometry import beam_height, slant_range
+from ...services import guide
 from ..dialogs import McdDialog, TextDialog
 from ..panels import CELL_CODES
 from .constants import L3_TILT_ELEVS
@@ -58,7 +59,8 @@ class RenderingMixin:
             if ov.get(key):
                 codes.add(code)
         cells = getattr(self, "cells_panel", None)
-        if (cells is not None and cells.isVisible()) or self.following():
+        trends = getattr(self, "trends_win", None)
+        if (cells is not None and cells.isVisible()) or (trends is not None and trends.isVisible()) or self.following():
             codes.update(CELL_CODES)
         self.data.set_l3_needed(codes)
 
@@ -280,6 +282,18 @@ class RenderingMixin:
             a.triggered.connect(self.view.clear_track)
         menu.exec(gpos)
 
+    def _reading_in_words(self, panel: int) -> str:
+        """What the value under the cursor means (the 'explain in words' setting)."""
+        p = self.view.panels[panel]
+        pd = catalog.get(p.product)
+        if p.image is None or p.palette is None or pd.categorical:
+            return ""
+        raw = {}
+        for q in self.view.panels:
+            if q.image is not None and q.palette is not None and q.last_value is not None:
+                raw[q.product] = q.last_value * q.palette.data_scale(catalog.get(q.product).units) + q.palette.offset
+        return guide.combined(raw) or guide.hint(p.product, raw.get(p.product)) or ""
+
     def _cursor(self, x, y, panel):
         if panel < 0 or math.isnan(x):
             self.readout.setText("")
@@ -293,10 +307,12 @@ class RenderingMixin:
                  f"{dist:.1f} {du} @ {az:03.0f}°"]
         for p in self.view.panels:
             p.readout = ""
+            p.last_value = None
             img = p.image
             if img is None or p.palette is None:
                 continue
             v = img.sample(az, s_km)
+            p.last_value = v
             pd = catalog.get(p.product)
             if v is None or (isinstance(v, float) and math.isnan(v)):
                 txt = "—"
@@ -316,6 +332,10 @@ class RenderingMixin:
         cur = self.view.panels[panel].readout if panel < len(self.view.panels) else ""
         if cur:
             parts.append(f"{catalog.get(self.view.panels[panel].product).short}: {cur}")
+            if self.settings["learn_hints"]:
+                words = self._reading_in_words(panel)
+                if words:
+                    parts.append(words)
         sky = self.satellite.readout(x, y, self.view)
         if sky:
             parts.append(sky)

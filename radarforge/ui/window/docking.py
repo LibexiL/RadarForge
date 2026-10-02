@@ -4,6 +4,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from ...tools.sounding import SoundingWindow
+from ...tools.trends import TrendsWindow
 from ...tools.volume3d import Volume3DWindow
 from ...tools.xsection import CrossSectionWindow
 from ..dialogs import PlacefilePanel
@@ -59,6 +60,8 @@ class DockingMixin:
         ws.register("xsection", "Cross Section", self.xs_win, "tool")
         self.sounding_win = SoundingWindow(self)               # the plot library loads when the first sounding does
         ws.register("sounding", "Sounding", self.sounding_win, "tool")
+        self.trends_win = TrendsWindow(self)
+        ws.register("trends", "Storm trends", self.trends_win, "tool")
         # the 3-D view has its own OpenGL widget: only create it when the panel is first opened
         self.v3d_host = _Lazy3D(self)
         ws.register("3d", "3D Volume", self.v3d_host, "tool")
@@ -73,7 +76,7 @@ class DockingMixin:
         for key in self.SIDE_PANELS:
             pm.addAction(ws.action(key))
         pm.addSection("Tools")
-        for key in ("xsection", "3d", "sounding"):
+        for key in ("xsection", "3d", "sounding", "trends"):
             pm.addAction(ws.action(key))
         pm.addSeparator()
         self.lock_act = self._act(pm, "Lock panel layout", self._toggle_lock, None, checkable=True)

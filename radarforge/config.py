@@ -98,6 +98,7 @@ DEFAULTS = {
     "invert_scroll": False,
     "cursor_link": True,
     "hover_text": True,
+    "learn_hints": False,         # say in words what the number under the cursor means
     "l3_poll_products": ["NST", "NMD", "NTV", "NHI"],
     "xsection_top_kft": 60.0,
     "volume3d_levels": [30.0, 50.0, 65.0],

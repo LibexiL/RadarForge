@@ -283,6 +283,7 @@ class MenusMixin:
         m.addSeparator()
         self._act(m, "Command palette…", self.open_palette, "Ctrl+K")
         m.addSeparator()
+        self._act(m, "Storm trends (hail, rotation, speed of a cell)…", self.open_trends, None)
         self.follow_act = self._act(m, "Follow a storm (keeps it centred)", self.toggle_follow, None, checkable=True)
         self._overlay_act(m, "signatures", "Flag signatures automatically (rotation, debris, ZDR columns)")
         self._act(m, "Sounding (model or balloon)…", self.open_sounding, None)
