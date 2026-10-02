@@ -64,6 +64,7 @@ DEFAULTS = {
     "loop_frames": 12,
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
+    "export": {},                  # last choices in the Export loop dialog
     "live_poll_seconds": 15,
     "distance_units": "nm",       # nm | km | mi
     "height_units": "kft",        # kft | km

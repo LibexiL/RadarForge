@@ -60,6 +60,7 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
         self.playing = False
         self._palettes: dict = {}
         self._panel_req: dict = {}
+        self._panel_done: dict = {}          # panel index -> the request it has finished drawing
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(3)
         self.bg_pool = QThreadPool(self)

@@ -28,20 +28,43 @@ class MenusMixin:
 
     def _build_menus(self):
         mb = self.menuBar()
-        # File
-        m = mb.addMenu("&File")
+        self.overlay_acts = {}
+        self._menu_file(mb.addMenu("&File"))
+        self._menu_view(mb.addMenu("&View"))
+        self._menu_radar(mb.addMenu("&Radar"))
+        self._menu_layers(mb.addMenu("&Layers"))
+        self._menu_locations(mb.addMenu("L&ocations"))
+        self._menu_tools(mb.addMenu("&Tools"))
+        self.panels_menu = mb.addMenu("&Panels")          # filled in by _build_panels
+        self._menu_help(mb.addMenu("&Help"))
+
+    def _overlay_act(self, menu, key, label):
+        """A checkable Layers entry that switches the overlay `key` on and off."""
+        self.overlay_acts[key] = self._act(menu, label, lambda checked, k=key: self._toggle_overlay(k, checked),
+                                           None, checkable=True,
+                                           checked=bool(self.settings["overlays"].get(key, False)))
+        return self.overlay_acts[key]
+
+    # ---------------------------------------------------------------- File: data in, pictures out
+    def _menu_file(self, m):
         self._act(m, "Open radar files…", self.open_files, "Ctrl+O")
         self._act(m, "Open archive from AWS…", self.open_archive, "Ctrl+A")
         m.addSeparator()
-        self._act(m, "Save image…", self.save_image, "Ctrl+S")
-        self._act(m, "Copy image", self.copy_image, "Ctrl+Shift+C")
+        ex = m.addMenu("Export")
+        self._act(ex, "Image (PNG)…", self.save_image, "Ctrl+S")
+        self._act(ex, "Image with title bar…", self.save_image_titled, "Ctrl+Shift+S")
+        ex.addSeparator()
+        self._act(ex, "Loop as animated GIF…", lambda: self.export_loop("gif"), None)
+        self._act(ex, "Loop as MP4 video…", lambda: self.export_loop("mp4"), None)
+        ex.addSeparator()
+        self._act(ex, "Copy image to the clipboard", self.copy_image, "Ctrl+Shift+C")
         m.addSeparator()
         self._act(m, "Settings…", self.open_settings, "Ctrl+,")
         m.addSeparator()
         self._act(m, "Quit", self.close, "Ctrl+Q")
 
-        # View
-        m = mb.addMenu("&View")
+    # ---------------------------------------------------------------- View: how things look
+    def _menu_view(self, m):
         lay = m.addMenu("Panel layout")
         for a in self.layout_group.actions():
             lay.addAction(a)
@@ -69,11 +92,14 @@ class MenusMixin:
         self._act(m, "Full screen", lambda: self.showNormal() if self.isFullScreen() else self.showFullScreen(),
                   "F11")
 
-        # Radar
-        m = mb.addMenu("&Radar")
+    # ---------------------------------------------------------------- Radar: which radar, which time
+    def _menu_radar(self, m):
         self._act(m, "Choose radar…", self.choose_site, "Ctrl+R")
         m.addAction(self.live_act)
         m.addAction(self.archive_act)
+        self.fav_menu = m.addMenu("Favourite radars")
+        self.fav_menu.aboutToShow.connect(self._fill_fav_menu)
+        self._act(m, "Add / remove this radar as a favourite", self.toggle_favorite, "Ctrl+D")
         m.addSeparator()
         self._act(m, "Previous frame", lambda: self.step_frame(-1), None)
         self._act(m, "Next frame", lambda: self.step_frame(1), None)
@@ -84,25 +110,13 @@ class MenusMixin:
         self._act(m, "Tilt down", lambda: self.step_tilt(-1), None)
         m.addSeparator()
         self._act(m, "Storm motion…", self.edit_storm_motion, None)
-        m.addSeparator()
-        self.fav_menu = m.addMenu("Favourite radars")
-        self.fav_menu.aboutToShow.connect(self._fill_fav_menu)
-        self._act(m, "Add / remove this radar as a favourite", self.toggle_favorite, "Ctrl+D")
-        m.addSeparator()
-        self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L")
-        self._act(m, "Set my location…", self.set_my_location_dialog, None)
-        self.warn_loc_act = self._act(m, "Alert me when a warning covers my location", self._toggle_warn_loc, None,
-                                      checkable=True, checked=bool(self.settings["warn_at_location"]))
 
-        # Map (overlays + map layers + placefiles)
-        m = mb.addMenu("&Map")
-        self.overlay_acts = {}
-        m.addSection("Warnings")
+    # ---------------------------------------------------------------- Layers: what is drawn on the map
+    def _menu_layers(self, m):
+        m.addSection("Warnings and reports")
         for key, label in (("warnings", "NWS warnings"), ("watches", "Watches (live)"),
                            ("reports", "Local storm reports")):
-            self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
-                                               None, checkable=True,
-                                               checked=bool(self.settings["overlays"].get(key, False)))
+            self._overlay_act(m, key, label)
         rep = m.addMenu("Storm report options")
         hours = rep.addMenu("Show the last")
         self.rep_hours_group = QActionGroup(self)
@@ -123,10 +137,18 @@ class MenusMixin:
         self.sn_rep_act = self._act(rep, "Include Spotter Network reports", self._toggle_sn_reports, None,
                                     checkable=True, checked=bool(self.settings["spotter_reports"]))
         self._act(m, "Refresh warnings now", lambda: self.warnings.refresh(force=True), None)
+
+        m.addSection("Storm Prediction Center")
+        for key, label in (("spc_outlook", "Day 1 convective outlook"), ("spc_mcd", "Mesoscale discussions")):
+            self._overlay_act(m, key, label)
+
+        m.addSection("Level III")
+        for key, label in (("storm_tracks", "Storm tracks (NST)"), ("meso", "Mesocyclones (NMD)"),
+                           ("tvs", "TVS (NTV)"), ("hail", "Hail index (NHI)"), ("melting_layer", "Melting layer (N0M)")):
+            self._overlay_act(m, key, label)
+
         m.addSection("Storm chasers")
-        self.overlay_acts["chasers"] = self._act(m, "Storm chasers (Spotter Network)",
-                                                 lambda checked: self._toggle_overlay("chasers", checked), None,
-                                                 checkable=True, checked=bool(self.settings["overlays"].get("chasers")))
+        self._overlay_act(m, "chasers", "Storm chasers (Spotter Network)")
         ch = m.addMenu("Storm chaser options")
         grp = QActionGroup(self)
         for active, label in ((False, "Everyone"), (True, "Active reporters only (5+ reports in a year)")):
@@ -138,18 +160,8 @@ class MenusMixin:
         ch.addSeparator()
         self._act(ch, "Show names (zoomed in)", self._toggle_chaser_names, None, checkable=True,
                   checked=bool(self.settings["chaser_names"]))
-        m.addSection("Storm Prediction Center")
-        for key, label in (("spc_outlook", "Day 1 convective outlook"), ("spc_mcd", "Mesoscale discussions")):
-            self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
-                                               None, checkable=True,
-                                               checked=bool(self.settings["overlays"].get(key, False)))
-        m.addSection("Level III")
-        for key, label in (("storm_tracks", "Storm tracks (NST)"), ("meso", "Mesocyclones (NMD)"),
-                           ("tvs", "TVS (NTV)"), ("hail", "Hail index (NHI)"), ("melting_layer", "Melting layer (N0M)")):
-            self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
-                                               None, checkable=True,
-                                               checked=bool(self.settings["overlays"].get(key, False)))
-        m.addSection("Map")
+
+        m.addSection("Base map")
         self.cities_act = self._act(m, "City labels", self._toggle_cities, None, checkable=True,
                                     checked=bool(self.settings["map_layers"].get("cities", True)))
         self.sites_act = self._act(m, "Radar sites", self._toggle_sites, None, checkable=True,
@@ -158,7 +170,7 @@ class MenusMixin:
                                   checked=bool(self.settings["map_layers"].get("tdwr_sites", False)))
         self.rings_act = self._act(m, "Range rings", self._toggle_rings, None, checkable=True,
                                    checked=bool(self.settings["map_layers"].get("range_rings", False)))
-        maps = m.addMenu("Map layers")
+        maps = m.addMenu("Map lines")
         self.layer_acts = {}
         from ...render.maps import LAYER_STYLE
         for name, (label, *_rest) in LAYER_STYLE.items():
@@ -166,22 +178,27 @@ class MenusMixin:
             self.view.map_visible[name] = on
             self.layer_acts[name] = self._act(maps, label, lambda checked, n=name: self._toggle_layer(n, checked),
                                               None, checkable=True, checked=on)
+
         m.addSection("Placefiles")
         self._act(m, "Placefile manager", self.open_placefiles, "Ctrl+P")
 
-        # Tools
-        m = mb.addMenu("&Tools")
+    # ---------------------------------------------------------------- Locations: where I am and what to tell me
+    def _menu_locations(self, m):
+        self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L")
+        self._act(m, "Set my location…", self.set_my_location_dialog, None)
+        self.warn_loc_act = self._act(m, "Alert me when a warning covers my location", self._toggle_warn_loc, None,
+                                      checkable=True, checked=bool(self.settings["warn_at_location"]))
+
+    # ---------------------------------------------------------------- Tools: things you use on a storm
+    def _menu_tools(self, m):
         for a in self.tool_group.actions():
             m.addAction(a)
         m.addSeparator()
         self._act(m, "Storm cell table", lambda: self.show_panel("cells"), None)
         self._act(m, "Level III storm table (text)", self.show_storm_table, None)
 
-        # Panels
-        self.panels_menu = mb.addMenu("&Panels")
-
-        # Help
-        m = mb.addMenu("&Help")
+    # ---------------------------------------------------------------- Help
+    def _menu_help(self, m):
         self._act(m, "Keyboard shortcuts", self.show_shortcuts, "F1")
         self._act(m, "About RadarForge", self.show_about, None)
 

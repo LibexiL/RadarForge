@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+UNIT_KM = {"nm": 1.852, "km": 1.0, "mi": 1.609344}      # kilometres per nautical mile / km / statute mile
+
 
 def compass(deg: float) -> str:
     dirs = ("N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW")

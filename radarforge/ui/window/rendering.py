@@ -6,12 +6,13 @@ import numpy as np
 
 from PySide6.QtWidgets import QMenu
 
+from ... import fmt
 from ...data.sites import nearest_site
 from ...products import catalog
 from ...products.geometry import beam_height, slant_range
 from ..dialogs import McdDialog
 from ..panels import CELL_CODES
-from .constants import L3_TILT_ELEVS, UNIT_F
+from .constants import L3_TILT_ELEVS
 from .jobs import _Bg, _ImageJob
 
 
@@ -95,6 +96,7 @@ class RenderingMixin:
             return
         req = (frame.uid, frame.revision, pid, round(self.tilt_elev, 2), self.engine._sig(pid), id(p.palette))
         if self._panel_req.get(p.index) == req and p.image is not None:
+            self._panel_done[p.index] = req
             return
         self._panel_req[p.index] = req
         engine = self.engine
@@ -124,10 +126,12 @@ class RenderingMixin:
         p = self.view.panels[idx]
         if "error" in res:
             p.message = "Error: " + res["error"][:80]
+            self._panel_done[idx] = self._panel_req.get(idx)
             self.view.update()
             return
         if self._panel_req.get(idx) != res["req"]:
             return
+        self._panel_done[idx] = res["req"]
         pd = catalog.get(p.product)
         img = res["img"]
         p.image = img
@@ -151,6 +155,14 @@ class RenderingMixin:
         self._fill_tilt_combo(self.current_frame())
         self.view.update()
         self.stateChanged.emit()
+
+    def panels_idle(self) -> bool:
+        """True when every panel has finished drawing the frame it was last asked for."""
+        for p in self.view.panels:
+            req = self._panel_req.get(p.index)
+            if req is not None and self._panel_done.get(p.index) != req:
+                return False
+        return True
 
     def _frame_ready(self, frame):
         for p in self.view.panels:
@@ -251,7 +263,7 @@ class RenderingMixin:
             return
         lat, lon, dist, az = self.view.describe_point(x, y)
         du = self.settings["distance_units"]
-        s_km = dist * UNIT_F[du]
+        s_km = dist * fmt.UNIT_KM[du]
         parts = [f"{abs(lat):.4f}°{'N' if lat >= 0 else 'S'} {abs(lon):.4f}°{'W' if lon < 0 else 'E'}",
                  f"{dist:.1f} {du} @ {az:03.0f}°"]
         for p in self.view.panels:
