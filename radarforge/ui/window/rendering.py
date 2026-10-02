@@ -78,7 +78,7 @@ class RenderingMixin:
             self.time_label.setText(" no data ")
         for p in self.view.panels:
             self._request_panel(p, frame)
-        self.update_sky_layers()
+        self.update_timed_layers()
         self._fill_tilt_combo(frame)
         if self.xs_win is not None and self.xs_win.isVisible():
             self.xs_win.refresh()

@@ -141,8 +141,9 @@ class Message:
         return v.reshape(self.grid.nj, self.grid.ni)
 
     def sample(self, lat, lon, method="linear") -> np.ndarray:
-        """Field values at latitudes / longitudes (arrays or scalars). NaN outside the grid. Only the points
-        asked for are converted to floating point, so a 14000 x 7000 MRMS field stays small in memory."""
+        """Field values at latitudes / longitudes (arrays or scalars): method "linear" (bilinear), "nearest" or "max"
+        (the largest of the four surrounding points). NaN outside the grid. Only the points asked for are converted
+        to floating point, so a 14000 x 7000 MRMS field stays small in memory."""
         g = self.grid
         i, j = g.ij(lat, lon)
         scalar = np.ndim(i) == 0
@@ -155,6 +156,12 @@ class Message:
             if method == "nearest":
                 k = np.rint(jj).astype(np.int64) * g.ni + np.rint(ii).astype(np.int64)
                 vals = self._pick(x, k)
+            elif method == "max":                       # the largest of the four surrounding points (keeps thin swaths)
+                i0 = np.minimum(np.floor(ii).astype(np.int64), g.ni - 2)
+                j0 = np.minimum(np.floor(jj).astype(np.int64), g.nj - 2)
+                k = j0 * g.ni + i0
+                vals = np.fmax(np.fmax(self._pick(x, k), self._pick(x, k + 1)),
+                               np.fmax(self._pick(x, k + g.ni), self._pick(x, k + g.ni + 1)))
             else:
                 i0 = np.minimum(np.floor(ii).astype(np.int64), g.ni - 2)
                 j0 = np.minimum(np.floor(jj).astype(np.int64), g.nj - 2)

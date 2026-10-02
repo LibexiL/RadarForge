@@ -54,8 +54,8 @@ class LayersMixin:
             self.chasers.refresh(force=True)
         if key in ("spc_outlook", "spc_mcd") and on:
             self.spc.refresh(force=True)
-        if key in ("satellite", "lightning") and on:
-            self.update_sky_layers(prefetch=True)
+        if key in ("satellite", "mrms", "lightning") and on:
+            self.update_timed_layers(prefetch=True)
         if on and key in ("chasers", "spc_outlook", "spc_mcd") and self.data.mode != "live":
             self._status_msg("Storm chasers and SPC products are shown with live data")
         if key in ("warnings", "watches") and hasattr(self, "warnings_panel"):
@@ -64,17 +64,19 @@ class LayersMixin:
         self.view.update()
 
     # ---------------------------------------------------------------- satellite and lightning
-    def update_sky_layers(self, prefetch=False):
-        """Point the satellite and lightning layers at the radar frame on screen (and the loop, if asked)."""
+    def update_timed_layers(self, prefetch=False):
+        """Point the layers that follow the radar frame's time (satellite, MRMS, lightning) at the frame on screen,
+        and at the whole loop when asked, so it plays smoothly."""
         frame = self.current_frame()
         t = frame.time if frame is not None else datetime.now(timezone.utc)
         lat0, lon0 = self.view.lat0, self.view.lon0
-        self.satellite.set_target(t, lat0, lon0)
-        self.lightning.set_target(t, lat0, lon0)
+        layers = (self.satellite, self.mrms, self.lightning)
+        for layer in layers:
+            layer.set_target(t, lat0, lon0)
         if prefetch:
             times = [f.time for f in self.data.frames]
-            self.satellite.prefetch(times, lat0, lon0)
-            self.lightning.prefetch(times, lat0, lon0)
+            for layer in layers:
+                layer.prefetch(times, lat0, lon0)
 
     def _choose(self, key, value, group=None):
         self.settings[key] = value
@@ -86,18 +88,31 @@ class LayersMixin:
     def set_satellite_channel(self, channel):
         self._choose("satellite_channel", channel, getattr(self, "sat_channel_group", None))
         self.satellite.refresh()
-        self.update_sky_layers(prefetch=True)
+        self.update_timed_layers(prefetch=True)
 
     def set_satellite_source(self, source):
         self._choose("satellite_sat", source, getattr(self, "sat_source_group", None))
         self.satellite.refresh(force=True)
         self.lightning.refresh(force=True)
-        self.update_sky_layers(prefetch=True)
+        self.update_timed_layers(prefetch=True)
 
     def set_satellite_opacity(self, value):
         self._choose("satellite_opacity", value, getattr(self, "sat_opacity_group", None))
         self.view.update()
 
+    def set_mrms_product(self, product):
+        self._choose("mrms_product", product, getattr(self, "mrms_product_group", None))
+        self.mrms.refresh()
+        self.update_timed_layers(prefetch=True)
+
+    def set_mrms_window(self, window):
+        windows = dict(self.settings["mrms_window"] or {})
+        windows[self.settings["mrms_product"]] = window
+        self.settings["mrms_window"] = windows
+        self.settings.save()
+        self.mrms.refresh()
+        self.update_timed_layers(prefetch=True)
+
     def set_lightning_minutes(self, minutes):
         self._choose("lightning_minutes", minutes, getattr(self, "lightning_window_group", None))
-        self.update_sky_layers(prefetch=True)
+        self.update_timed_layers(prefetch=True)

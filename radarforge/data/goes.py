@@ -15,8 +15,8 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
-from ..products.geometry import aeqd_inverse
 from . import aws
+from .mapgrid import Grid, pixel_latlon
 
 ABI_PRODUCT = "ABI-L2-CMIPC"          # cloud and moisture imagery, CONUS sector
 GLM_PRODUCT = "GLM-L2-LCFA"           # lightning flashes, a file every 20 seconds
@@ -143,27 +143,6 @@ def scan_angles(lat, lon, proj: Projection):
     return np.where(visible, x, np.nan), np.where(visible, y, np.nan)
 
 
-@dataclass
-class Grid:
-    """Picture values on the radar's map grid: north at the top, `step` km per pixel, centred on the radar."""
-    values: np.ndarray       # float32 (ny, nx); NaN = no data
-    half_km: float
-    step_km: float
-    time: datetime
-    kind: str                # "bt" or "refl"
-    units: str
-
-    def sample(self, x_km: float, y_km: float):
-        """Value at a point in km east / north of the radar (None outside the picture or without data)."""
-        n = self.values.shape[0]
-        ix = int(round((x_km + self.half_km) / self.step_km))
-        iy = int(round((self.half_km - y_km) / self.step_km))
-        if 0 <= ix < self.values.shape[1] and 0 <= iy < n:
-            v = float(self.values[iy, ix])
-            return None if v != v else v
-        return None
-
-
 _angle_cache: OrderedDict = OrderedDict()
 _angle_lock = threading.Lock()
 
@@ -176,11 +155,7 @@ def _grid_angles(proj: Projection, lat0: float, lon0: float, half_km: float, ste
         if hit is not None:
             _angle_cache.move_to_end(key)
             return hit
-    n = int(round(2 * half_km / step_km))
-    xs = -half_km + (np.arange(n) + 0.5) * step_km
-    ys = half_km - (np.arange(n) + 0.5) * step_km
-    gx, gy = np.meshgrid(xs, ys)
-    lat, lon = aeqd_inverse(gx, gy, lat0, lon0)
+    lat, lon = pixel_latlon(lat0, lon0, half_km, step_km)
     out = scan_angles(lat, lon, proj)
     out = (out[0].astype(np.float32), out[1].astype(np.float32))
     with _angle_lock:

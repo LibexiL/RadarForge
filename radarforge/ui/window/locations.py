@@ -150,7 +150,7 @@ class LocationsMixin:
             self.warnings.refresh(force=True)
             self.spc.refresh(force=True)
             if need["lightning"]:
-                self.update_sky_layers(prefetch=True)
+                self.update_timed_layers(prefetch=True)
 
     def _lightning_counter(self):
         return self.lightning.counts_near if (self.lightning.enabled() or self.lightning.force) else None

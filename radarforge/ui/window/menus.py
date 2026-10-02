@@ -163,6 +163,9 @@ class MenusMixin:
         m.addSection("Satellite and lightning (GOES)")
         self._menu_sky(m)
 
+        m.addSection("MRMS: radar-derived tracks and totals")
+        self._menu_mrms(m)
+
         m.addSection("Storm chasers")
         self._overlay_act(m, "chasers", "Storm chasers (Spotter Network)")
         ch = m.addMenu("Storm chaser options")
@@ -229,6 +232,26 @@ class MenusMixin:
         self.lightning_window_group = self._radio_menu(
             m, "Lightning window", [(f"Last {v} minutes", v) for v in (5, 10, 15, 30)], int(s["lightning_minutes"] or 10),
             self.set_lightning_minutes)
+
+    def _menu_mrms(self, m):
+        from ...data import mrms
+        self._overlay_act(m, "mrms", "MRMS layer")
+        self.mrms_product_group = self._radio_menu(
+            m, "MRMS product", [(v["label"], k) for k, v in mrms.PRODUCTS.items()], self.settings["mrms_product"],
+            self.set_mrms_product)
+        win = m.addMenu("MRMS window")
+
+        def fill():
+            win.clear()
+            product = self.mrms.product()
+            group = QActionGroup(win)
+            for w in mrms.PRODUCTS[product]["windows"]:
+                a = QAction(f"Last {mrms.window_label(product, w)}", win, checkable=True)
+                a.setChecked(w == self.mrms.window())
+                a.triggered.connect(lambda _=False, w=w: self.set_mrms_window(w))
+                group.addAction(a)
+                win.addAction(a)
+        win.aboutToShow.connect(fill)
 
     # ---------------------------------------------------------------- Locations: where I am and what to tell me
     def _menu_locations(self, m):

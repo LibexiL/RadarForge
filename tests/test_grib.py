@@ -135,6 +135,17 @@ def test_sample_interpolates_between_grid_points():
     assert m.sample(39.4, -109.4, "nearest") == pytest.approx(11.0)               # j = 0.6 -> 1, i = 0.6 -> 1
 
 
+def test_max_sampling_keeps_a_thin_swath():
+    field = np.zeros((4, 6))
+    field[1, 2] = 7.0                                                              # one narrow bright cell
+    data = simple_message(field, ref=0.0, e=0, d=0, bits=8, grid=grid_latlon(6, 4, 40.0, 250.0, 1.0, 1.0))
+    (m,) = grib.read_messages(data)
+    lat, lon = 38.6, -107.6                                                         # between rows 1-2 and columns 2-3
+    assert m.sample(lat, lon, "max") == 7.0
+    assert m.sample(lat, lon, "linear") < 7.0 and m.sample(39.0, -108.0, "nearest") == 7.0
+    assert m.sample(np.array([lat, 41.0]), np.array([lon, 0.0]), "max")[0] == 7.0
+
+
 def test_png_packing_keeps_the_small_integer_type(tmp_path):
     from PIL import Image
     field = (np.arange(6 * 5).reshape(5, 6) % 17).astype(np.uint8)

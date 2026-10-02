@@ -46,7 +46,7 @@ DEFAULTS = {
                    "lakes": True, "countries": True, "range_rings": False},
     "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "meso": True,
                  "tvs": True, "hail": False, "melting_layer": False, "reports": False,
-                 "chasers": False, "spc_outlook": False, "spc_mcd": False, "satellite": False, "lightning": False},
+                 "chasers": False, "spc_outlook": False, "spc_mcd": False, "satellite": False, "lightning": False, "mrms": False},
     "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
@@ -61,6 +61,9 @@ DEFAULTS = {
     "satellite_sat": "auto",       # auto | east | west
     "satellite_opacity": 0.8,
     "lightning_minutes": 10,       # minutes of GLM flashes shown (5, 10, 15, 30)
+    "mrms_product": "rotation",    # rotation | hail | qpe (see data/mrms.py)
+    "mrms_window": {},             # product -> accumulation window (minutes, or hours for qpe)
+    "mrms_opacity": 0.85,
     "favorite_sites": [],
     "my_location": None,           # [lat, lon] of the first saved location (kept for older versions)
     "locations": [],               # saved locations: [{id, name, lat, lon, rules}] (services/locations.py)
