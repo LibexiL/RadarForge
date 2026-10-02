@@ -121,6 +121,35 @@ def fetch_range(bucket: str, key: str, start: int, end: int, cache: bool = True,
     return data
 
 
+def prune_cache(max_bytes: int, root: Path | None = None) -> int:
+    """Keeps the download cache under max_bytes by deleting the files used longest ago. Returns the bytes freed.
+
+    Radar volumes, satellite scenes and model files are all kept so that going back to an event is instant; this
+    stops them from filling the disk."""
+    root = root or CACHE_DIR / "s3"
+    files = []
+    total = 0
+    for dirpath, _dirs, names in os.walk(root):
+        for name in names:
+            path = Path(dirpath) / name
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            files.append((max(st.st_atime, st.st_mtime), st.st_size, path))
+            total += st.st_size
+    freed = 0
+    for _used, size, path in sorted(files):
+        if total - freed <= max_bytes:
+            break
+        try:
+            path.unlink()
+            freed += size
+        except OSError:
+            pass
+    return freed
+
+
 def cached_path(bucket: str, key: str) -> Path:
     return CACHE_DIR / "s3" / bucket / key
 

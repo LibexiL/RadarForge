@@ -91,6 +91,19 @@ class _Tee:
                 pass
 
 
+def _prune_downloads(settings):
+    """Trim the download cache in the background so it can't fill the disk."""
+    import threading
+
+    def work():
+        try:
+            from .data import aws
+            aws.prune_cache(int(float(settings["download_cache_gb"]) * 1024 ** 3))
+        except Exception:
+            pass
+    threading.Thread(target=work, name="rf-cache-prune", daemon=True).start()
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="radarforge", description="NEXRAD Level II/III radar viewer")
     parser.add_argument("files", nargs="*", help="Level II / Level III files to open")
@@ -105,7 +118,16 @@ def main(argv=None):
                         help="forget the remembered OpenGL setup and detect it again")
     parser.add_argument("--safe-graphics", action="store_true",
                         help="plainest OpenGL setup: no antialiasing, no frame reuse (for driver trouble)")
+    parser.add_argument("--self-test", nargs="?", const="-", metavar="REPORT",
+                        help="check that the program's libraries and data files are present, then exit "
+                             "(the report goes to the file given, or the terminal)")
     args = parser.parse_args(argv)
+    if args.self_test:
+        from .selftest import run
+        if args.self_test == "-":
+            return run()
+        with open(args.self_test, "w", encoding="utf-8") as fh:        # a windowed build has no terminal
+            return run(fh)
 
     from . import gl_setup
     from .config import LOG_FILE, Settings, ensure_dirs
@@ -225,6 +247,7 @@ def main(argv=None):
     tee.gl_failures = 0
     tee.counting = True              # only count problems from the real window onwards
     win = MainWindow(settings)
+    _prune_downloads(settings)
     win.show()
     if f"qtmsg:{key}:{kind}" in simulated:        # testing: pretend the driver complained
         from PySide6.QtCore import qWarning

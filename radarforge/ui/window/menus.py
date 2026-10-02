@@ -227,7 +227,7 @@ class MenusMixin:
             m, "Satellite channel", [(v["label"], k) for k, v in goes.CHANNELS.items()], s["satellite_channel"],
             self.set_satellite_channel)
         self.sat_source_group = self._radio_menu(
-            m, "Satellite", [("Automatic (by location)", "auto"), ("GOES-East", "east"), ("GOES-West", "west")],
+            m, "Satellite source", [("Automatic (by location)", "auto"), ("GOES-East", "east"), ("GOES-West", "west")],
             s["satellite_sat"], self.set_satellite_source)
         self.sat_opacity_group = self._radio_menu(
             m, "Satellite opacity", [(f"{int(v * 100)}%", v) for v in (1.0, 0.8, 0.6, 0.4, 0.2)],
@@ -336,10 +336,12 @@ class MenusMixin:
                              ("Shift+drag", "quick measure")]),
             ("Map", [("wheel / drag", "zoom / pan"), ("double-click", "centre here"), ("Home", "reset view"),
                      ("right-click", "product, colour table, nearest radar"), ("S", "smoothing on/off")]),
-            ("Window", [("F9", "show / hide the side panel"), ("F11", "full screen"), ("F1", "this list")]),
+            ("Window", [("F9", "show / hide the side panel"), ("F10", "briefing view"), ("F11", "full screen"), ("F1", "this list")]),
             ("Files & data", [("Ctrl+O", "open files"), ("Ctrl+A", "archive"), ("Ctrl+R", "choose radar"),
                               ("Ctrl+D", "add / remove favourite radar"), ("Ctrl+L", "go to my location"),
                               ("Ctrl+P", "placefiles"), ("Ctrl+S", "save image"), ("Ctrl+Shift+C", "copy image"),
+                              ("Ctrl+Shift+S", "save image with title bar"), ("Ctrl+B", "save a bookmark"),
+                              ("Ctrl+K", "command palette: find any command, radar, product or place"),
                               ("Ctrl+,", "settings")]),
         ]
         html = "<table cellspacing='0' cellpadding='3'>"
@@ -353,9 +355,9 @@ class MenusMixin:
     def show_about(self):
         QMessageBox.about(self, "About RadarForge", (
             f"<b>RadarForge {__version__}</b> – NEXRAD Level II / III viewer<br><br>"
-            "Data: NOAA NEXRAD on AWS (Unidata buckets), NWS API alerts, Iowa Environmental Mesonet archives, "
-            "storm reports and SPC products; storm chasers and spotter reports from Spotter Network "
-            "(non-commercial use).<br>"
+            "Data: NOAA NEXRAD on AWS (Unidata buckets), GOES satellite and GLM lightning, MRMS, HRRR model "
+            "and METAR observations, NWS API alerts, Iowa Environmental Mesonet archives, storm reports and SPC "
+            "products; storm chasers and spotter reports from Spotter Network (non-commercial use).<br>"
             "Maps: US Census county boundaries, Natural Earth, GeoNames.<br>"
             "Level III decoding by MetPy.<br><br>"
             f"OpenGL: {self.view.gl_info}"))

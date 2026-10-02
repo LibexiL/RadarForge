@@ -31,6 +31,8 @@ jobs:
         run: python -m pyflakes radarforge tests
       - name: Tests
         run: python -m pytest -q tests
+      - name: Self-test (libraries and data files)
+        run: python -m radarforge --self-test
 
   # runs the real installers the way a user would, from their OS folder
   installer:

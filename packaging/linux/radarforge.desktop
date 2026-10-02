@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RadarForge
+Comment=NEXRAD weather radar viewer
+Exec=RadarForge %F
+Icon=radarforge
+Categories=Science;Education;
+Terminal=false
+StartupWMClass=RadarForge

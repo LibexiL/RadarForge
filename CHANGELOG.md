@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.8.0 – 2026-10-02
+
+Downloads that need no Python, a lot more data on the map, and tools for people who track storms.
+
+* **Packaged downloads**: a Windows installer / zip and a Linux AppImage, built by GitHub when a version is
+  tagged. `radarforge --self-test` checks that every library and data file is present.
+* **Export**: loop to **GIF or MP4**, **PNG with a title bar** and colour bar, and a clean **Briefing view** (F10).
+* **Satellite**: GOES-East / West infrared, water vapour, shortwave IR and visible, with opacity and automatic
+  satellite choice; **GLM lightning** flashes for the last 5–30 minutes. Both work in live and archive modes.
+* **MRMS**: rotation tracks, hail swaths and rainfall totals (30 minutes to 3 days).
+* **Surface observations**: METAR station plots with wind barbs, temperature, dew point and pressure.
+* **SPC**: outlook days 1, 2 and 3, and the full text of a warning or watch.
+* **Sounding tool**: a HRRR model sounding at any point, or the latest balloon launch, as a skew-T and hodograph
+  with CAPE, CIN, LCL / LFC, shear, helicity, STP and SCP. One click sets the Bunkers right mover for SRV.
+* **Saved locations**: any number of places with alert rules (warning types, distance, lead time), a countdown to
+  the nearest warning, a sound and a desktop notification. Your own location stays the first one.
+* **Bookmarks, shareable views and workspaces**: save a view, send it as a `.rfview` file or a line of text, and
+  switch between layouts (Briefing, Tornado hunt, Hail, Flood, Satellite and storms, Everything).
+* **Command palette** (Ctrl+K): every command, radar, product, city, bookmark, workspace and saved location.
+* **Signature flags**: strong rotation, possible debris and possible ZDR columns are found automatically.
+* **Follow a storm**: keeps a cell centred and hands over to the nearest radar as it moves in live mode.
+* **Storm trends**: hail probability and size, rotation rank, TVS and speed of one cell across the loop.
+* **Hover guide** (Settings → General): says in words what the value under the cursor means.
+* **Learn mode** (Help): nine historic storms from the archive, stepped through with a short explanation each.
+* **Tidier code and menus**: map overlays now live in `overlays/`, the logic behind the features in `services/`
+  (no Qt), data access in `data/`; the main window is split into one file per area. Layers, Locations and
+  Tools have their own menus, and the README project tree matches.
+* The download cache is capped (6 GB by default, `download_cache_gb`): the least recently used files go first.
+* New dependencies (installed automatically): h5py, pillow, imageio-ffmpeg, matplotlib, pyproj.
+
 ## 1.7.0 – 2026-10-01
 
 * **Storm track tool** (**T**, or **Track** on the toolbar):

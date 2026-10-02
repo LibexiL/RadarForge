@@ -2,15 +2,22 @@
 
 A fast, GR2Analyst-style **NEXRAD weather radar viewer** for **Windows and Linux**.
 Live and archived Level II / Level III data, 1–6 linked panels, derived products, GRLevelX
-placefiles and colour tables, cross sections, a 3-D storm view, warnings, and themes.
+placefiles and colour tables, cross sections, a 3-D storm view, satellite and lightning, soundings,
+saved locations with alerts, loop export, and themes. Made for forecasters, storm trackers and anyone who loves weather.
 
 ![RadarForge showing the 2013 Moore, OK tornado: reflectivity, storm-relative velocity, correlation coefficient and azimuthal shear with warnings and Level III storm tracks](docs/screenshot.png)
 
 ## Download
 
-**[⬇ Download RadarForge](https://github.com/LibexiL/RadarForge/releases)** – under **Assets** of the newest
-version, click **Source code (zip)** (or use the green **Code** button above → **Download ZIP**).
-Extract it, then open the folder for your computer:
+**[⬇ Download RadarForge](https://github.com/LibexiL/RadarForge/releases)** – under **Assets** of the newest version:
+
+| | |
+|---|---|
+| **Windows** | `RadarForge-…-setup.exe` (installer) or the `…-windows-x64.zip` (unzip and run `RadarForge.exe`). No Python needed. |
+| **Linux** | `RadarForge-…-x86_64.AppImage`: `chmod +x` it and run it. No Python needed. |
+
+Prefer to run from the source? Click **Source code (zip)** (or the green **Code** button above → **Download ZIP**),
+extract it, then open the folder for your computer:
 
 | Windows 10 / 11 | Linux |
 |---|---|
@@ -51,6 +58,24 @@ keep the extracted files together – everything else is the program itself, sha
   and you. One click turns the track into the storm motion for SRV.
 * **My location**: set it from the map. RadarForge pops up a new tornado, severe or flash flood
   warning that covers it.
+* **Satellite and lightning**: GOES-East / West infrared, water vapour, shortwave IR and visible pictures under
+  the radar, and the last 5–30 minutes of GLM lightning flashes. Works in the archive too.
+* **MRMS**: rotation tracks, hail swaths and rainfall totals (rotation and hail: last 30 minutes to 24 hours; rain: 1 hour to 3 days).
+* **Surface observations** (METAR station plots with wind barbs) and the SPC outlook for **days 1, 2 and 3**,
+  with the full warning and watch text one click away.
+* **Soundings**: a HRRR model sounding at any point on the map, or the latest balloon launch from a station, as a
+  skew-T and hodograph with CAPE, shear, helicity, STP and SCP.
+* **Saved locations with alert rules**: any number of places; each gets a countdown to the nearest warning, a
+  sound and a desktop notification, with rules for which warnings count and how close a storm must be.
+* **Signature flags**: strong rotation, possible debris and possible ZDR columns are marked on the map.
+  **Follow a storm** keeps a cell centred and hands over to the next radar as it moves. **Storm trends** charts a
+  cell's hail, rotation and speed over the loop.
+* **Export a loop** as a GIF or MP4, a PNG with a title bar and colour bar, or open the clean **Briefing view**.
+* **Bookmarks, shareable views and workspaces**: save what you're looking at, send it to someone as a file or a
+  line of text, and switch between layouts (Tornado hunt, Hail, Flood, Briefing…) in one click.
+* **Command palette** (**Ctrl+K**): type to find any command, radar, product, city, bookmark or saved location.
+* **Learn mode**: nine famous storms from the archive (Moore, El Reno, Joplin, Tuscaloosa, Mayfield, the Iowa
+  derecho, Harvey…) with a few steps each, and an option to explain the value under the cursor in words.
 * **Favourite radars**, and **copy the map** to the clipboard to paste anywhere.
 * **Storm cell table** (hail, mesocyclone rank, TVS), a **cursor inspector**, **cross sections** and a
   **3-D isosurface view** of any storm.
@@ -64,7 +89,7 @@ keep the extracted files together – everything else is the program itself, sha
 | | |
 |---|---|
 | **Operating system** | Windows 10 or 11 (64-bit), or Linux with X11 or Wayland (Fedora/Nobara, Ubuntu, Arch, …) |
-| **Python** | 3.10 – 3.14, 64-bit (the installer downloads everything else) |
+| **Python** | Only to run from the source: 3.10 – 3.14, 64-bit (the installer downloads everything else). Not needed for the Windows / Linux downloads. |
 | **Graphics** | Any GPU with OpenGL 3.3 – NVIDIA, AMD and Intel all qualify. Keep the driver up to date. |
 | **Disk / internet** | About 1 GB for the Python packages; an internet connection for live and archive data |
 
@@ -189,6 +214,16 @@ whether to delete your settings and downloaded data too.
 | Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
 | Storm reports / chasers / SPC | **Map** menu (or side panel → **Layers**). Options: **Map → Storm report options** and **Storm chaser options** |
 | My location | right-click the map → **Set my location here**; **Ctrl+L** goes back to it. **Radar → Alert me when a warning covers my location** |
+| Command palette | **Ctrl+K**, then type anything: a command, a radar, a product, a city, a bookmark |
+| Satellite / lightning / MRMS / METAR | **Layers** menu. The satellite channel, opacity and the lightning window are in the same menu |
+| Saved locations | **Locations** menu (or the **Locations** side panel): add places, **Locations and alerts…** for the rules |
+| Bookmarks and sharing | **Ctrl+B** saves a bookmark; **File → Share this view** makes a `.rfview` file or a line of text anyone can open |
+| Workspaces | **View → Workspaces**: Briefing, Tornado hunt, Hail, Flood… or save your own |
+| Loop / picture export | **File → Export**: GIF, MP4, PNG with a title bar |
+| Soundings | **Tools → Sounding**, or right-click the map → **Model sounding here** |
+| Follow a storm | right-click a cell → **Follow the storm here**, or **Tools → Follow a storm**; **Esc** stops |
+| Storm trends | **Storm cells** panel → **Show trends for the selected cell** |
+| Learn | **Help → Learn: historic storms…** |
 | Favourite radars | **Ctrl+D** adds the current radar; **Radar → Favourite radars**, or ☆ in the radar list |
 | 3-D view | **B** (or **3D**), then drag a box around a storm. In the 3-D view: drag to rotate, right-drag to pan, wheel to zoom |
 | Colour table | drag a `.pal` file onto a panel |
@@ -206,6 +241,7 @@ whether to delete your settings and downloaded data too.
 | **Warnings** | active warnings for the time shown, time left and tags such as RADAR CONFIRMED. The buttons (tornado / severe / flood / other / watches) choose what is shown on the map and in the list. Click to highlight, double-click to go to it (switching to the nearest radar). **Reports** lists storm reports |
 | **Storm cells** | Level III cells sorted by threat: position, motion, hail probability and size, mesocyclone rank, TVS. Double-click to centre on a cell |
 | **Inspector** | the value of every panel under the mouse, plus pop-up text for anything there |
+| **Locations** | your saved places with the nearest warning, a countdown and the alert state |
 | **Placefiles** | the placefile manager |
 | **Layers** | overlays, map layers, smoothing and the velocity noise filter |
 
@@ -255,7 +291,7 @@ A complete example is [docs/example.rftheme](docs/example.rftheme).
 
 ### Settings
 
-**File → Settings** (**Ctrl+,**) has: General (units, start-up, mouse), Display (smoothing, velocity
+**File → Settings** (**Ctrl+,**) has: General (units, start-up, mouse, explain values in words), Display (smoothing, velocity
 noise filter, colour bars), Loop & live, Environment (0 °C / −20 °C heights for MESH/POSH),
 Colour tables, Warnings (a line for each warning type and threat level), Themes and Performance
 (memory, graphics info, log file).
@@ -311,6 +347,10 @@ python -m pyflakes radarforge tests                    # lint
 decode + product test. The basemap is rebuilt with `tools/build_maps.py` (needs `pip install -e ".[maps]"`).
 Tests run automatically on Windows and Linux for every push (`.github/workflows/tests.yml`).
 
+To build the packaged downloads yourself: `pip install -e ".[package]"` and `python packaging/build.py --zip`
+(add `--appimage` on Linux, with `appimagetool` on the PATH). The build ends by running the finished program's
+`--self-test`. Pushing a tag such as `v1.8.0` makes GitHub build and publish them (`.github/workflows/release.yml`).
+
 ### Project layout
 
 ```
@@ -325,17 +365,30 @@ RadarForge/
 │   ├── config.py         settings and per-OS folders
 │   ├── themes.py         themes and theme files
 │   ├── gl_setup.py       OpenGL setups to try
-│   ├── data/             Level II decoder, Level III (MetPy), AWS access, live chunks, radar sites
+│   ├── selftest.py       `--self-test`: are the libraries and data files all there?
+│   ├── data/             getting and decoding data (no windows): Level II / III, GOES, MRMS, HRRR, GRIB2,
+│   │                     METAR, soundings, feeds, AWS access, radar sites
 │   ├── products/         product catalog, colour tables, dealiasing, derived & volume products
 │   ├── render/           OpenGL radar view, shaders, basemap
-│   ├── features/         placefiles, warnings, storm reports, chasers, SPC, Level III overlays, my location
-│   ├── tools/            cross section, 3-D view
-│   ├── ui/               main window, panels, workspace (docking), dialogs, settings, icons
+│   ├── overlays/         what is drawn on the map: warnings, SPC, placefiles, chasers, satellite, lightning,
+│   │                     MRMS, surface obs, signature flags, locations, Level III graphics
+│   ├── services/         the logic behind the features, no Qt: export, alerts, locations, views / bookmarks,
+│   │                     command search, sounding maths, detection, following, trends, hover guide, Learn events
+│   ├── tools/            cross section, 3-D view, sounding / skew-T, storm trends, storm track
+│   ├── ui/
+│   │   ├── mainwindow.py the window, assembled from the mixins in window/
+│   │   ├── window/       one file per area: menus, toolbars, timeline, rendering, layers, locations, views,
+│   │   │                 exporting, following, learning, commands, docking…
+│   │   ├── panels/       the side panels (products, warnings, cells, inspector, layers, locations)
+│   │   ├── dialogs/      settings, archive, export, bookmarks, locations, Learn…
+│   │   └── workspace.py · palette.py · icons.py
 │   └── assets/           basemap, icons
+├── packaging/            PyInstaller recipe, AppImage and Windows installer files, build.py
 ├── scripts/              Python check shared by the installers
 ├── tests/                automated tests
 ├── tools/                developer tools (basemap builder)
 ├── docs/                 screenshots, example theme
+├── .github/workflows/    tests (every push) and release (builds the downloads when a version is tagged)
 ├── CHANGELOG.md · LICENSE · THIRD_PARTY_NOTICES.md
 └── pyproject.toml · requirements.txt
 ```
@@ -348,6 +401,11 @@ RadarForge/
 * MESH/POSH use the 0 °C and −20 °C heights from Settings.
 * Watches are shown in live mode; archive mode shows storm-based warnings and storm reports.
 * Storm chasers, Spotter Network reports and the SPC outlook / discussions are shown with live data.
+* GOES, GLM, MRMS and HRRR are NOAA's open data on AWS: a few minutes behind real time, and they can be missing for
+  a moment. MRMS and HRRR files are large (tens of MB), so the first load of each takes a few seconds.
+* The signature flags and the hover guide are pointers for a second look, not warnings. Always check the
+  velocity and correlation coefficient yourself, and use official NWS warnings for decisions.
+* Alert sounds and desktop notifications depend on your system (a sound device; `notify-send` on Linux).
 
 ## Credits
 

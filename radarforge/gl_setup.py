@@ -172,7 +172,9 @@ def restart_with_next(order: list, attempt: int, reason: str) -> bool:
     env[ENV_ATTEMPT] = str(nxt)
     print(f"RadarForge: {describe(order[attempt])} failed ({reason}); trying {describe(order[nxt])}…",
           file=sys.stderr, flush=True)
-    args = [sys.executable, "-m", "radarforge"] + sys.argv[1:]
+    # a packaged build is its own program: there is no "python -m" to run
+    args = [sys.executable] + sys.argv[1:] if getattr(sys, "frozen", False) else \
+        [sys.executable, "-m", "radarforge"] + sys.argv[1:]
     for stream in (sys.stderr, sys.stdout):
         try:
             stream.flush()

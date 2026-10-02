@@ -66,4 +66,19 @@ def test_packages_have_a_home_for_everything():
     assert packages >= {"data", "products", "render", "overlays", "services", "tools", "ui"}
     assert "features" not in packages
     modules = {p.stem for p in ROOT.glob("*.py")}
-    assert modules <= {"__init__", "__main__", "app", "config", "fmt", "gl_setup", "themes"}, modules
+    assert modules <= {"__init__", "__main__", "app", "config", "fmt", "gl_setup", "selftest", "themes"}, modules
+
+
+def test_download_cache_is_trimmed_oldest_first(tmp_path):
+    import os
+
+    from radarforge.data import aws
+    for i, name in enumerate(("old", "mid", "new")):
+        f = tmp_path / "bucket" / name
+        f.parent.mkdir(exist_ok=True)
+        f.write_bytes(b"x" * 1000)
+        os.utime(f, (1_000_000 + i, 1_000_000 + i))
+    freed = aws.prune_cache(1500, tmp_path)
+    left = sorted(p.name for p in (tmp_path / "bucket").iterdir())
+    assert freed == 2000 and left == ["new"]
+    assert aws.prune_cache(10_000, tmp_path) == 0

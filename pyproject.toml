@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "radarforge"
-version = "1.7.0"
+version = "1.8.0"
 description = "NEXRAD Level II / Level III weather radar viewer: live and archive data, 1-6 linked panels, derived products, placefiles, cross sections and 3-D"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -31,10 +31,13 @@ dependencies = [
   "h5py>=3.8",
   "pillow>=10.0",
   "imageio-ffmpeg>=0.4.9",
+  "matplotlib>=3.7",
+  "pyproj>=3.5",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest", "pyflakes"]
+package = ["pyinstaller>=6.0"]          # packaging/build.py
 maps = ["shapely", "geonamescache"]      # only for rebuilding the basemap (tools/build_maps.py)
 
 [project.scripts]

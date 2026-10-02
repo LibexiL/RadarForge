@@ -86,6 +86,7 @@ DEFAULTS = {
     "height_units": "kft",        # kft | km
     "volume_cache": 4,            # decoded Level II volumes held in RAM
     "image_cache_mb": 600,
+    "download_cache_gb": 6,       # downloaded radar, satellite and model files kept on disk (oldest removed first)
     "window_geometry": None,
     "workspace": None,            # panel layout (see ui/workspace.py)
     "theme": "RadarForge Dark",
