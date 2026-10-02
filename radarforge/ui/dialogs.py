@@ -3,11 +3,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from PySide6.QtCore import QDate, QObject, Qt, QThread, Signal
+from PySide6.QtCore import QDate, QObject, Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QFontDatabase
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDateEdit, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout,
                                QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QPushButton, QSpinBox, QTableWidget,
+                               QListWidgetItem, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ..data import aws
@@ -16,44 +17,81 @@ from ..data.sites import all_sites
 
 # --------------------------------------------------------------------------- #
 class SiteDialog(QDialog):
-    def __init__(self, current: str, parent=None):
+    def __init__(self, current: str, parent=None, settings=None):
         super().__init__(parent)
         self.setWindowTitle("Choose radar")
         self.resize(460, 560)
+        self.settings = settings
         self.filter = QLineEdit()
         self.filter.setPlaceholderText("Search by ID, city or state (e.g. TLX, Denver, PA)")
         self.tdwr = QCheckBox("Include TDWR")
         self.list = QListWidget()
+        self.fav_btn = QPushButton("☆ Favourite")
+        self.fav_btn.setToolTip("Keep the selected radar at the top of this list (and in Radar → Favourite radars)")
+        self.fav_btn.clicked.connect(self._toggle_fav)
+        self.fav_btn.setVisible(settings is not None)
         lay = QVBoxLayout(self)
         top = QHBoxLayout()
         top.addWidget(self.filter, 1)
         top.addWidget(self.tdwr)
         lay.addLayout(top)
         lay.addWidget(self.list, 1)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.fav_btn)
+        bottom.addStretch(1)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        bottom.addWidget(bb)
+        lay.addLayout(bottom)
         self.filter.textChanged.connect(self._fill)
         self.tdwr.toggled.connect(self._fill)
         self.list.itemDoubleClicked.connect(lambda *_: self.accept())
+        self.list.currentItemChanged.connect(lambda *_: self._sync_fav())
         self.current = current
         self._fill()
 
+    def _favs(self):
+        return list(self.settings["favorite_sites"] or []) if self.settings is not None else []
+
     def _fill(self):
         q = self.filter.text().strip().lower()
+        keep = self.selected() or self.current
         self.list.clear()
-        for s in sorted(all_sites().values(), key=lambda s: (s.state, s.id)):
-            if s.type == "tdwr" and not self.tdwr.isChecked():
+        favs = self._favs()
+        sites = sorted(all_sites().values(), key=lambda s: (s.id not in favs, favs.index(s.id) if s.id in favs else 0,
+                                                            s.state, s.id))
+        for s in sites:
+            if s.type == "tdwr" and not self.tdwr.isChecked() and s.id not in favs:
                 continue
             text = s.label
             if q and q not in text.lower() and q != s.state.lower():
                 continue
-            it = QListWidgetItem(text)
+            it = QListWidgetItem(("★  " if s.id in favs else "") + text)
             it.setData(Qt.UserRole, s.id)
             self.list.addItem(it)
-            if s.id == self.current:
+            if s.id == keep:
                 self.list.setCurrentItem(it)
+        self._sync_fav()
+
+    def _sync_fav(self):
+        sid = self.selected()
+        on = sid in self._favs()
+        self.fav_btn.setText("★ Remove favourite" if on else "☆ Add favourite")
+        self.fav_btn.setEnabled(sid is not None)
+
+    def _toggle_fav(self):
+        sid = self.selected()
+        if sid is None or self.settings is None:
+            return
+        favs = self._favs()
+        if sid in favs:
+            favs.remove(sid)
+        else:
+            favs.append(sid)
+        self.settings["favorite_sites"] = favs
+        self.settings.save()
+        self._fill()
 
     def selected(self):
         it = self.list.currentItem()
@@ -346,3 +384,82 @@ class StormMotionDialog(QDialog):
 from . import settings_dialog as _settings_dialog  # noqa: E402  (moved; still importable from here)
 
 SettingsDialog = _settings_dialog.SettingsDialog
+
+
+# --------------------------------------------------------------------------- #
+class _TextFetch(QObject):
+    done = Signal(str, bool)
+
+    def __init__(self, url):
+        super().__init__()
+        self.url = url
+
+    def run(self):
+        import requests
+        try:
+            r = requests.get(self.url, timeout=20, headers={"User-Agent": "RadarForge (NEXRAD viewer)"})
+            r.raise_for_status()
+            self.done.emit(r.text.strip(), True)
+        except Exception as exc:
+            self.done.emit(f"Couldn't load the discussion ({exc}).\nOpen it on the SPC website instead.", False)
+
+
+class McdDialog(QDialog):
+    """An SPC mesoscale discussion: summary, and its full text loaded in the background."""
+    _cache: dict = {}
+
+    def __init__(self, mcd: dict, parent=None):
+        super().__init__(parent)
+        from ..features import feeds
+        self.setWindowTitle(f"SPC Mesoscale Discussion {mcd['number']}")
+        self.resize(640, 640)
+        head = f"<b>Mesoscale Discussion {mcd['number']}</b>"
+        if mcd.get("concerning"):
+            head += f"<br>Concerning: {mcd['concerning'].capitalize()}"
+        bits = []
+        if mcd.get("issue"):
+            bits.append(f"issued {feeds.local_hm(mcd['issue'])}")
+        if mcd.get("expire"):
+            bits.append(f"until {feeds.local_hm(mcd['expire'])}")
+        if mcd.get("watch") is not None:
+            bits.append(f"chance of a watch {mcd['watch']}%")
+        if bits:
+            head += "<br>" + " · ".join(bits)
+        lab = QLabel(head)
+        lab.setWordWrap(True)
+        self.text = QPlainTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
+        year = (mcd.get("issue") or datetime.now(timezone.utc)).year
+        web = QPushButton("Open on the SPC website")
+        web.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(feeds.mcd_page(mcd["number"], year))))
+        close = QPushButton("Close")
+        close.clicked.connect(self.close)
+        row = QHBoxLayout()
+        row.addWidget(web)
+        row.addStretch(1)
+        row.addWidget(close)
+        lay = QVBoxLayout(self)
+        lay.addWidget(lab)
+        lay.addWidget(self.text, 1)
+        lay.addLayout(row)
+        pid = mcd.get("product_id") or ""
+        if pid in self._cache:
+            self.text.setPlainText(self._cache[pid])
+        elif pid:
+            self.text.setPlainText("Loading the discussion…")
+            self._thread = QThread(self)
+            self._job = _TextFetch(feeds.mcd_text_url(pid))
+            self._job.moveToThread(self._thread)
+            self._thread.started.connect(self._job.run)
+            self._pid = pid
+            self._job.done.connect(self._loaded)          # a bound method: runs on the UI thread
+            self._job.done.connect(self._thread.quit)
+            self._thread.start()
+        else:
+            self.text.setPlainText("No text available – open it on the SPC website.")
+
+    def _loaded(self, text, ok):
+        if ok:
+            self._cache[self._pid] = text
+        self.text.setPlainText(text)

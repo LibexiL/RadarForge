@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.7.0 – 2026-10-01
+
+* **Storm track tool** (**T**, or **Track** on the toolbar):
+  * Click a storm, then drag the yellow arrowhead to where it's going. Tick marks show the clock
+    times along the way.
+  * The status bar lists the towns it reaches and when, and your arrival time if you've set your
+    location.
+  * Right-click for **Use for SRV storm motion**, a 30–120 minute track, reset or clear.
+* **Measure** lines now stay on the map until the next measurement or **Esc**.
+* **Storm chasers** (Map → Storm chasers): live Spotter Network positions, updated every minute.
+  * Arrows show which way each chaser is driving; the colour shows how fresh the position is.
+  * Show everyone or only active reporters, with or without names. Hover for details.
+* **SPC day 1 outlook and mesoscale discussions** (Map menu): risk areas with labels.
+  * Hover inside an outlook area for its category and the tornado, wind and hail chances there.
+  * Right-click a discussion to read its full text.
+* **Storm reports**:
+  * Choose 1–24 hours, and which types to show (tornado, hail, wind, flood, other), from the Map
+    menu or the Reports tab.
+  * Spotter Network reports are added to the NWS ones.
+  * Live reports fade with age. New letters: T, FC (funnel), WC (wall cloud), H, W, G, F.
+* **My location**: right-click the map → **Set my location here**, and **Ctrl+L** goes back to it.
+  When a new tornado, severe thunderstorm or flash flood warning covers it, RadarForge pops it up
+  and flashes the taskbar. You're alerted once per warning, and again if it's upgraded.
+* **Favourite radars**: **Ctrl+D**, **Radar → Favourite radars**, and ☆ in the radar list.
+* **Copy image** (**Ctrl+Shift+C**) puts the map on the clipboard.
+* Hovering a warning or watch shows its text only on its **outline**, not anywhere inside it, so it
+  no longer covers the storm you're looking at. SPC outlines work the same way.
+
 ## 1.6.0 – 2026-10-01
 
 * **Warning lines** (Settings → Warnings): every warning type and threat level has its own line –

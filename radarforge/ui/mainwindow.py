@@ -4,18 +4,25 @@ from __future__ import annotations
 import math
 import os
 import numpy as np
+import time
+from datetime import datetime, timezone
+
 from PySide6.QtCore import QEvent, QObject, QPointF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QLabel, QMainWindow, QMenu, QMessageBox,
-                               QProgressBar, QSizePolicy, QSlider, QToolBar, QToolButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QInputDialog, QLabel, QMainWindow, QMenu,
+                               QMessageBox, QProgressBar, QSizePolicy, QSlider, QToolBar, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from .. import __version__, themes
 from ..config import APP_NAME
 from ..data.sites import get_site, nearest_site
+from ..features import feeds
+from ..features.chasers import ChasersOverlay
 from ..features.l3overlay import Level3Overlay
+from ..features.location import MyLocation
 from ..features.placefile import PlacefileManager
-from ..features.warnings import WarningsOverlay
+from ..features.spc import SpcOverlay
+from ..features.warnings import EVENT_GROUP, WarningsOverlay
 from ..products import catalog, colortable
 from ..products.engine import ProductEngine
 from ..products.geometry import aeqd_forward, beam_height, slant_range
@@ -23,7 +30,7 @@ from ..render.glview import RadarView
 from ..tools.volume3d import Volume3DWindow
 from ..tools.xsection import CrossSectionWindow
 from .datamanager import DataManager
-from .dialogs import ArchiveDialog, PlacefilePanel, SiteDialog, StormMotionDialog
+from .dialogs import ArchiveDialog, McdDialog, PlacefilePanel, SiteDialog, StormMotionDialog
 from .settings_dialog import SettingsDialog
 from . import icons
 from .panels import CELL_CODES, CellsPanel, InspectorPanel, LayersPanel, ProductsPanel, WarningsPanel
@@ -134,13 +141,24 @@ class MainWindow(QMainWindow):
         self.warnings = WarningsOverlay(settings, self.view.maps.county_polygons, self)
         self.placefiles = PlacefileManager(settings, self)
         self.l3ov = Level3Overlay(settings)
-        self.view.overlays = [self.warnings, self.placefiles, self.l3ov]
+        is_live = lambda: self.data.mode == "live"          # noqa: E731
+        self.chasers = ChasersOverlay(settings, is_live, self)
+        self.spc = SpcOverlay(settings, is_live, self)
+        self.spc._view = self.view
+        self.my_location = MyLocation(settings)
+        self.view.overlays = [self.spc, self.warnings, self.placefiles, self.l3ov, self.chasers, self.my_location]
         self.view.underlays = [self.placefiles]
-        self.view.hover_providers = [self.l3ov, self.placefiles, self.warnings]
-        for sig in (self.warnings.changed, self.placefiles.changed):
+        self.view.hover_providers = [self.l3ov, self.chasers, self.placefiles, self.warnings, self.my_location, self.spc]
+        for sig in (self.warnings.changed, self.placefiles.changed, self.chasers.changed, self.spc.changed):
             sig.connect(self.view.update)
-        self.warnings.status.connect(self._status_msg)
-        self.placefiles.status.connect(self._status_msg)
+        for ov in (self.warnings, self.placefiles, self.chasers, self.spc):
+            ov.status.connect(self._status_msg)
+        self.warnings.changed.connect(self._check_location_alerts)
+        self._notified = dict(settings["notified_warnings"] or {})
+        # storm track tool
+        self.view.track_minutes = int(settings["track_minutes"] or 60)
+        self.view.track_time_fn = self._track_start_time
+        self.view.track_default_fn = self._track_default
 
         self._build_toolbar()
         self._build_timeline()
@@ -167,6 +185,7 @@ class MainWindow(QMainWindow):
         self.view.boxDrawn.connect(self._box_drawn)
         self.view.siteClicked.connect(lambda sid: self.switch_site(sid, keep_view=True))
         self.view.panelActivated.connect(lambda i: self.stateChanged.emit())
+        self.view.trackChanged.connect(self._track_changed)
 
         # initial state
         self._apply_view_settings()
@@ -287,6 +306,8 @@ class MainWindow(QMainWindow):
                                     ("xsection", "X-Section", "Drag a line to make a vertical cross section (X)",
                                      "xsection"),
                                     ("measure", "Measure", "Drag to measure distance / bearing (M)", "measure"),
+                                    ("track", "Track", "Storm track: click a storm, then drag the yellow arrowhead to "
+                                     "where it's going – shows when it reaches the towns ahead (T)", "track"),
                                     ("box3d", "3D", "Drag a box around a storm to see it in 3-D (B)", "box3d")):
             act = QAction(text, self, checkable=True)
             act.setToolTip(tip)
@@ -368,6 +389,7 @@ class MainWindow(QMainWindow):
         self._act(m, "Open archive from AWS…", self.open_archive, "Ctrl+A")
         m.addSeparator()
         self._act(m, "Save image…", self.save_image, "Ctrl+S")
+        self._act(m, "Copy image", self.copy_image, "Ctrl+Shift+C")
         m.addSeparator()
         self._act(m, "Settings…", self.open_settings, "Ctrl+,")
         m.addSeparator()
@@ -417,6 +439,15 @@ class MainWindow(QMainWindow):
         self._act(m, "Tilt down", lambda: self.step_tilt(-1), None)
         m.addSeparator()
         self._act(m, "Storm motion…", self.edit_storm_motion, None)
+        m.addSeparator()
+        self.fav_menu = m.addMenu("Favourite radars")
+        self.fav_menu.aboutToShow.connect(self._fill_fav_menu)
+        self._act(m, "Add / remove this radar as a favourite", self.toggle_favorite, "Ctrl+D")
+        m.addSeparator()
+        self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L")
+        self._act(m, "Set my location…", self.set_my_location_dialog, None)
+        self.warn_loc_act = self._act(m, "Alert me when a warning covers my location", self._toggle_warn_loc, None,
+                                      checkable=True, checked=bool(self.settings["warn_at_location"]))
 
         # Map (overlays + map layers + placefiles)
         m = mb.addMenu("&Map")
@@ -427,7 +458,46 @@ class MainWindow(QMainWindow):
             self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
                                                None, checkable=True,
                                                checked=bool(self.settings["overlays"].get(key, False)))
+        rep = m.addMenu("Storm report options")
+        hours = rep.addMenu("Show the last")
+        self.rep_hours_group = QActionGroup(self)
+        for h in (1, 3, 6, 12, 24):
+            a = QAction(f"{h} hour" + ("s" if h > 1 else ""), self, checkable=True)
+            a.setChecked(int(self.settings["report_hours"] or 3) == h)
+            a.triggered.connect(lambda _=False, h=h: self.set_report_hours(h))
+            self.rep_hours_group.addAction(a)
+            hours.addAction(a)
+        rep.addSeparator()
+        self.rep_type_acts = {}
+        for g, label in feeds.REPORT_GROUPS:
+            on = bool((self.settings["report_types"] or {}).get(g, g != "other"))
+            self.rep_type_acts[g] = self._act(rep, label + (" (rain, snow…)" if g == "other" else ""),
+                                              lambda checked, g=g: self.set_report_type(g, checked), None,
+                                              checkable=True, checked=on)
+        rep.addSeparator()
+        self.sn_rep_act = self._act(rep, "Include Spotter Network reports", self._toggle_sn_reports, None,
+                                    checkable=True, checked=bool(self.settings["spotter_reports"]))
         self._act(m, "Refresh warnings now", lambda: self.warnings.refresh(force=True), None)
+        m.addSection("Storm chasers")
+        self.overlay_acts["chasers"] = self._act(m, "Storm chasers (Spotter Network)",
+                                                 lambda checked: self._toggle_overlay("chasers", checked), None,
+                                                 checkable=True, checked=bool(self.settings["overlays"].get("chasers")))
+        ch = m.addMenu("Storm chaser options")
+        grp = QActionGroup(self)
+        for active, label in ((False, "Everyone"), (True, "Active reporters only (5+ reports in a year)")):
+            a = QAction(label, self, checkable=True)
+            a.setChecked(bool(self.settings["chasers_active_only"]) == active)
+            a.triggered.connect(lambda _=False, v=active: self._set_chasers_active(v))
+            grp.addAction(a)
+            ch.addAction(a)
+        ch.addSeparator()
+        self._act(ch, "Show names (zoomed in)", self._toggle_chaser_names, None, checkable=True,
+                  checked=bool(self.settings["chaser_names"]))
+        m.addSection("Storm Prediction Center")
+        for key, label in (("spc_outlook", "Day 1 convective outlook"), ("spc_mcd", "Mesoscale discussions")):
+            self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
+                                               None, checkable=True,
+                                               checked=bool(self.settings["overlays"].get(key, False)))
         m.addSection("Level III")
         for key, label in (("storm_tracks", "Storm tracks (NST)"), ("meso", "Mesocyclones (NMD)"),
                            ("tvs", "TVS (NTV)"), ("hail", "Hail index (NHI)"), ("melting_layer", "Melting layer (N0M)")):
@@ -604,6 +674,10 @@ class MainWindow(QMainWindow):
         self.prog.setMaximumWidth(140)
         self.prog.setVisible(False)
         sb.addPermanentWidget(self.prog)
+        self.track_lbl = QLabel("")
+        self.track_lbl.setStyleSheet("color:#ffd23c;font-weight:bold;")
+        self.track_lbl.setVisible(False)
+        sb.addPermanentWidget(self.track_lbl)
         self.status_lbl = QLabel("")
         sb.addPermanentWidget(self.status_lbl)
         self.gl_warn = QLabel("⚠ Software OpenGL")
@@ -631,7 +705,8 @@ class MainWindow(QMainWindow):
         sc("X", lambda: self.set_tool("xsection"))
         sc("M", lambda: self.set_tool("measure"))
         sc("B", lambda: self.set_tool("box3d"))
-        sc(Qt.Key_Escape, lambda: self.set_tool("pan"))
+        sc("T", lambda: self.set_tool("track"))
+        sc(Qt.Key_Escape, self._escape)
         for n in range(1, 7):
             sc(f"Alt+{n}", lambda n=n: self.set_layout(n))
 
@@ -677,7 +752,7 @@ class MainWindow(QMainWindow):
         self.warnings.center = (s.lat, s.lon)
 
     def choose_site(self):
-        d = SiteDialog(self.data.site_id, self)
+        d = SiteDialog(self.data.site_id, self, self.settings)
         if d.exec() and d.selected():
             self.switch_site(d.selected())
 
@@ -690,6 +765,7 @@ class MainWindow(QMainWindow):
         self._shown_frame = None
         self.follow_latest = True
         self.view.clear_lines()
+        self.view.clear_track()
         self.view.set_box(None)
         self._set_site_projection(sid)
         if center is not None:
@@ -712,6 +788,8 @@ class MainWindow(QMainWindow):
             self.follow_latest = True
             self.warnings.set_live()
             self.data.start_live()
+            self.chasers.refresh(force=True)
+            self.spc.refresh(force=True)
         else:
             self.data.stop_live()
 
@@ -1240,6 +1318,30 @@ class MainWindow(QMainWindow):
                 a.triggered.connect(lambda: self.switch_site(ns.id, keep_view=True))
             a = menu.addAction("Centre here")
             a.triggered.connect(lambda: self.view.set_view(x, y, self.view.scale))
+            mcd = self.spc.mcd_at(lat, lon)
+            if mcd is not None:
+                a = menu.addAction(f"Read SPC Mesoscale Discussion {mcd['number']}…")
+                a.triggered.connect(lambda: McdDialog(mcd, self).show())
+            menu.addSeparator()
+            a = menu.addAction("Set my location here")
+            a.triggered.connect(lambda: self.set_my_location(lat, lon))
+        if self.my_location.latlon() is not None:
+            a = menu.addAction("Remove my location")
+            a.triggered.connect(lambda: self.set_my_location(None, None))
+        if self.view.track is not None:
+            tm = menu.addMenu("Storm track")
+            a = tm.addAction("Use for SRV storm motion")
+            a.triggered.connect(self.use_track_for_srv)
+            a = tm.addAction("Reset to the storm motion")
+            a.triggered.connect(lambda: self.view.set_track(self.view.track["a"]))
+            lm = tm.addMenu("Track length")
+            for mins in (30, 60, 90, 120):
+                a = lm.addAction(f"{mins} minutes")
+                a.setCheckable(True)
+                a.setChecked(self.view.track_minutes == mins)
+                a.triggered.connect(lambda _=False, mm=mins: self.set_track_minutes(mm))
+            a = tm.addAction("Clear the storm track")
+            a.triggered.connect(self.view.clear_track)
         menu.exec(gpos)
 
     def _load_pal_for(self, pid):
@@ -1316,6 +1418,78 @@ class MainWindow(QMainWindow):
             self._status_msg("Cross-section: drag a line across a storm (A → B)")
         elif tool == "box3d":
             self._status_msg("3-D: drag a box around the storm you want to render (Esc to cancel)")
+        elif tool == "track":
+            self._status_msg("Storm track: click a storm, then drag the yellow arrowhead to where it's going "
+                             "(right-click for options, Esc twice to clear)")
+
+    def _escape(self):
+        """Esc: back to pan; pressed again, clears the measurement and the storm track."""
+        if self.view.tool != "pan":
+            self.set_tool("pan")
+        else:
+            self.view.clear_lines("measure")
+            self.view.clear_track()
+
+    # ---------------------------------------------------------------- storm track
+    def _track_start_time(self):
+        f = self.current_frame()
+        return f.time if f is not None and getattr(f, "time", None) else datetime.now(timezone.utc)
+
+    def _track_default(self, x, y, minutes):
+        """Where the storm motion (Storm motion…) takes a storm at x, y in `minutes`."""
+        heading = math.radians((float(self.settings["storm_motion_dir"]) + 180.0) % 360.0)
+        kts = float(self.settings["storm_motion_kts"]) or 30.0
+        d = kts * 1.852 * minutes / 60.0
+        return x + math.sin(heading) * d, y + math.cos(heading) * d
+
+    def _track_changed(self):
+        t = self.view.track
+        if t is None:
+            self.track_lbl.setVisible(False)
+            return
+        m = self.view.track_motion()
+        if m is None:
+            self.track_lbl.setVisible(False)
+            return
+        kmh, heading = m
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta
+
+        def when(mins):
+            at = t["start"] + timedelta(minutes=mins)
+            left = round((at - now).total_seconds() / 60)
+            return f"{feeds.local_hm(at)} (" + (f"in {left} min" if left > 0 else "now" if left == 0 else "passed") + ")"
+        parts = [f"Track {feeds.compass(heading)} {kmh / 1.852:.0f} kt"]
+        loc = self.my_location.xy(self.view)
+        if loc is not None:
+            e = feeds.eta_at(t["a"], t["b"], self.view.track_minutes, loc, self.view.track_half_width)
+            parts.append("You: " + (when(e) if e is not None else "not in its path"))
+        parts += [f"{n} {when(mins)}" for n, mins, _x, _y in t["etas"][:3]]
+        if not t["etas"]:
+            parts.append(f"no towns in the next {self.view.track_minutes} min")
+        self.track_lbl.setText("  ·  ".join(parts))
+        self.track_lbl.setToolTip("Towns the storm reaches (within 6 miles of the track):\n" +
+                                  ("\n".join(f"{n}: {when(mins)}" for n, mins, _x, _y in t["etas"]) or "none"))
+        self.track_lbl.setVisible(True)
+
+    def use_track_for_srv(self):
+        m = self.view.track_motion()
+        if m is None:
+            return
+        kmh, heading = m
+        self.settings["storm_motion_dir"] = float(round((heading + 180) % 360))
+        self.settings["storm_motion_kts"] = float(round(kmh / 1.852))
+        self.settings.save()
+        self._update_sm_label()
+        self._panel_req.clear()
+        self._show_frame()
+        self.stateChanged.emit()
+        self._status_msg(f"SRV storm motion set from the track: {self.settings['storm_motion_dir']:03.0f}° / "
+                         f"{self.settings['storm_motion_kts']:.0f} kt")
+
+    def set_track_minutes(self, m):
+        self.settings["track_minutes"] = m
+        self.view.set_track_minutes(m)
 
     def _box_drawn(self, x0, y0, x1, y1):
         self.set_tool("pan")
@@ -1393,6 +1567,184 @@ class MainWindow(QMainWindow):
             self.view.grab_png(path)
             self._status_msg(f"Saved {path}")
 
+    def copy_image(self):
+        """The map as a picture on the clipboard (paste it into a chat, e-mail or document)."""
+        QApplication.clipboard().setImage(self.view.grabFramebuffer())
+        self._status_msg("Map picture copied – paste it anywhere")
+
+    # ---------------------------------------------------------------- favourites
+    def _favorites(self):
+        return [s for s in (self.settings["favorite_sites"] or []) if get_site(s)]
+
+    def _fill_fav_menu(self):
+        m = self.fav_menu
+        m.clear()
+        favs = self._favorites()
+        if not favs:
+            a = m.addAction("No favourites yet – Ctrl+D adds the current radar")
+            a.setEnabled(False)
+        for sid in favs:
+            s = get_site(sid)
+            a = m.addAction(f"{sid}  {s.place}, {s.state}")
+            a.setCheckable(True)
+            a.setChecked(sid == self.data.site_id)
+            a.triggered.connect(lambda _=False, sid=sid: self.switch_site(sid))
+
+    def toggle_favorite(self, sid=None):
+        sid = sid if isinstance(sid, str) else self.data.site_id
+        favs = list(self.settings["favorite_sites"] or [])
+        if sid in favs:
+            favs.remove(sid)
+            self._status_msg(f"{sid} removed from favourites")
+        else:
+            favs.append(sid)
+            self._status_msg(f"{sid} added to favourites (Radar → Favourite radars)")
+        self.settings["favorite_sites"] = favs
+        self.settings.save()
+
+    # ---------------------------------------------------------------- my location
+    def set_my_location(self, lat, lon):
+        self.settings["my_location"] = None if lat is None else [round(float(lat), 5), round(float(lon), 5)]
+        self.settings.save()
+        self.view.update()
+        self._track_changed()
+        if lat is not None:
+            self._status_msg("My location set – Ctrl+L goes back to it")
+            self._check_location_alerts()
+
+    def set_my_location_dialog(self):
+        cur = self.my_location.latlon()
+        text, ok = QInputDialog.getText(self, "My location", "Latitude, longitude (e.g. 35.22, -97.44).\n"
+                                        "You can also right-click the map and choose \"Set my location here\".",
+                                        text=f"{cur[0]:.4f}, {cur[1]:.4f}" if cur else "")
+        if not ok:
+            return
+        try:
+            lat, lon = (float(v) for v in text.replace(";", ",").split(",")[:2])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise ValueError
+        except ValueError:
+            QMessageBox.warning(self, "My location", "Please type the latitude and longitude separated by a comma.")
+            return
+        self.set_my_location(lat, lon)
+
+    def go_to_my_location(self):
+        ll = self.my_location.latlon()
+        if ll is None:
+            self.set_my_location_dialog()
+            ll = self.my_location.latlon()
+            if ll is None:
+                return
+        s = get_site(self.data.site_id)
+        if s is not None and self.settings["go_to_nearest_radar"]:
+            near = nearest_site(*ll)
+            if near is not None and near.id != s.id:
+                d = math.hypot(*aeqd_forward(ll[0], ll[1], s.lat, s.lon))
+                if d > 230:
+                    self.switch_site(near.id)
+        x, y = aeqd_forward(ll[0], ll[1], self.view.lat0, self.view.lon0)
+        self.view.set_view(float(x), float(y), max(self.view.scale, 3.0))
+
+    def _toggle_warn_loc(self, on):
+        self.settings["warn_at_location"] = on
+        self.settings.save()
+        if on:
+            self._check_location_alerts()
+
+    def _check_location_alerts(self):
+        """Pops up a new tornado / severe / flash flood warning that covers my location (live data):
+        once per warning, and again only when it's upgraded (e.g. to PDS or an emergency)."""
+        if not self.settings["warn_at_location"] or self.data.mode != "live":
+            return
+        ll = self.my_location.latlon()
+        if ll is None:
+            return
+        lat, lon = ll
+        now = datetime.now(timezone.utc)
+        hits = []
+        for a in list(self.warnings.alerts):
+            if EVENT_GROUP.get(a.event) not in ("TOR", "SVR", "FFW") or a.action in ("CAN", "EXP"):
+                continue
+            if a.expires is not None and a.expires < now:
+                continue
+            if any(r[:, 1].min() <= lat <= r[:, 1].max() and r[:, 0].min() <= lon <= r[:, 0].max() for r in a.rings) \
+                    and feeds.rings_contain(a.rings, lat, lon):
+                hits.append(a)
+        fresh = [a for a in hits if a.key not in self._notified or a.style[3] > self._notified[a.key][0]]
+        if not fresh:
+            return
+        t_now = time.time()
+        self._notified = {k: v for k, v in self._notified.items() if v[1] > t_now - 3600}
+        for a in hits:
+            old = self._notified.get(a.key, [0, 0])[0]
+            self._notified[a.key] = [max(a.style[3], old), a.expires.timestamp() if a.expires else t_now + 7200]
+        self.settings["notified_warnings"] = self._notified
+        self.settings.save()
+        top = max(fresh, key=lambda a: a.style[3])
+        QApplication.alert(self, 0)
+        QApplication.beep()
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("Warning for your location")
+        box.setText(f"<b>{top.variant_label} ({top.variant})</b><br>covers your location.")
+        box.setInformativeText(top.hover)
+        go = box.addButton("Show on map", QMessageBox.AcceptRole)
+        box.addButton(QMessageBox.Close)
+        box.setModal(False)
+        go.clicked.connect(lambda: self._go_to_alert(top))
+        box.show()
+        self._status_msg(f"⚠ {top.variant_label} covers your location")
+
+    def _go_to_alert(self, a):
+        self.show_panel("warnings")
+        p = self.warnings_panel
+        p.refresh()
+        it = next((p.tree.topLevelItem(i) for i in range(p.tree.topLevelItemCount())
+                   if p.tree.topLevelItem(i).data(0, Qt.UserRole) == a.uid), None)
+        if it is not None:
+            p._zoom(it)
+        else:
+            self.go_to_my_location()
+
+    # ---------------------------------------------------------------- report / chaser options
+    def set_report_hours(self, h):
+        self.settings["report_hours"] = h
+        self.settings.save()
+        for a in self.rep_hours_group.actions():
+            a.setChecked(a.text().startswith(f"{h} "))
+        self.warnings.refresh(force=True)
+        if hasattr(self, "warnings_panel"):
+            self.warnings_panel.sync_report_options()
+
+    def set_report_type(self, group, on):
+        types = dict(self.settings["report_types"] or {})
+        types[group] = on
+        self.settings["report_types"] = types
+        self.settings.save()
+        act = self.rep_type_acts.get(group)
+        if act is not None and act.isChecked() != on:
+            act.blockSignals(True)
+            act.setChecked(on)
+            act.blockSignals(False)
+        self.view.update()
+        if hasattr(self, "warnings_panel"):
+            self.warnings_panel.sync_report_options()
+
+    def _toggle_sn_reports(self, on):
+        self.settings["spotter_reports"] = on
+        self.settings.save()
+        self.warnings.refresh(force=True)
+
+    def _set_chasers_active(self, active):
+        self.settings["chasers_active_only"] = active
+        self.settings.save()
+        self.chasers.refresh(force=True)
+
+    def _toggle_chaser_names(self, on):
+        self.settings["chaser_names"] = on
+        self.settings.save()
+        self.view.update()
+
     # ================================================================== toggles
     def _toggle_smooth(self, on):
         self.settings["gpu_smooth"] = on
@@ -1447,6 +1799,12 @@ class MainWindow(QMainWindow):
         self.settings.save()
         if key in ("warnings", "watches", "reports") and on:
             self.warnings.refresh(force=True)
+        if key == "chasers" and on:
+            self.chasers.refresh(force=True)
+        if key in ("spc_outlook", "spc_mcd") and on:
+            self.spc.refresh(force=True)
+        if on and key in ("chasers", "spc_outlook", "spc_mcd") and self.data.mode != "live":
+            self._status_msg("Storm chasers and SPC products are shown with live data")
         if key in ("warnings", "watches") and hasattr(self, "warnings_panel"):
             self.warnings_panel.sync_filters()
         self._update_l3_needs()
@@ -1472,13 +1830,16 @@ class MainWindow(QMainWindow):
                         ("End", "latest frame")]),
             ("Tilts & layout", [("↑ / ↓", "tilt up / down"), ("Alt+1 … Alt+6", "1–6 panels")]),
             ("Mouse tools", [("P", "pan / zoom"), ("X", "cross section (drag a line)"), ("M", "measure"),
-                             ("B", "3-D (drag a box around a storm)"), ("Esc", "back to pan / cancel"),
+                             ("T", "storm track (click a storm, drag the arrowhead)"),
+                             ("B", "3-D (drag a box around a storm)"), ("Esc", "back to pan; again: clear measure / track"),
                              ("Shift+drag", "quick measure")]),
             ("Map", [("wheel / drag", "zoom / pan"), ("double-click", "centre here"), ("Home", "reset view"),
                      ("right-click", "product, colour table, nearest radar"), ("S", "smoothing on/off")]),
             ("Window", [("F9", "show / hide the side panel"), ("F11", "full screen"), ("F1", "this list")]),
             ("Files & data", [("Ctrl+O", "open files"), ("Ctrl+A", "archive"), ("Ctrl+R", "choose radar"),
-                              ("Ctrl+P", "placefiles"), ("Ctrl+S", "save image"), ("Ctrl+,", "settings")]),
+                              ("Ctrl+D", "add / remove favourite radar"), ("Ctrl+L", "go to my location"),
+                              ("Ctrl+P", "placefiles"), ("Ctrl+S", "save image"), ("Ctrl+Shift+C", "copy image"),
+                              ("Ctrl+,", "settings")]),
         ]
         html = "<table cellspacing='0' cellpadding='3'>"
         for title, items in rows:
@@ -1491,7 +1852,9 @@ class MainWindow(QMainWindow):
     def show_about(self):
         QMessageBox.about(self, "About RadarForge", (
             f"<b>RadarForge {__version__}</b> – NEXRAD Level II / III viewer<br><br>"
-            "Data: NOAA NEXRAD on AWS (Unidata buckets), NWS API alerts, Iowa Environmental Mesonet archives.<br>"
+            "Data: NOAA NEXRAD on AWS (Unidata buckets), NWS API alerts, Iowa Environmental Mesonet archives, "
+            "storm reports and SPC products; storm chasers and spotter reports from Spotter Network "
+            "(non-commercial use).<br>"
             "Maps: US Census county boundaries, Natural Earth, GeoNames.<br>"
             "Level III decoding by MetPy.<br><br>"
             f"OpenGL: {self.view.gl_info}"))

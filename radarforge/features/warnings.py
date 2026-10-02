@@ -12,6 +12,7 @@ from PySide6.QtGui import QColor, QPen, QPolygonF
 
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
+from . import feeds
 
 UA = {"User-Agent": "RadarForge/1.0 (NEXRAD viewer)", "Accept": "application/geo+json"}
 
@@ -168,9 +169,10 @@ VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm 
 
 class Alert:
     __slots__ = ("event", "rings", "hover", "issued", "expires", "style", "xy", "_proj", "office", "area",
-                 "tags", "uid", "variant")
+                 "tags", "uid", "variant", "key", "action")
 
-    def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid="", variant=None):
+    def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid="", variant=None,
+                 key="", action=""):
         self.event = event
         self.variant = variant if variant in VARIANT else BASE_CODE.get(event, "SPS")
         self.rings = rings          # list of (lon, lat) arrays
@@ -185,6 +187,8 @@ class Alert:
         self.area = area
         self.tags = list(tags)
         self.uid = uid or f"{event}|{office}|{issued}"
+        self.key = key or self.uid          # the same for every update of one warning (VTEC)
+        self.action = action                # VTEC action: NEW, CON, EXT, CAN, EXP...
 
     @property
     def variant_label(self):
@@ -263,8 +267,10 @@ def fetch_live_alerts(county_polys: dict) -> list:
             if params.get(k):
                 short.append(f"{lab}{params[k][0]}")
         office = (p.get("senderName") or "").replace("NWS ", "")
+        vt = params.get("VTEC") or []
+        action, key = feeds.vtec_key(vt[0] if isinstance(vt, (list, tuple)) and vt else str(vt))
         out.append(Alert(ev, rings, hover, _t(p.get("sent")), _t(p.get("expires")), office,
-                         p.get("areaDesc") or "", short, p.get("id") or "", variant))
+                         p.get("areaDesc") or "", short, p.get("id") or "", variant, key, action))
     return out
 
 
@@ -299,33 +305,25 @@ def fetch_archive_alerts(ts: datetime) -> list:
     return out
 
 
-LSR_STYLE = {"TORNADO": ("T", (255, 40, 40)), "FUNNEL CLOUD": ("F", (255, 150, 150)),
-             "HAIL": ("H", (60, 220, 60)), "TSTM WND DMG": ("W", (80, 160, 255)),
-             "TSTM WND GST": ("G", (120, 200, 255)), "NON-TSTM WND DMG": ("W", (150, 150, 255)),
-             "FLASH FLOOD": ("F", (0, 200, 120)), "FLOOD": ("F", (0, 160, 100)),
-             "WALL CLOUD": ("C", (220, 220, 220))}
-
-
-def fetch_lsr(start: datetime, end: datetime, lat0, lon0, radius_deg=5.0) -> list:
-    params = {"sts": start.strftime("%Y-%m-%dT%H:%MZ"), "ets": end.strftime("%Y-%m-%dT%H:%MZ"),
-              "west": lon0 - radius_deg * 1.3, "east": lon0 + radius_deg * 1.3,
-              "south": lat0 - radius_deg, "north": lat0 + radius_deg}
-    r = requests.get("https://mesonet.agron.iastate.edu/geojson/lsr.geojson", params=params, headers=UA,
-                     timeout=30)
+def fetch_lsr(start: datetime, end: datetime, lat0=None, lon0=None, radius_deg=5.0) -> list:
+    """NWS local storm reports between start and end (the feed covers the whole country)."""
+    params = {"sts": start.strftime("%Y-%m-%dT%H:%MZ"), "ets": end.strftime("%Y-%m-%dT%H:%MZ")}
+    r = requests.get(feeds.LSR_URL, params=params, headers=UA, timeout=30)
     r.raise_for_status()
-    out = []
-    for f in r.json().get("features", []):
-        p = f.get("properties", {})
-        g = f.get("geometry") or {}
-        if g.get("type") != "Point":
-            continue
-        lon, lat = g["coordinates"][:2]
-        mag = p.get("magnitude") or p.get("magf") or ""
-        hover = f"{p.get('typetext', '')} {mag} {p.get('unit', '') or ''}\n{p.get('city', '')}, {p.get('state', '')} " \
-                f"{p.get('valid', '')}\n{(p.get('remark') or '')[:300]}"
-        out.append(dict(lat=lat, lon=lon, type=(p.get("typetext") or "").upper(), hover=hover,
-                        time=_t(p.get("valid"))))
-    return out
+    return feeds.parse_lsr(r.json())
+
+
+def fetch_sn_reports() -> list:
+    """Spotter Network reports (recent, live only)."""
+    r = requests.get(feeds.SN_REPORTS, headers={"User-Agent": UA["User-Agent"]}, timeout=20)
+    r.raise_for_status()
+    return feeds.parse_sn_reports(r.text)
+
+
+def report_on(settings, r) -> bool:
+    """Whether a storm report's type is switched on (Map -> Storm report options)."""
+    group = feeds.REPORT_KINDS.get(r.get("kind", "other"), feeds.REPORT_KINDS["other"])[3]
+    return bool((settings["report_types"] or {}).get(group, group != "other"))
 
 
 class WarningsOverlay(QObject):
@@ -368,7 +366,7 @@ class WarningsOverlay(QObject):
         if not force and self.mode == "archive":
             return
         self._busy = True
-        mode, t, center = self.mode, self.archive_time, self.center
+        mode, t = self.mode, self.archive_time
 
         def work():
             try:
@@ -380,14 +378,21 @@ class WarningsOverlay(QObject):
                     alerts.sort(key=lambda a: a.style[3])
                     self.alerts = alerts
                 if want_r:
+                    hours = int(self.settings["report_hours"] or 3)
                     if mode == "live":
                         end = datetime.now(timezone.utc)
-                        start = end - timedelta(hours=3)
+                        start = end - timedelta(hours=hours)
                     else:
                         start, end = t - timedelta(hours=2), t + timedelta(minutes=30)
-                    key = (mode, start.strftime("%Y%m%d%H"), round(center[0], 1), round(center[1], 1))
+                    key = (mode, start.strftime("%Y%m%d%H"), hours)
                     if key != self._report_key or mode == "live":
-                        self.reports = fetch_lsr(start, end, *center)
+                        reps = fetch_lsr(start, end)
+                        if mode == "live" and self.settings["spotter_reports"]:
+                            try:
+                                reps += [r for r in fetch_sn_reports() if r["time"] is None or r["time"] >= start]
+                            except Exception as exc:
+                                print("Spotter Network reports:", exc)
+                        self.reports = reps
                         self._report_key = key
                 self.status.emit(f"Warnings: {len(self.alerts)} active" + (f", {len(self.reports)} reports"
                                                                           if want_r else ""))
@@ -441,7 +446,6 @@ class WarningsOverlay(QObject):
 
     def paint(self, painter, vt, panel, view):
         ov = self.settings["overlays"]
-        t = self.frame_time
         x0, y0, x1, y1 = vt.world_bounds(pad=10)
         for a in list(self.alerts):
             if not self.visible(a) or not self._in_time(a):
@@ -464,27 +468,50 @@ class WarningsOverlay(QObject):
                     painter.setPen(QPen(QColor(255, 255, 255), width + 1.5, Qt.DashLine))
                     painter.drawPolygon(poly)
         if ov.get("reports", False):
-            painter.setFont(ui_font(8, True))
-            for r in self.reports:
-                if self.mode == "archive" and t is not None and r["time"] is not None:
-                    if not (t - timedelta(minutes=60) <= r["time"] <= t + timedelta(minutes=5)):
-                        continue
+            now = datetime.now(timezone.utc)
+            window = max(2, int(self.settings["report_hours"] or 3)) * 3600.0
+            f1, f2 = ui_font(8, True), ui_font(6, True)
+            # oldest first, so the newest end up on top
+            for r in sorted(self.visible_reports(), key=lambda r: r["time"] or now):
                 if "xy" not in r or r.get("_p") != (view.lat0, view.lon0):
                     x, y = aeqd_forward(r["lat"], r["lon"], view.lat0, view.lon0)
                     r["xy"] = (float(x), float(y))
                     r["_p"] = (view.lat0, view.lon0)
+                if not (x0 <= r["xy"][0] <= x1 and y0 <= r["xy"][1] <= y1):
+                    continue
                 sx, sy = vt.to_screen(*r["xy"])
-                letter, rgb = LSR_STYLE.get(r["type"], ("•", (230, 230, 230)))
-                painter.setPen(QPen(QColor(0, 0, 0), 1))
-                painter.setBrush(QColor(*rgb))
-                painter.drawEllipse(QPointF(sx, sy), 7, 7)
-                painter.setPen(QColor(0, 0, 0))
-                painter.drawText(int(sx - 7), int(sy - 7), 14, 14, Qt.AlignCenter, letter)
+                letter, rgb, _label, _g = feeds.REPORT_KINDS.get(r.get("kind", "other"), feeds.REPORT_KINDS["other"])
+                # live reports fade with age: full colour for the first hour, about half at the end of the window
+                alpha = 255
+                if self.mode == "live" and r["time"] is not None:
+                    age = (now - r["time"]).total_seconds()
+                    if age > 3600:
+                        alpha = int(255 * max(0.45, 1 - 0.55 * (age - 3600) / max(1.0, window - 3600)))
+                rad = 8 if len(letter) > 1 else 7
+                painter.setPen(QPen(QColor(0, 0, 0, alpha), 1))
+                painter.setBrush(QColor(*rgb, alpha))
+                painter.drawEllipse(QPointF(sx, sy), rad, rad)
+                painter.setFont(f2 if len(letter) > 1 else f1)
+                painter.setPen(QColor(0, 0, 0, alpha))
+                painter.drawText(int(sx - rad), int(sy - rad), 2 * rad, 2 * rad, Qt.AlignCenter, letter)
+
+    def visible_reports(self):
+        """Reports drawn now: types switched on, and (archive) near the frame's time."""
+        t = self.frame_time
+        out = []
+        for r in list(self.reports):
+            if not report_on(self.settings, r):
+                continue
+            if self.mode == "archive" and t is not None and r["time"] is not None:
+                if not (t - timedelta(minutes=60) <= r["time"] <= t + timedelta(minutes=5)):
+                    continue
+            out.append(r)
+        return out
 
     def hover(self, x, y, tol):
         ov = self.settings["overlays"]
         if ov.get("reports", False):
-            for r in self.reports:
+            for r in self.visible_reports():
                 if "xy" in r and math.hypot(r["xy"][0] - x, r["xy"][1] - y) < tol * 1.2:
                     return r["hover"]
         best = None
@@ -492,10 +519,10 @@ class WarningsOverlay(QObject):
             # only what is drawn: a hidden watch (or warning type) must not pop up its text
             if a.xy is None or not self.visible(a) or not self._in_time(a):
                 continue
-            for xy in a.xy:
-                if _inside(x, y, xy):
-                    if best is None or a.style[3] > best.style[3]:
-                        best = a
+            # only on the outline, so the text doesn't cover the storm while you look inside the box
+            if any(near_edge(x, y, xy, tol) for xy in a.xy):
+                if best is None or a.style[3] > best.style[3]:
+                    best = a
         return best.hover if best else None
 
 
@@ -513,6 +540,21 @@ def draw_line(painter, shape, rgb, width, kind, halo=True):
     if inner > 0:
         painter.setPen(QPen(QColor(0, 0, 0), max(1.0, inner), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         draw(*args)
+
+
+def near_edge(x, y, poly, tol) -> bool:
+    """Whether (x, y) is within tol of a polygon's outline (poly: N x 2 array, km)."""
+    xs, ys = poly[:, 0], poly[:, 1]
+    if len(xs) < 2 or x < xs.min() - tol or x > xs.max() + tol or y < ys.min() - tol or y > ys.max() + tol:
+        return False
+    a = poly
+    b = np.roll(poly, -1, axis=0)                 # each vertex to the next (closes the ring)
+    ab = b - a
+    ap = np.array([x, y]) - a
+    den = (ab * ab).sum(1)
+    t = np.clip((ap * ab).sum(1) / np.where(den > 0, den, 1.0), 0.0, 1.0)
+    d = ap - ab * t[:, None]
+    return bool(((d * d).sum(1)).min() <= tol * tol)
 
 
 def _inside(x, y, poly):

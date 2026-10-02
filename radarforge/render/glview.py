@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -12,11 +13,12 @@ OpenGL.ERROR_CHECKING = False      # glGetError after every call is very slow
 OpenGL.ERROR_LOGGING = False
 from OpenGL import GL  # noqa: E402
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontMetricsF, QImage, QPainter, QPen, QSurfaceFormat
+from PySide6.QtGui import QColor, QFontMetricsF, QImage, QPainter, QPen, QPolygonF, QSurfaceFormat
 from PySide6.QtOpenGL import QOpenGLWindow
 from PySide6.QtWidgets import QToolTip, QWidget
 
 from ..data.sites import all_sites
+from ..features import feeds
 from ..products.geometry import aeqd_forward, aeqd_inverse, az_range, ground_range
 from . import shaders
 from .maps import DRAW_ORDER, LAYER_STYLE, MapData
@@ -113,6 +115,7 @@ class RadarView(QOpenGLWindow):
     siteClicked = Signal(str)
     viewChanged = Signal()
     panelActivated = Signal(int)
+    trackChanged = Signal()                               # storm track placed / moved / cleared
 
     def __init__(self, parent=None):
         super().__init__(QOpenGLWindow.NoPartialUpdate)
@@ -153,6 +156,14 @@ class RadarView(QOpenGLWindow):
         self.drop_panel = -1              # panel highlighted while dragging a colour table
         self._hover_site = None
         self.box3d = None                 # selected 3-D area shown on the map
+        # storm track tool: {"a": (x, y) storm now, "b": (x, y) storm after "minutes", "start": datetime,
+        # "etas": [(town, minutes, x, y)]}; positions in km
+        self.track = None
+        self.track_minutes = 60
+        self.track_time_fn = None         # () -> datetime of the frame shown (track times count from it)
+        self.track_default_fn = None      # (x, y, minutes) -> (x, y): where the storm motion takes it
+        self.track_half_width = 10.0      # km either side of the track for "towns in its path"
+        self._track_drag = None           # "a" / "b" while dragging an end
         self._gl_ready = False
         self._gpu: OrderedDict = OrderedDict()
         self._luts: dict = {}
@@ -960,7 +971,7 @@ class RadarView(QOpenGLWindow):
         self.update()
 
     def _tool_cursor(self):
-        return Qt.CrossCursor if self.tool in ("box3d", "xsection", "measure") else Qt.ArrowCursor
+        return Qt.CrossCursor if self.tool in ("box3d", "xsection", "measure", "track") else Qt.ArrowCursor
 
     def set_tool(self, tool):
         self.tool = tool
@@ -1006,7 +1017,114 @@ class RadarView(QOpenGLWindow):
         for line in self.persistent_lines:
             self._draw_line(painter, vt, *line)
 
+    # ------------------------------------------------------------------ storm track
+    def _track_update(self):
+        t = self.track
+        if t is not None:
+            maps = self.maps
+            t["etas"] = feeds.track_etas(t["a"], t["b"], self.track_minutes, getattr(maps, "city_xy", None),
+                                         getattr(maps, "city_pop", None), getattr(maps, "city_name", None),
+                                         self.track_half_width)
+        self.trackChanged.emit()
+        self.update_cursor()
+
+    def set_track(self, a, b=None):
+        """Places the storm at a (km); b defaults to where the storm motion takes it."""
+        if b is None:
+            b = self.track_default_fn(a[0], a[1], self.track_minutes) if self.track_default_fn else (a[0] + 30, a[1] + 15)
+        start = self.track_time_fn() if self.track_time_fn else None
+        self.track = {"a": tuple(a), "b": tuple(b), "start": start or datetime.now(timezone.utc), "etas": []}
+        self._track_update()
+
+    def set_track_minutes(self, m):
+        t = self.track
+        if t is not None and self.track_minutes > 0:
+            f = m / self.track_minutes
+            ax, ay = t["a"]
+            t["b"] = (ax + (t["b"][0] - ax) * f, ay + (t["b"][1] - ay) * f)
+        self.track_minutes = m
+        self._track_update()
+
+    def clear_track(self):
+        if self.track is not None:
+            self.track = None
+            self._track_update()
+
+    def track_motion(self):
+        """(km/h, heading degrees) of the track, or None."""
+        t = self.track
+        if t is None:
+            return None
+        dx, dy = t["b"][0] - t["a"][0], t["b"][1] - t["a"][1]
+        d = math.hypot(dx, dy)
+        if d < 0.05:
+            return None
+        return d / (self.track_minutes / 60.0), (math.degrees(math.atan2(dx, dy)) + 360) % 360
+
+    def _track_handle(self, pos):
+        t = self.track
+        i = self.panel_at(pos)
+        if t is None or i < 0:
+            return None
+        vt = self.transform(self.panels[i])
+        for name in ("b", "a"):
+            sx, sy = vt.to_screen(*t[name])
+            if math.hypot(sx - pos.x(), sy - pos.y()) < 11:
+                return name
+        return None
+
+    def _paint_track(self, painter, vt):
+        t = self.track
+        if t is None:
+            return
+        yellow = QColor(255, 210, 60)
+        ax, ay = vt.to_screen(*t["a"])
+        bx, by = vt.to_screen(*t["b"])
+        start = t["start"]
+        font = self.font_label
+        for name, mins, x, y in t["etas"]:
+            sx, sy = vt.to_screen(x, y)
+            painter.setPen(QPen(yellow, 1.8))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QPointF(sx, sy), 5.5, 5.5)
+            self._halo_text(painter, sx - 14, sy + 17, feeds.local_hm(start + timedelta(minutes=mins)).split(" ")[0],
+                            yellow, font)
+
+        def seg(x0, y0, x1, y1, w):
+            painter.setPen(QPen(QColor(0, 0, 0, 220), w + 2.5, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
+            painter.setPen(QPen(yellow, w, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(QPointF(x0, y0), QPointF(x1, y1))
+        seg(ax, ay, bx, by, 2.6)
+        dx, dy = bx - ax, by - ay
+        ln = math.hypot(dx, dy)
+        if ln > 4:
+            ux, uy = dx / ln, dy / ln
+            head = QPolygonF([QPointF(bx + ux * 3, by + uy * 3), QPointF(bx - ux * 12 - uy * 6, by - uy * 12 + ux * 6),
+                              QPointF(bx - ux * 12 + uy * 6, by - uy * 12 - ux * 6)])
+            painter.setPen(QPen(QColor(0, 0, 0, 220), 2))
+            painter.setBrush(yellow)
+            painter.drawPolygon(head)
+            step = feeds.tick_minutes(self.track_minutes)
+            m = step
+            while m < self.track_minutes:
+                f = m / self.track_minutes
+                px, py = ax + dx * f, ay + dy * f
+                seg(px - uy * 6, py + ux * 6, px + uy * 6, py - ux * 6, 1.8)
+                if ln > 80:
+                    self._halo_text(painter, px + uy * 12 - 12, py - ux * 12 + 4,
+                                    feeds.local_hm(start + timedelta(minutes=m)).split(" ")[0], yellow, font)
+                m += step
+            self._halo_text(painter, bx + ux * 16 - 12, by + uy * 16 + 4,
+                            feeds.local_hm(start + timedelta(minutes=self.track_minutes)).split(" ")[0], yellow, font)
+        painter.setPen(QPen(QColor(0, 0, 0), 1.5))
+        painter.setBrush(QColor(255, 255, 255))
+        painter.drawEllipse(QPointF(ax, ay), 6, 6)
+        painter.setBrush(yellow)
+        painter.drawEllipse(QPointF(bx, by), 4.5, 4.5)
+
     def _paint_live_tools(self, painter, vt):
+        self._paint_track(painter, vt)
         if self._line is not None:
             tool, x0, y0, x1, y1 = self._line
             self._draw_line(painter, vt, tool, x0, y0, x1, y1, QColor(255, 255, 255))
@@ -1150,6 +1268,20 @@ class RadarView(QOpenGLWindow):
             x, y, _ = self.world_at(pos)
             if x is None:
                 return
+            if self.tool == "track":
+                h = self._track_handle(pos)
+                if h is not None:
+                    self._track_drag = h
+                elif self.track is not None:
+                    # click somewhere else: move the storm there, keep its motion
+                    ax, ay = self.track["a"]
+                    bx, by = self.track["b"]
+                    self.set_track((x, y), (bx + x - ax, by + y - ay))
+                    self._track_drag = "a"
+                else:
+                    self.set_track((x, y))
+                    self._track_drag = "b"
+                return
             if self.tool == "box3d":
                 self._boxdrag = (x, y, x, y)
             elif self.tool in ("xsection", "measure") or ev.modifiers() & Qt.ShiftModifier:
@@ -1172,6 +1304,15 @@ class RadarView(QOpenGLWindow):
             self.update()
             return
         x, y, i = self.world_at(pos)
+        if self._track_drag is not None and x is not None and self.track is not None:
+            t = self.track
+            if self._track_drag == "b":
+                t["b"] = (x, y)
+            else:
+                ax, ay = t["a"]
+                t["b"] = (t["b"][0] + x - ax, t["b"][1] + y - ay)
+                t["a"] = (x, y)
+            self._track_update()
         if self._boxdrag is not None and x is not None:
             bx0, by0, _, _ = self._boxdrag
             self._boxdrag = (bx0, by0, x, y)
@@ -1213,6 +1354,9 @@ class RadarView(QOpenGLWindow):
         QToolTip.hideText()
 
     def mouseReleaseEvent(self, ev):
+        if self._track_drag is not None:
+            self._track_drag = None
+            return
         if self._boxdrag is not None:
             x0, y0, x1, y1 = self._boxdrag
             self._boxdrag = None
@@ -1238,6 +1382,10 @@ class RadarView(QOpenGLWindow):
                 if tool == "xsection":
                     self.persistent_lines = [l for l in self.persistent_lines if l[0] != "xsection"]
                     self.persistent_lines.append(("xsection", x0, y0, x1, y1, QColor(255, 220, 60)))
+                elif tool == "measure":
+                    # the measurement stays on the map until the next one (or Esc)
+                    self.persistent_lines = [l for l in self.persistent_lines if l[0] != "measure"]
+                    self.persistent_lines.append(("measure", x0, y0, x1, y1, QColor(255, 255, 255)))
                 self.lineDrawn.emit(tool, x0, y0, x1, y1)
             self.update()
 

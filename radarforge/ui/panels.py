@@ -7,12 +7,13 @@ from datetime import datetime, timezone
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QFrame, QGridLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QPushButton, QRadioButton,
                                QScrollArea, QSizePolicy, QStackedWidget, QTabWidget, QToolButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..data.sites import get_site, nearest_site
+from ..features import feeds
 from ..features.warnings import FILTERS
 from ..products import catalog
 from ..products.geometry import aeqd_forward
@@ -315,14 +316,36 @@ class WarningsPanel(QWidget):
         onb.clicked.connect(lambda: main.overlay_acts["reports"].setChecked(True))
         ol.addWidget(onb)
         ol.addStretch(1)
+        rep = QWidget()
+        repl = QVBoxLayout(rep)
+        repl.setContentsMargins(0, 0, 0, 0)
+        orow = QHBoxLayout()
+        orow.setSpacing(3)
+        self.rhours = QComboBox()
+        for h in (1, 3, 6, 12, 24):
+            self.rhours.addItem(f"Last {h} h", h)
+        self.rhours.setToolTip("How far back live storm reports go")
+        self.rhours.activated.connect(lambda i: main.set_report_hours(self.rhours.itemData(i)))
+        orow.addWidget(self.rhours)
+        self.rtypes = {}
+        for g, label in feeds.REPORT_GROUPS:
+            cb = _chip(label, f"Show {label.lower()} reports" + (" (rain, snow, …)" if g == "other" else ""))
+            cb.toggled.connect(lambda on, g=g: main.set_report_type(g, on))
+            self.rtypes[g] = cb
+            orow.addWidget(cb)
+        repl.addLayout(orow)
         self.rtree = QTreeWidget()
         self.rtree.setHeaderLabels(["Time", "Report", "Where"])
         self.rtree.setRootIsDecorated(False)
         self.rtree.setAlternatingRowColors(True)
         self.rtree.header().setSectionResizeMode(2, QHeaderView.Stretch)
         self.rtree.itemDoubleClicked.connect(self._zoom_report)
+        repl.addWidget(self.rtree, 1)
+        repl.addWidget(_hint("Double-click a report to go to it. T tornado, FC funnel cloud, WC wall cloud, H hail, "
+                             "W wind damage, G wind gust, F flooding. Older reports are fainter."))
         self.rstack.addWidget(off)
-        self.rstack.addWidget(self.rtree)
+        self.rstack.addWidget(rep)
+        self.sync_report_options()
         rl.addWidget(self.rstack)
         self.tabs.addTab(r, "Reports")
         lay = QVBoxLayout(self)
@@ -429,6 +452,19 @@ class WarningsPanel(QWidget):
         self.tabs.setTabText(0, f"Warnings ({len(alerts)})")
         self._refresh_reports()
 
+    def sync_report_options(self):
+        """Match the reports tab's controls to the settings (after the Map menu changed them)."""
+        s = self.main.settings
+        i = self.rhours.findData(int(s["report_hours"] or 3))
+        if i >= 0:
+            self.rhours.setCurrentIndex(i)
+        for g, cb in self.rtypes.items():
+            cb.blockSignals(True)
+            cb.setChecked(bool((s["report_types"] or {}).get(g, g != "other")))
+            cb.blockSignals(False)
+        if self.isVisible():
+            self._refresh_reports()
+
     def _refresh_reports(self):
         m = self.main
         on = bool(m.settings["overlays"].get("reports", False))
@@ -437,12 +473,16 @@ class WarningsPanel(QWidget):
         if not on:
             self.tabs.setTabText(1, "Reports")
             return
-        reps = sorted(m.warnings.reports, key=lambda r: r["time"] or datetime.min.replace(tzinfo=timezone.utc),
+        reps = sorted(m.warnings.visible_reports(), key=lambda r: r["time"] or datetime.min.replace(tzinfo=timezone.utc),
                       reverse=True)
         for r in reps:
             first = r["hover"].split("\n")
-            it = QTreeWidgetItem([f"{r['time']:%H:%MZ}" if r["time"] else "", first[0].strip(),
-                                  first[1] if len(first) > 1 else ""])
+            if r.get("source") == "Spotter Network" and len(first) > 1:
+                first = first[1:]                       # skip the "Spotter Network report" heading
+            letter, rgb, label, _g = feeds.REPORT_KINDS.get(r.get("kind", "other"), feeds.REPORT_KINDS["other"])
+            it = QTreeWidgetItem([f"{r['time']:%H:%MZ}" if r["time"] else "", f"{letter}  {first[0].strip()}",
+                                  first[1] if len(first) > 1 else r.get("source", "")])
+            it.setIcon(1, _swatch(rgb))
             it.setToolTip(1, r["hover"])
             it.setData(0, Qt.UserRole, (r["lat"], r["lon"]))
             self.rtree.addTopLevelItem(it)
@@ -664,6 +704,7 @@ class LayersPanel(QWidget):
             lay.addLayout(g)
         group("Overlays", [(main.overlay_acts[k], t) for k, t in (
             ("warnings", "Warnings"), ("watches", "Watches"), ("reports", "Storm reports"),
+            ("chasers", "Storm chasers"), ("spc_outlook", "SPC outlook"), ("spc_mcd", "SPC discussions"),
             ("storm_tracks", "Storm tracks"), ("meso", "Mesocyclones"), ("tvs", "TVS"), ("hail", "Hail"),
             ("melting_layer", "Melting layer"))])
         group("Map", [(main.sites_act, "Radar sites"), (main.tdwr_act, "TDWR sites"),

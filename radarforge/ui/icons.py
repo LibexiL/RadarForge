@@ -172,6 +172,17 @@ def _measure(p, col, pen):
     p.restore()
 
 
+def _track(p, col, pen):
+    # a storm (circle) with an arrow and tick marks along its path
+    p.drawEllipse(QPointF(5.5, 18.5), 3, 3)
+    p.drawLine(QPointF(8, 16), QPointF(19, 5))
+    p.drawPolyline(QPolygonF([QPointF(13.5, 5), QPointF(19.5, 4.5), QPointF(19, 10.5)]))
+    p.setPen(QPen(col, 1.4))
+    for t in (0.35, 0.65):
+        x, y = 8 + 11 * t, 16 - 11 * t
+        p.drawLine(QPointF(x - 2.2, y - 2.2), QPointF(x + 2.2, y + 2.2))
+
+
 def _cube(p, col, pen):
     top = QPolygonF([QPointF(12, 3.5), QPointF(20, 7.5), QPointF(12, 11.5), QPointF(4, 7.5)])
     p.drawPolygon(top)
@@ -274,7 +285,7 @@ _DRAW = {
     "live": _live, "archive": _archive, "open": _open,
     "up": _tri("up"), "down": _tri("down"), "play": _play, "pause": _pause,
     "first": _step(False, True), "prev": _step(False, False), "next": _step(True, False), "last": _step(True, True),
-    "pan": _pan, "xsection": _xsection, "measure": _measure, "box3d": _cube, "motion": _motion,
+    "pan": _pan, "xsection": _xsection, "measure": _measure, "track": _track, "box3d": _cube, "motion": _motion,
     "side": _side, "settings": _gear, "radar": _radar, "save": _save, "theme": _theme, "layers": _layers,
     "lock": _lock, "palette": _palette, "warning": _warning,
 }

@@ -42,6 +42,16 @@ keep the extracted files together – everything else is the program itself, sha
   with a warning list you can sort, filter and zoom to. Every warning type and threat level (TOR,
   TORR, TORP, TORE, SVR, SVRC, SVRD, FFW, FFWC, FFWE…) has its own line – colour, width and style –
   with the NWS colours by default. Going to a warning switches to the radar nearest it.
+* **Storm reports**: NWS local storm reports plus Spotter Network reports for the last 1–24 hours,
+  with type filters. Live reports fade as they get older.
+* **Storm chasers**: live Spotter Network positions with the direction they're driving.
+* **SPC**: the day 1 convective outlook (hover for tornado / wind / hail chances) and mesoscale
+  discussions (right-click to read one).
+* **Storm track tool**: click a storm and drag its arrow to see when it reaches the towns ahead –
+  and you. One click turns the track into the storm motion for SRV.
+* **My location**: set it from the map. RadarForge pops up a new tornado, severe or flash flood
+  warning that covers it.
+* **Favourite radars**, and **copy the map** to the clipboard to paste anywhere.
 * **Storm cell table** (hail, mesocyclone rank, TVS), a **cursor inspector**, **cross sections** and a
   **3-D isosurface view** of any storm.
 * **Movable panels with drop zones**: drag any tool panel to a new spot, stack panels as tabs, or float them.
@@ -167,6 +177,7 @@ whether to delete your settings and downloaded data too.
 | Action | How |
 |---|---|
 | Pan / zoom / centre | drag · mouse wheel · double-click |
+| Warning details | hover a warning's outline (or open the **Warnings** side panel) |
 | Change a panel's product or colour table | right-click the panel, or use **Products** in the side panel |
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |
 | Live / archive / files | **Live**, **Archive** and **Open** on the toolbar |
@@ -174,13 +185,17 @@ whether to delete your settings and downloaded data too.
 | Tilts | **↑ / ↓** or the tilt box |
 | Number of panels | toolbar layout buttons, or **Alt+1 … Alt+6** |
 | Cross section | **X**, then drag a line across a storm |
-| Distance / bearing | **M**, then drag (or Shift-drag at any time) |
+| Distance / bearing | **M**, then drag (or Shift-drag at any time). The line stays until the next one or **Esc** |
+| Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
+| Storm reports / chasers / SPC | **Map** menu (or side panel → **Layers**). Options: **Map → Storm report options** and **Storm chaser options** |
+| My location | right-click the map → **Set my location here**; **Ctrl+L** goes back to it. **Radar → Alert me when a warning covers my location** |
+| Favourite radars | **Ctrl+D** adds the current radar; **Radar → Favourite radars**, or ☆ in the radar list |
 | 3-D view | **B** (or **3D**), then drag a box around a storm. In the 3-D view: drag to rotate, right-drag to pan, wheel to zoom |
 | Colour table | drag a `.pal` file onto a panel |
 | Storm motion (for SRV) | click **SM …** on the toolbar – it can use the average motion of the tracked storms |
 | Placefiles | side panel → **Placefiles** (or **Ctrl+P**): add a URL or file; **On** shows it, **Below** draws it under the radar |
 | Side panel | **F9** or **Side panel** (top right) |
-| Save a picture | **Ctrl+S** |
+| Save / copy a picture | **Ctrl+S** to save, **Ctrl+Shift+C** to copy it to the clipboard |
 | All shortcuts | **F1** |
 
 ### Side panel
@@ -313,7 +328,7 @@ RadarForge/
 │   ├── data/             Level II decoder, Level III (MetPy), AWS access, live chunks, radar sites
 │   ├── products/         product catalog, colour tables, dealiasing, derived & volume products
 │   ├── render/           OpenGL radar view, shaders, basemap
-│   ├── features/         placefiles, warnings, Level III overlays
+│   ├── features/         placefiles, warnings, storm reports, chasers, SPC, Level III overlays, my location
 │   ├── tools/            cross section, 3-D view
 │   ├── ui/               main window, panels, workspace (docking), dialogs, settings, icons
 │   └── assets/           basemap, icons
@@ -332,11 +347,14 @@ RadarForge/
   are the official ones.
 * MESH/POSH use the 0 °C and −20 °C heights from Settings.
 * Watches are shown in live mode; archive mode shows storm-based warnings and storm reports.
+* Storm chasers, Spotter Network reports and the SPC outlook / discussions are shown with live data.
 
 ## Credits
 
 Radar data: NOAA NEXRAD on AWS (Unidata). Warnings: National Weather Service API and the Iowa
-Environmental Mesonet. Level III decoding: MetPy. Map data: US Census Bureau, Natural Earth, GeoNames.
+Environmental Mesonet. Storm reports, SPC outlooks and mesoscale discussions: NWS and the Storm Prediction
+Center via the Iowa Environmental Mesonet. Storm chasers and spotter reports: Spotter Network
+(non-commercial use). Level III decoding: MetPy. Map data: US Census Bureau, Natural Earth, GeoNames.
 Radar site list derived from Supercell Wx. Details and licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## License

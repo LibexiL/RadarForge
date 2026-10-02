@@ -45,11 +45,22 @@ DEFAULTS = {
     "map_layers": {"states": True, "counties": True, "roads": True, "cities": True,
                    "lakes": True, "countries": True, "range_rings": False},
     "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "meso": True,
-                 "tvs": True, "hail": False, "melting_layer": False, "reports": False},
+                 "tvs": True, "hail": False, "melting_layer": False, "reports": False,
+                 "chasers": False, "spc_outlook": False, "spc_mcd": False},
     "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
     "go_to_nearest_radar": True,   # going to a warning switches to the radar nearest it
+    "report_hours": 3,             # live storm reports: how many hours back (1, 3, 6, 12, 24)
+    "report_types": {"tornado": True, "hail": True, "wind": True, "flood": True, "other": False},
+    "spotter_reports": True,       # add Spotter Network reports to the NWS ones (live)
+    "chasers_active_only": False,  # Spotter Network: only members with 5+ accepted reports
+    "chaser_names": True,
+    "favorite_sites": [],
+    "my_location": None,           # [lat, lon] set from the map's right-click menu
+    "warn_at_location": True,      # pop up a new warning that covers my location (live)
+    "notified_warnings": {},       # warning key -> [priority, expiry epoch s] already shown for my location
+    "track_minutes": 60,           # storm track tool: minutes the arrow covers
     "loop_frames": 12,
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
