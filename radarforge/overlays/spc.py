@@ -25,8 +25,11 @@ def _get_json(url, params=None):
     return r.json()
 
 
-def fetch_outlook(now=None) -> list:
-    """The newest day 1 outlook (tries the most recent issuances until one has areas)."""
+def fetch_outlook(day: int = 1, now=None) -> list:
+    """The newest outlook for a day. Day 1 comes from the IEM (with the tornado / wind / hail chances); day 2 and 3
+    from SPC's own GeoJSON (categories only)."""
+    if day in (2, 3):
+        return feeds.parse_spc_categorical(_get_json(feeds.spc_outlook_url(day)))
     now = now or datetime.now(timezone.utc)
     last_exc, got = None, None
     for date, cycle in feeds.outlook_requests(now):
@@ -57,9 +60,9 @@ class SpcOverlay(QObject):
         super().__init__(parent)
         self.settings = settings
         self.is_live = is_live
-        self.outlook: list = []
+        self.outlooks: dict = {1: [], 2: [], 3: []}        # day -> areas
         self.mcds: list = []
-        self._next = {"outlook": 0.0, "mcd": 0.0}
+        self._next = {"outlook1": 0.0, "outlook2": 0.0, "outlook3": 0.0, "mcd": 0.0}
         self._busy = set()
         self.force = {"outlook": False, "mcd": False}      # location alerts need these even when the layer is off
         self._timer = QTimer(self)
@@ -75,10 +78,26 @@ class SpcOverlay(QObject):
         name = "outlook" if key == "spc_outlook" else "mcd"
         return (bool(self.settings["overlays"].get(key, False)) or self.force.get(name, False)) and self.is_live()
 
+    # ---------------------------------------------------------------- which outlook day
+    def day(self) -> int:
+        d = self.settings["spc_day"]
+        return d if d in (1, 2, 3) else 1
+
+    @property
+    def outlook(self) -> list:
+        """The day 1 outlook (what the alert rules and the Locations panel use, whichever day is drawn)."""
+        return self.outlooks[1]
+
+    def shown_outlook(self) -> list:
+        return self.outlooks[self.day()]
+
     def refresh(self, force=False):
         jobs = []
-        if self._fetch_on("spc_outlook") and (force or time.time() >= self._next["outlook"]):
-            jobs.append(("outlook", fetch_outlook, 15 * 60))
+        shown = self.settings["overlays"].get("spc_outlook", False) and self.is_live()
+        for d in (1, 2, 3):
+            want = (shown and self.day() == d) or (d == 1 and self._fetch_on("spc_outlook"))
+            if want and (force or time.time() >= self._next[f"outlook{d}"]):
+                jobs.append((f"outlook{d}", lambda d=d: fetch_outlook(d), 15 * 60))
         if self._fetch_on("spc_mcd") and (force or time.time() >= self._next["mcd"]):
             jobs.append(("mcd", fetch_mcds, 3 * 60))
         for name, fn, period in jobs:
@@ -89,14 +108,15 @@ class SpcOverlay(QObject):
             def work(name=name, fn=fn, period=period):
                 try:
                     data = fn()
-                    if name == "outlook":
-                        self.outlook = data
+                    if name.startswith("outlook"):
+                        self.outlooks[int(name[-1])] = data
                     else:
                         self.mcds = data
                     self._next[name] = time.time() + period
                 except Exception as exc:
                     self._next[name] = time.time() + 60
-                    self.status.emit(f"SPC {'outlook' if name == 'outlook' else 'discussions'} unavailable: {exc}")
+                    what = f"day {name[-1]} outlook" if name.startswith("outlook") else "discussions"
+                    self.status.emit(f"SPC {what} unavailable: {exc}")
                 finally:
                     self._busy.discard(name)
                     self.changed.emit()
@@ -126,7 +146,7 @@ class SpcOverlay(QObject):
         bounds = vt.world_bounds(pad=10)
         font = ui_font(8, True)
         if self._on("spc_outlook"):
-            cats = [a for a in self.outlook if a["category"] == "CATEGORICAL" and a["threshold"] in feeds.CATEGORIES]
+            cats = [a for a in self.shown_outlook() if a["category"] == "CATEGORICAL" and a["threshold"] in feeds.CATEGORIES]
             cats.sort(key=lambda a: feeds.CATEGORIES.index(a["threshold"]))
             painter.setBrush(Qt.NoBrush)
             for a in cats:
@@ -161,7 +181,7 @@ class SpcOverlay(QObject):
     def outlook_at(self, lat, lon):
         if not self._on("spc_outlook"):
             return None
-        return feeds.outlook_at(self.outlook, lat, lon)
+        return feeds.outlook_at(self.shown_outlook(), lat, lon)
 
     @staticmethod
     def describe_mcd(m) -> str:
@@ -176,7 +196,8 @@ class SpcOverlay(QObject):
 
     def describe_outlook(self, lat, lon, cat=None) -> str | None:
         """The outlook category (the hovered line's, if given) and the chances at a point."""
-        o = feeds.outlook_at(self.outlook, lat, lon)
+        areas = self.shown_outlook()
+        o = feeds.outlook_at(areas, lat, lon)
         if o is None and cat is None:
             return None
         cat = cat or o["cat"]
@@ -185,9 +206,10 @@ class SpcOverlay(QObject):
             v = o.get(key.lower()) if o else None
             s = f"{round(v * 100)}%" if v is not None else f"under {floor}%"
             return s + (" (significant)" if o and key in o["sig"] else "")
-        txt = f"SPC day 1 outlook: {feeds.CAT_NAME[cat]}"
-        txt += f"\nTornado {p('TORNADO', 2)} · Wind {p('WIND', 5)} · Hail {p('HAIL', 5)}"
-        exp = (o or {}).get("expire") or next((a["expire"] for a in self.outlook if a["expire"]), None)
+        txt = f"SPC day {self.day()} outlook: {feeds.CAT_NAME[cat]}"
+        if self.day() == 1:                                     # day 2 and 3 have no separate hazard chances here
+            txt += f"\nTornado {p('TORNADO', 2)} · Wind {p('WIND', 5)} · Hail {p('HAIL', 5)}"
+        exp = (o or {}).get("expire") or next((a["expire"] for a in areas if a["expire"]), None)
         if exp is not None:
             txt += f"\nValid until {fmt.local_hm(exp)}"
         return txt
@@ -211,7 +233,7 @@ class SpcOverlay(QObject):
                     return self.describe_mcd(m)
         if self._on("spc_outlook"):
             hit = None
-            for a in self.outlook:
+            for a in self.shown_outlook():
                 if a["category"] != "CATEGORICAL" or a["threshold"] not in feeds.CATEGORIES:
                     continue
                 if a.get("_p") == (view.lat0, view.lon0) and any(near_edge(x, y, xy, tol) for xy in a["xy"]):

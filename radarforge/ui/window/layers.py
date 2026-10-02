@@ -54,6 +54,11 @@ class LayersMixin:
             self.chasers.refresh(force=True)
         if key in ("spc_outlook", "spc_mcd") and on:
             self.spc.refresh(force=True)
+        if key == "surface" and on:
+            self.surface.set_centre(self.view.lat0, self.view.lon0)
+            self.surface.refresh(force=True)
+            if self.data.mode != "live":
+                self._status_msg("Surface observations are shown with live data")
         if key in ("satellite", "mrms", "lightning") and on:
             self.update_timed_layers(prefetch=True)
         if on and key in ("chasers", "spc_outlook", "spc_mcd") and self.data.mode != "live":
@@ -98,6 +103,11 @@ class LayersMixin:
 
     def set_satellite_opacity(self, value):
         self._choose("satellite_opacity", value, getattr(self, "sat_opacity_group", None))
+        self.view.update()
+
+    def set_spc_day(self, day):
+        self._choose("spc_day", day, getattr(self, "spc_day_group", None))
+        self.spc.refresh(force=True)
         self.view.update()
 
     def set_mrms_product(self, product):

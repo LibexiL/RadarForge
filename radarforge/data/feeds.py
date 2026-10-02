@@ -14,6 +14,11 @@ MCD_URL = "https://mesonet.agron.iastate.edu/api/1/nws/spc_mcd.geojson"
 OUTLOOK_URL = "https://mesonet.agron.iastate.edu/api/1/nws/spc_outlook.geojson"
 
 
+def spc_outlook_url(day: int) -> str:
+    """SPC's own categorical outlook for day 2 or 3 (GeoJSON, areas of exactly one category each)."""
+    return f"https://www.spc.noaa.gov/products/outlook/day{int(day)}otlk_cat.nolyr.geojson"
+
+
 def mcd_text_url(product_id: str) -> str:
     return f"https://mesonet.agron.iastate.edu/api/1/nwstext/{product_id}"
 
@@ -296,6 +301,29 @@ def parse_outlook(js: dict) -> list:
             continue
         out.append(dict(category=str(p.get("category") or "").upper(), threshold=str(p.get("threshold") or "").upper(),
                         rings=rings, issue=_utc(p.get("issue")), expire=_utc(p.get("expire"))))
+    return out
+
+
+def _spc_time(v):
+    """'202610031200' (SPC's YYYYMMDDHHMM) -> datetime."""
+    try:
+        return datetime.strptime(str(v).strip()[:12], "%Y%m%d%H%M").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def parse_spc_categorical(js: dict) -> list:
+    """Areas from an SPC outlook GeoJSON (day 2 / 3), in the same shape as parse_outlook: category CATEGORICAL,
+    threshold = the category (SLGT, ENH…), rings, issue and expire."""
+    out = []
+    for f in js.get("features", []):
+        p = f.get("properties") or {}
+        label = str(p.get("LABEL") or p.get("label") or "").upper()
+        rings = _rings(f.get("geometry"))
+        if not rings or label not in CATEGORIES:
+            continue
+        out.append(dict(category="CATEGORICAL", threshold=label, rings=rings, issue=_spc_time(p.get("ISSUE")),
+                        expire=_spc_time(p.get("EXPIRE"))))
     return out
 
 

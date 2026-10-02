@@ -12,6 +12,7 @@ from ..overlays.lightning import LightningOverlay
 from ..overlays.mrms import MrmsLayer
 from ..overlays.placefile import PlacefileManager
 from ..overlays.satellite import SatelliteLayer
+from ..overlays.surface import SurfaceObsOverlay
 from ..overlays.spc import SpcOverlay
 from ..overlays.warnings import WarningsOverlay
 from ..products.engine import ProductEngine
@@ -99,15 +100,18 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
         self.satellite = SatelliteLayer(settings, self)
         self.lightning = LightningOverlay(settings, self)
         self.mrms = MrmsLayer(settings, self)
+        self.surface = SurfaceObsOverlay(settings, is_live, self)
         self._init_locations()
-        self.view.overlays = [self.satellite, self.mrms, self.lightning, self.spc, self.warnings, self.placefiles, self.l3ov,
+        self.view.overlays = [self.satellite, self.mrms, self.lightning, self.surface, self.spc, self.warnings, self.placefiles, self.l3ov,
                               self.chasers, self.my_location]
         self.view.underlays = [self.satellite, self.placefiles]
-        self.view.hover_providers = [self.l3ov, self.chasers, self.placefiles, self.warnings, self.my_location, self.spc]
+        self.view.hover_providers = [self.l3ov, self.chasers, self.placefiles, self.warnings, self.my_location, self.spc,
+                                     self.surface]
         for sig in (self.warnings.changed, self.placefiles.changed, self.chasers.changed, self.spc.changed,
-                    self.satellite.changed, self.mrms.changed, self.lightning.changed):
+                    self.satellite.changed, self.mrms.changed, self.lightning.changed, self.surface.changed):
             sig.connect(self.view.update)
-        for ov in (self.warnings, self.placefiles, self.chasers, self.spc, self.satellite, self.mrms, self.lightning):
+        for ov in (self.warnings, self.placefiles, self.chasers, self.spc, self.satellite, self.mrms, self.lightning,
+                   self.surface):
             ov.status.connect(self._status_msg)
         # storm track tool
         self.view.track_minutes = int(settings["track_minutes"] or 60)

@@ -169,7 +169,7 @@ VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm 
 
 class Alert:
     __slots__ = ("event", "rings", "hover", "issued", "expires", "style", "xy", "_proj", "office", "area",
-                 "tags", "uid", "variant", "key", "action")
+                 "tags", "uid", "variant", "key", "action", "text")
 
     def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid="", variant=None,
                  key="", action=""):
@@ -189,6 +189,7 @@ class Alert:
         self.uid = uid or f"{event}|{office}|{issued}"
         self.key = key or self.uid          # the same for every update of one warning (VTEC)
         self.action = action                # VTEC action: NEW, CON, EXT, CAN, EXP...
+        self.text = ""                      # the full warning text (live alerts)
 
     @property
     def variant_label(self):
@@ -269,8 +270,11 @@ def fetch_live_alerts(county_polys: dict) -> list:
         office = (p.get("senderName") or "").replace("NWS ", "")
         vt = params.get("VTEC") or []
         action, key = feeds.vtec_key(vt[0] if isinstance(vt, (list, tuple)) and vt else str(vt))
-        out.append(Alert(ev, rings, hover, _t(p.get("sent")), _t(p.get("expires")), office,
-                         p.get("areaDesc") or "", short, p.get("id") or "", variant, key, action))
+        alert = Alert(ev, rings, hover, _t(p.get("sent")), _t(p.get("expires")), office,
+                      p.get("areaDesc") or "", short, p.get("id") or "", variant, key, action)
+        alert.text = "\n\n".join(x.strip() for x in (p.get("headline") or "", p.get("description") or "",
+                                                       p.get("instruction") or "") if x and x.strip())
+        out.append(alert)
     return out
 
 
@@ -495,6 +499,17 @@ class WarningsOverlay(QObject):
                 painter.setFont(f2 if len(letter) > 1 else f1)
                 painter.setPen(QColor(0, 0, 0, alpha))
                 painter.drawText(int(sx - rad), int(sy - rad), 2 * rad, 2 * rad, Qt.AlignCenter, letter)
+
+    def alerts_at(self, lat, lon) -> list:
+        """The alerts (that are shown and valid for the displayed time) whose area contains a point, worst first."""
+        hits = []
+        for a in list(self.alerts):
+            if not self.visible(a) or not self._in_time(a):
+                continue
+            if any(r[:, 1].min() <= lat <= r[:, 1].max() and r[:, 0].min() <= lon <= r[:, 0].max() for r in a.rings) and \
+                    feeds.rings_contain([[(float(x), float(y)) for x, y in r] for r in a.rings], lat, lon):
+                hits.append(a)
+        return sorted(hits, key=lambda a: -a.style[3])
 
     def visible_reports(self):
         """Reports drawn now: types switched on, and (archive) near the frame's time."""

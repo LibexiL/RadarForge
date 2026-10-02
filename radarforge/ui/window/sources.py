@@ -27,6 +27,8 @@ class SourcesMixin:
         self.site_btn.setToolTip(f"{s.id} – {s.place}, {s.state}\nClick to choose another radar (Ctrl+R), "
                                  f"or click a radar square on the map")
         self.warnings.center = (s.lat, s.lon)
+        if hasattr(self, "surface"):
+            self.surface.set_centre(s.lat, s.lon)
 
     def choose_site(self):
         d = SiteDialog(self.data.site_id, self, self.settings)

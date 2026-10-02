@@ -152,8 +152,10 @@ class MenusMixin:
         self._act(m, "Refresh warnings now", lambda: self.warnings.refresh(force=True), None)
 
         m.addSection("Storm Prediction Center")
-        for key, label in (("spc_outlook", "Day 1 convective outlook"), ("spc_mcd", "Mesoscale discussions")):
-            self._overlay_act(m, key, label)
+        self._overlay_act(m, "spc_outlook", "Convective outlook")
+        self.spc_day_group = self._radio_menu(m, "Outlook day", [("Day 1 (today)", 1), ("Day 2 (tomorrow)", 2), ("Day 3", 3)],
+                                              self.settings["spc_day"] or 1, self.set_spc_day)
+        self._overlay_act(m, "spc_mcd", "Mesoscale discussions")
 
         m.addSection("Level III")
         for key, label in (("storm_tracks", "Storm tracks (NST)"), ("meso", "Mesocyclones (NMD)"),
@@ -162,6 +164,9 @@ class MenusMixin:
 
         m.addSection("Satellite and lightning (GOES)")
         self._menu_sky(m)
+
+        m.addSection("Observations")
+        self._overlay_act(m, "surface", "Surface observations (METAR station plots)")
 
         m.addSection("MRMS: radar-derived tracks and totals")
         self._menu_mrms(m)

@@ -158,3 +158,73 @@ def test_track_tool_and_new_ui(tmp_path):
     d._toggle_fav()
     assert s["favorite_sites"] == [first]
     assert d.list.item(0).text().startswith("★")
+
+
+# ------------------------------------------------------------------------------------------------ METARs
+def test_metar_parsing_prefers_the_structured_fields_and_falls_back_to_the_raw_text():
+    from radarforge.data import metar
+    reports = [
+        {"icaoId": "KOKC", "name": "Oklahoma City", "lat": 35.39, "lon": -97.60, "obsTime": 1790980800, "temp": 24.0,
+         "dewp": 18.0, "wdir": 190, "wspd": 14, "wgst": 22, "visib": "10+", "slp": 1013.2, "cover": "SCT", "wxString": "-RA",
+         "rawOb": "KOKC 022153Z 19014G22KT 10SM SCT050 24/18 A2992"},
+        {"icaoId": "KOKC", "lat": 35.39, "lon": -97.60, "obsTime": 1790977200, "temp": 20.0},            # older: dropped
+        {"icaoId": "KPWA", "name": "Wiley Post", "lat": 35.53, "lon": -97.65, "reportTime": "2026-10-02T21:53:00Z",
+         "rawOb": "KPWA 022153Z VRB03KT 10SM BKN040 M02/M05 A2992"},                                       # only raw text
+        {"icaoId": "KBAD", "lat": "x"}, {"lat": 1, "lon": 1}, "junk"]
+    obs = {o.station: o for o in metar.parse(reports)}
+    assert set(obs) == {"KOKC", "KPWA"}
+    k = obs["KOKC"]
+    assert (k.temp_c, k.dew_c, k.wdir, k.wspd, k.wgst, k.vis_mi, k.slp_hpa, k.cover, k.wx) == (24.0, 18.0, 190.0, 14.0, 22.0, 10.0, 1013.2, "SCT", "-RA")
+    assert k.temp_f() == pytest.approx(75.2) and k.sky == 0.4
+    p = obs["KPWA"]
+    assert p.temp_c == -2.0 and p.dew_c == -5.0 and p.wdir is None and p.cover == "BKN" and p.sky == 0.75
+    assert p.time == datetime(2026, 10, 2, 21, 53, tzinfo=timezone.utc)
+    assert metar.parse({"not": "a list"}) == []
+    assert metar._vis("1 1/2") == 1.5 and metar._vis("1/4") == 0.25 and metar._vis("10+") == 10 and metar._vis(None) is None
+
+
+def test_station_model_helpers():
+    from radarforge.data import metar
+    assert metar.barb_parts(0) == [] and metar.barb_parts(4) == ["half"] and metar.barb_parts(5) == ["half"]
+    assert metar.barb_parts(10) == ["full"] and metar.barb_parts(15) == ["full", "half"]
+    assert metar.barb_parts(25) == ["full", "full", "half"] and metar.barb_parts(50) == ["pennant"]
+    assert metar.barb_parts(65) == ["pennant", "full", "half"] and metar.barb_parts(115) == ["pennant", "pennant", "full", "half"]
+    assert metar.pressure_code(1013.2) == "132" and metar.pressure_code(998.7) == "987" and metar.pressure_code(None) == ""
+    mk = lambda sid, t, w: metar.Obs(sid, sid, 0, 0, datetime(2026, 10, 2, tzinfo=timezone.utc), t, None, None, w, None, None, None, "", "", "")   # noqa: E731
+    near = [mk("A", 20.0, None), mk("B", 21.0, 5.0), mk("C", None, None), mk("D", 5.0, 5.0)]
+    spots = {"A": (10, 10), "B": (12, 12), "C": (200, 200), "D": (300, 300)}
+    kept = metar.declutter(near, lambda o: spots[o.station], 50)
+    assert sorted(o.station for o, _p in kept) == ["B", "C", "D"]                        # B is fuller than A in the same square
+    assert metar.declutter(near, lambda o: None, 50) == []
+
+
+def test_spc_day2_geojson_and_outlook_days():
+    js = {"features": [
+        {"properties": {"LABEL": "SLGT", "ISSUE": "202610021730", "EXPIRE": "202610031200", "VALID": "202610021730"},
+         "geometry": {"type": "MultiPolygon", "coordinates": [[[[-100, 30], [-95, 30], [-95, 35], [-100, 35], [-100, 30]]]]}},
+        {"properties": {"LABEL": "ENH", "ISSUE": "202610021730", "EXPIRE": "202610031200"},
+         "geometry": {"type": "Polygon", "coordinates": [[[-98, 32], [-96, 32], [-96, 34], [-98, 34], [-98, 32]]]}},
+        {"properties": {"LABEL": "ZZZ"}, "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}},
+        {"properties": {"LABEL": "MRGL"}, "geometry": None}]}
+    areas = feeds.parse_spc_categorical(js)
+    assert [a["threshold"] for a in areas] == ["SLGT", "ENH"] and all(a["category"] == "CATEGORICAL" for a in areas)
+    assert areas[0]["expire"] == datetime(2026, 10, 3, 12, tzinfo=timezone.utc)
+    assert feeds.outlook_at(areas, 33, -97)["cat"] == "ENH" and feeds.outlook_at(areas, 31, -99)["cat"] == "SLGT"
+    assert feeds.outlook_at(areas, 40, -80) is None
+    assert feeds.spc_outlook_url(2).endswith("day2otlk_cat.nolyr.geojson")
+    assert feeds._spc_time("junk") is None
+
+
+def test_alert_text_and_lookup_by_point(tmp_path):
+    from radarforge.config import Settings
+    from radarforge.overlays import warnings as w
+    s = Settings(tmp_path / "s.json")
+    ov = w.WarningsOverlay(s, lambda: {})
+    ring = np.array([[-98.0, 34.0], [-96.0, 34.0], [-96.0, 36.0], [-98.0, 36.0], [-98.0, 34.0]])
+    tor = w.Alert("Tornado Warning", [ring], "hover", None, None, "NWS Norman", "Cleveland, OK", variant="TORP")
+    tor.text = "TORNADO WARNING...\n\nTake cover now."
+    svr = w.Alert("Severe Thunderstorm Warning", [ring], "hover", None, None, "NWS Norman", "x", variant="SVR")
+    ov.alerts = [svr, tor]
+    assert [a.variant for a in ov.alerts_at(35.0, -97.0)] == ["TORP", "SVR"]          # worst first
+    assert ov.alerts_at(40.0, -97.0) == [] and tor.text.startswith("TORNADO WARNING")
+    assert w.Alert("Tornado Watch", [ring], "h", None, None).text == ""

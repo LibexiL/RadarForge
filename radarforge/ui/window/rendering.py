@@ -10,7 +10,7 @@ from ... import fmt
 from ...data.sites import nearest_site
 from ...products import catalog
 from ...products.geometry import beam_height, slant_range
-from ..dialogs import McdDialog
+from ..dialogs import McdDialog, TextDialog
 from ..panels import CELL_CODES
 from .constants import L3_TILT_ELEVS
 from .jobs import _Bg, _ImageJob
@@ -232,6 +232,10 @@ class RenderingMixin:
             a.triggered.connect(lambda: self.view.set_view(x, y, self.view.scale))
             a = menu.addAction("Model sounding here (HRRR)…")
             a.triggered.connect(lambda: self.open_sounding_at(lat, lon))
+            for a in self.warnings.alerts_at(lat, lon)[:4]:
+                a_ = menu.addAction(f"Read: {a.variant_label} ({a.office or 'NWS'})…")
+                a_.triggered.connect(lambda _=False, al=a: TextDialog(
+                    self, f"{al.variant_label} – {al.office}", al.text or al.hover).show())
             mcd = self.spc.mcd_at(lat, lon)
             if mcd is not None:
                 a = menu.addAction(f"Read SPC Mesoscale Discussion {mcd['number']}…")

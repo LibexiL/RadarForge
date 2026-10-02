@@ -9,6 +9,7 @@ from .motion import StormMotionDialog
 from .placefiles import PlacefileDialog, PlacefilePanel
 from .settings import SettingsDialog
 from .sites import SiteDialog
+from .text import TextDialog
 
 __all__ = ["ArchiveDialog", "BookmarkDialog", "BookmarksDialog", "LoopExportDialog", "McdDialog", "PlacefileDialog", "PlacefilePanel", "SettingsDialog", "SiteDialog",
-           "StormMotionDialog"]
+           "StormMotionDialog", "TextDialog"]

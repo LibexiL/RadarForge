@@ -133,6 +133,10 @@ class SettingsDialog(QDialog):
         self.units.addItems(["nm", "km", "mi"])
         self.units.setCurrentText(s["distance_units"])
         f.addRow("Distance units", self.units)
+        self.temp_units = QComboBox()
+        self.temp_units.addItems(["F", "C"])
+        self.temp_units.setCurrentText(s["temp_units"])
+        f.addRow("Temperature units", self.temp_units)
         self.start_live = QCheckBox("Start in live mode on the last radar used")
         self.start_live.setChecked(bool(s["start_live"]))
         f.addRow("On launch", self.start_live)
@@ -552,6 +556,7 @@ class SettingsDialog(QDialog):
     def _ok(self):
         s = self.s
         s["distance_units"] = self.units.currentText()
+        s["temp_units"] = self.temp_units.currentText()
         s["start_live"] = self.start_live.isChecked()
         s["invert_scroll"] = self.invert.isChecked()
         s["hover_text"] = self.hover.isChecked()
