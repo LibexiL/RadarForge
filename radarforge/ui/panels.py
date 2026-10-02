@@ -13,8 +13,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ..data.sites import get_site, nearest_site
-from ..features import feeds
-from ..features.warnings import FILTERS
+from ..data import feeds
+from ..overlays.warnings import FILTERS
 from ..products import catalog
 from ..products.geometry import aeqd_forward
 

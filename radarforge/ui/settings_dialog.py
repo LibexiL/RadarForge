@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QColorDialog, QComb
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from .. import themes
-from ..features.warnings import BASE_CODE, CLASSIC_PRESET, LINE_KINDS, VARIANT, VARIANTS, default_line, hex_rgb
+from ..overlays.warnings import BASE_CODE, CLASSIC_PRESET, LINE_KINDS, VARIANT, VARIANTS, default_line, hex_rgb
 from ..products import catalog, colortable
 from . import icons
 
@@ -622,7 +622,7 @@ class _ColorButton(QToolButton):
 def _paint_line(p, rect, line):
     """Draws a warning line sample (colour, width, style) across rect."""
     from PySide6.QtCore import QLineF, QPointF
-    from ..features.warnings import draw_line
+    from ..overlays.warnings import draw_line
     p.fillRect(rect, QColor(16, 17, 22))
     y = rect.center().y()
     seg = QLineF(QPointF(rect.left() + 6, y), QPointF(rect.right() - 6, y))

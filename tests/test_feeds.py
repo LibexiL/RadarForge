@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
-from radarforge.features import feeds
+from radarforge import fmt
+from radarforge.data import feeds
+from radarforge.tools import track
 
 SN_POSITIONS = """Refresh: 1
 Threshold: 999
@@ -113,19 +115,19 @@ def test_storm_track_maths():
     xy = np.array([[30.0, 2.0], [15.0, -4.0], [45.0, 20.0], [70.0, 0.0], [-5.0, 0.0]])
     pop = np.array([9000, 8000, 7000, 6000, 5000])
     names = np.array(["Mid", "Early", "OffTrack", "Beyond", "Behind"])
-    e = feeds.track_etas((0, 0), (60, 0), 60, xy, pop, names, 8.0)
+    e = track.track_etas((0, 0), (60, 0), 60, xy, pop, names, 8.0)
     assert [n for n, *_ in e] == ["Early", "Mid"]
     assert e[0][1] == pytest.approx(15) and e[1][1] == pytest.approx(30)
-    assert feeds.eta_at((0, 0), (60, 0), 60, (90, 3), 8.0) == pytest.approx(90)
-    assert feeds.eta_at((0, 0), (60, 0), 60, (-10, 0), 8.0) is None
-    assert feeds.tick_minutes(60) == 15 and feeds.compass(47) == "NE"
+    assert track.eta_at((0, 0), (60, 0), 60, (90, 3), 8.0) == pytest.approx(90)
+    assert track.eta_at((0, 0), (60, 0), 60, (-10, 0), 8.0) is None
+    assert track.tick_minutes(60) == 15 and fmt.compass(47) == "NE"
     assert feeds.vtec_key("/O.CON.KOUN.TO.W.0042.261001T0230Z-261001T0315Z/") == ("CON", "KOUN.TO.W.0042")
 
 
 def test_track_tool_and_new_ui(tmp_path):
     """The storm track tool, favourites and location in the real window classes (offscreen)."""
     from PySide6.QtWidgets import QApplication
-    _app = QApplication.instance() or QApplication([])  # noqa: F841
+    assert QApplication.instance() or QApplication([])
     from radarforge.config import Settings
     from radarforge.render.glview import RadarView
     s = Settings(tmp_path / "s.json")
@@ -145,7 +147,7 @@ def test_track_tool_and_new_ui(tmp_path):
     assert v.track["b"] == pytest.approx((80.0, 0.0)) and {e[0] for e in v.track["etas"]} == {"Town", "Far"}
     v.clear_track()
     assert v.track is None and seen
-    from radarforge.features.location import MyLocation
+    from radarforge.overlays.locations import MyLocation
     s["my_location"] = [35.0, -97.0]
     assert MyLocation(s).latlon() == (35.0, -97.0)
     from radarforge.ui.dialogs import SiteDialog

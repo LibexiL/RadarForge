@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
-from radarforge.features.placefile import parse_placefile
+from radarforge.overlays.placefile import parse_placefile
 from radarforge.products import catalog, colortable
 from radarforge.products.dealias import dealias_region
 from radarforge.products.geometry import (aeqd_forward, aeqd_inverse, ground_range, point_to_beam,
@@ -146,7 +146,7 @@ def test_placefile_below_flag(tmp_path):
     from PySide6.QtCore import QCoreApplication
     _qapp()
     from radarforge.config import Settings
-    from radarforge.features.placefile import PlacefileManager
+    from radarforge.overlays.placefile import PlacefileManager
     if QCoreApplication.instance() is None:
         test_placefile_below_flag.app = QCoreApplication([])
     s = Settings(path=Path(tmp_path) / "s.json")
@@ -281,7 +281,7 @@ def test_warning_colors_and_visibility(tmp_path):
     from pathlib import Path
     _qapp()
     from radarforge.config import Settings
-    from radarforge.features import warnings as w
+    from radarforge.overlays import warnings as w
     s = Settings(path=Path(tmp_path) / "s.json")
     assert w.warning_color(s, "Flash Flood Warning") == (0x8b, 0, 0)       # NWS dark red
     assert w.warning_color(s, "Tornado Watch") == (255, 255, 0)
@@ -315,7 +315,7 @@ def test_warning_line_variants(tmp_path):
     """Warning lines: threat-level codes from NWS tags, per-code colour/width/style."""
     from pathlib import Path
     from radarforge.config import Settings
-    from radarforge.features import warnings as w
+    from radarforge.overlays import warnings as w
     v = w.variant_of
     assert v("Tornado Warning", {"tornadoDetection": ["RADAR INDICATED"]}) == "TOR"
     assert v("Tornado Warning", {"tornadoDetection": ["OBSERVED"]}) == "TORR"

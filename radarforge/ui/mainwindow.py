@@ -14,15 +14,17 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QInputDialo
                                QVBoxLayout, QWidget)
 
 from .. import __version__, themes
+from .. import fmt
 from ..config import APP_NAME
 from ..data.sites import get_site, nearest_site
-from ..features import feeds
-from ..features.chasers import ChasersOverlay
-from ..features.l3overlay import Level3Overlay
-from ..features.location import MyLocation
-from ..features.placefile import PlacefileManager
-from ..features.spc import SpcOverlay
-from ..features.warnings import EVENT_GROUP, WarningsOverlay
+from ..tools import track
+from ..data import feeds
+from ..overlays.chasers import ChasersOverlay
+from ..overlays.level3 import Level3Overlay
+from ..overlays.locations import MyLocation
+from ..overlays.placefile import PlacefileManager
+from ..overlays.spc import SpcOverlay
+from ..overlays.warnings import EVENT_GROUP, WarningsOverlay
 from ..products import catalog, colortable
 from ..products.engine import ProductEngine
 from ..products.geometry import aeqd_forward, beam_height, slant_range
@@ -1458,11 +1460,11 @@ class MainWindow(QMainWindow):
         def when(mins):
             at = t["start"] + timedelta(minutes=mins)
             left = round((at - now).total_seconds() / 60)
-            return f"{feeds.local_hm(at)} (" + (f"in {left} min" if left > 0 else "now" if left == 0 else "passed") + ")"
-        parts = [f"Track {feeds.compass(heading)} {kmh / 1.852:.0f} kt"]
+            return f"{fmt.local_hm(at)} (" + (f"in {left} min" if left > 0 else "now" if left == 0 else "passed") + ")"
+        parts = [f"Track {fmt.compass(heading)} {kmh / 1.852:.0f} kt"]
         loc = self.my_location.xy(self.view)
         if loc is not None:
-            e = feeds.eta_at(t["a"], t["b"], self.view.track_minutes, loc, self.view.track_half_width)
+            e = track.eta_at(t["a"], t["b"], self.view.track_minutes, loc, self.view.track_half_width)
             parts.append("You: " + (when(e) if e is not None else "not in its path"))
         parts += [f"{n} {when(mins)}" for n, mins, _x, _y in t["etas"][:3]]
         if not t["etas"]:

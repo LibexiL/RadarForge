@@ -12,7 +12,7 @@ from PySide6.QtGui import QColor, QPen, QPolygonF
 
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
-from . import feeds
+from ..data import feeds
 
 UA = {"User-Agent": "RadarForge/1.0 (NEXRAD viewer)", "Accept": "application/geo+json"}
 

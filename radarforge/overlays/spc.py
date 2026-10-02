@@ -12,7 +12,8 @@ from PySide6.QtGui import QColor, QPolygonF
 
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
-from . import feeds
+from ..data import feeds
+from .. import fmt
 from .warnings import draw_line, near_edge
 
 UA = {"User-Agent": "RadarForge (NEXRAD viewer; github.com/LibexiL/RadarForge)", "Accept": "application/geo+json"}
@@ -161,7 +162,7 @@ class SpcOverlay(QObject):
         if m["concerning"]:
             txt += "\n" + m["concerning"].capitalize()
         if m["expire"] is not None:
-            txt += f"\nUntil {feeds.local_hm(m['expire'])}"
+            txt += f"\nUntil {fmt.local_hm(m['expire'])}"
         if m["watch"] is not None:
             txt += f"\nChance of a watch: {m['watch']}%"
         return txt + "\n(right-click inside it → read the discussion)"
@@ -181,7 +182,7 @@ class SpcOverlay(QObject):
         txt += f"\nTornado {p('TORNADO', 2)} · Wind {p('WIND', 5)} · Hail {p('HAIL', 5)}"
         exp = (o or {}).get("expire") or next((a["expire"] for a in self.outlook if a["expire"]), None)
         if exp is not None:
-            txt += f"\nValid until {feeds.local_hm(exp)}"
+            txt += f"\nValid until {fmt.local_hm(exp)}"
         return txt
 
     def describe(self, lat, lon) -> str | None:

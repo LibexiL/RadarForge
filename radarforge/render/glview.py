@@ -17,9 +17,10 @@ from PySide6.QtGui import QColor, QFontMetricsF, QImage, QPainter, QPen, QPolygo
 from PySide6.QtOpenGL import QOpenGLWindow
 from PySide6.QtWidgets import QToolTip, QWidget
 
+from .. import fmt
 from ..data.sites import all_sites
-from ..features import feeds
 from ..products.geometry import aeqd_forward, aeqd_inverse, az_range, ground_range
+from ..tools import track as track_maths
 from . import shaders
 from .maps import DRAW_ORDER, LAYER_STYLE, MapData
 from .fonts import ui_font
@@ -1022,7 +1023,7 @@ class RadarView(QOpenGLWindow):
         t = self.track
         if t is not None:
             maps = self.maps
-            t["etas"] = feeds.track_etas(t["a"], t["b"], self.track_minutes, getattr(maps, "city_xy", None),
+            t["etas"] = track_maths.track_etas(t["a"], t["b"], self.track_minutes, getattr(maps, "city_xy", None),
                                          getattr(maps, "city_pop", None), getattr(maps, "city_name", None),
                                          self.track_half_width)
         self.trackChanged.emit()
@@ -1087,7 +1088,7 @@ class RadarView(QOpenGLWindow):
             painter.setPen(QPen(yellow, 1.8))
             painter.setBrush(Qt.NoBrush)
             painter.drawEllipse(QPointF(sx, sy), 5.5, 5.5)
-            self._halo_text(painter, sx - 14, sy + 17, feeds.local_hm(start + timedelta(minutes=mins)).split(" ")[0],
+            self._halo_text(painter, sx - 14, sy + 17, fmt.local_hm(start + timedelta(minutes=mins)).split(" ")[0],
                             yellow, font)
 
         def seg(x0, y0, x1, y1, w):
@@ -1105,7 +1106,7 @@ class RadarView(QOpenGLWindow):
             painter.setPen(QPen(QColor(0, 0, 0, 220), 2))
             painter.setBrush(yellow)
             painter.drawPolygon(head)
-            step = feeds.tick_minutes(self.track_minutes)
+            step = track_maths.tick_minutes(self.track_minutes)
             m = step
             while m < self.track_minutes:
                 f = m / self.track_minutes
@@ -1113,10 +1114,10 @@ class RadarView(QOpenGLWindow):
                 seg(px - uy * 6, py + ux * 6, px + uy * 6, py - ux * 6, 1.8)
                 if ln > 80:
                     self._halo_text(painter, px + uy * 12 - 12, py - ux * 12 + 4,
-                                    feeds.local_hm(start + timedelta(minutes=m)).split(" ")[0], yellow, font)
+                                    fmt.local_hm(start + timedelta(minutes=m)).split(" ")[0], yellow, font)
                 m += step
             self._halo_text(painter, bx + ux * 16 - 12, by + uy * 16 + 4,
-                            feeds.local_hm(start + timedelta(minutes=self.track_minutes)).split(" ")[0], yellow, font)
+                            fmt.local_hm(start + timedelta(minutes=self.track_minutes)).split(" ")[0], yellow, font)
         painter.setPen(QPen(QColor(0, 0, 0), 1.5))
         painter.setBrush(QColor(255, 255, 255))
         painter.drawEllipse(QPointF(ax, ay), 6, 6)

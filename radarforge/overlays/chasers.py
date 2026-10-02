@@ -12,7 +12,8 @@ from PySide6.QtGui import QColor, QPen, QPolygonF
 
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
-from . import feeds
+from ..data import feeds
+from .. import fmt
 
 UA = {"User-Agent": "RadarForge (NEXRAD viewer; github.com/LibexiL/RadarForge)"}
 
@@ -125,7 +126,7 @@ class ChasersOverlay(QObject):
             return None
         h = best["heading"]
         lines = [f"Storm chaser: {best['name']}",
-                 (f"Driving {feeds.compass(h)} ({h:.0f}°)" if h is not None else "Stationary") +
+                 (f"Driving {fmt.compass(h)} ({h:.0f}°)" if h is not None else "Stationary") +
                  f" · position {_age(best['time'], now)}"]
         lines += [f"{k}: {v}" for k, v in best["info"]]
         lines.append("Spotter Network")

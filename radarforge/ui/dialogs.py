@@ -410,7 +410,8 @@ class McdDialog(QDialog):
 
     def __init__(self, mcd: dict, parent=None):
         super().__init__(parent)
-        from ..features import feeds
+        from .. import fmt
+        from ..data import feeds
         self.setWindowTitle(f"SPC Mesoscale Discussion {mcd['number']}")
         self.resize(640, 640)
         head = f"<b>Mesoscale Discussion {mcd['number']}</b>"
@@ -418,9 +419,9 @@ class McdDialog(QDialog):
             head += f"<br>Concerning: {mcd['concerning'].capitalize()}"
         bits = []
         if mcd.get("issue"):
-            bits.append(f"issued {feeds.local_hm(mcd['issue'])}")
+            bits.append(f"issued {fmt.local_hm(mcd['issue'])}")
         if mcd.get("expire"):
-            bits.append(f"until {feeds.local_hm(mcd['expire'])}")
+            bits.append(f"until {fmt.local_hm(mcd['expire'])}")
         if mcd.get("watch") is not None:
             bits.append(f"chance of a watch {mcd['watch']}%")
         if bits:
