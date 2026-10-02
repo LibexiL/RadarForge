@@ -292,6 +292,8 @@ class MenusMixin:
 
     # ---------------------------------------------------------------- Help
     def _menu_help(self, m):
+        self._act(m, "Learn: historic storms…", self.open_learn, None)
+        m.addSeparator()
         self._act(m, "Keyboard shortcuts", self.show_shortcuts, "F1")
         self._act(m, "About RadarForge", self.show_about, None)
 

@@ -34,12 +34,13 @@ from .window.locations import LocationsMixin
 from .window.layers import LayersMixin
 from .window.exporting import ExportMixin
 from .window.following import FollowMixin
+from .window.learning import LearnMixin
 from .window.session import SessionMixin
 from .workspace import Workspace
 
 
 class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, SourcesMixin, TimelineMixin,
-                 RenderingMixin, ToolsMixin, LocationsMixin, LayersMixin, ExportMixin, ViewsMixin, CommandsMixin,
+                 RenderingMixin, ToolsMixin, LocationsMixin, LayersMixin, ExportMixin, ViewsMixin, LearnMixin, CommandsMixin,
                  FollowMixin, SessionMixin, QMainWindow):
     """RadarForge main window.
 

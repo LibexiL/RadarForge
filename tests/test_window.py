@@ -90,3 +90,14 @@ def test_locations_and_alert_state(window):
     assert len(window.location_status) == 2
     window.set_my_location(None, None)
     assert [loc.name for loc in window.book.items] == ["Cabin"]
+
+
+def test_learn_mode_and_trends_are_reachable(window):
+    from PySide6.QtCore import Qt
+    titles = [c.title for c in window.command_list()]
+    assert any(t.startswith("Learn: Moore") for t in titles)
+    window.open_learn("el-reno-2013")
+    dlg = window._learn_dlg
+    assert dlg.event["id"] == "el-reno-2013"
+    assert dlg.events.currentItem().data(Qt.UserRole) == "el-reno-2013"
+    assert window.trends_win is not None
