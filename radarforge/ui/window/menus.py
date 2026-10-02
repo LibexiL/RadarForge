@@ -147,6 +147,9 @@ class MenusMixin:
                            ("tvs", "TVS (NTV)"), ("hail", "Hail index (NHI)"), ("melting_layer", "Melting layer (N0M)")):
             self._overlay_act(m, key, label)
 
+        m.addSection("Satellite and lightning (GOES)")
+        self._menu_sky(m)
+
         m.addSection("Storm chasers")
         self._overlay_act(m, "chasers", "Storm chasers (Spotter Network)")
         ch = m.addMenu("Storm chaser options")
@@ -181,6 +184,38 @@ class MenusMixin:
 
         m.addSection("Placefiles")
         self._act(m, "Placefile manager", self.open_placefiles, "Ctrl+P")
+
+    def _radio_menu(self, menu, title, choices, current, handler):
+        """A submenu of exclusive choices [(label, value)]; returns its action group."""
+        sub = menu.addMenu(title)
+        group = QActionGroup(self)
+        for label, value in choices:
+            a = QAction(label, self, checkable=True)
+            a.setData(value)
+            a.setChecked(value == current)
+            a.triggered.connect(lambda _=False, v=value: handler(v))
+            group.addAction(a)
+            sub.addAction(a)
+        return group
+
+    def _menu_sky(self, m):
+        from ...data import goes
+        s = self.settings
+        self._overlay_act(m, "satellite", "Satellite picture")
+        self.sat_channel_group = self._radio_menu(
+            m, "Satellite channel", [(v["label"], k) for k, v in goes.CHANNELS.items()], s["satellite_channel"],
+            self.set_satellite_channel)
+        self.sat_source_group = self._radio_menu(
+            m, "Satellite", [("Automatic (by location)", "auto"), ("GOES-East", "east"), ("GOES-West", "west")],
+            s["satellite_sat"], self.set_satellite_source)
+        self.sat_opacity_group = self._radio_menu(
+            m, "Satellite opacity", [(f"{int(v * 100)}%", v) for v in (1.0, 0.8, 0.6, 0.4, 0.2)],
+            min((1.0, 0.8, 0.6, 0.4, 0.2), key=lambda v: abs(v - float(s["satellite_opacity"] or 0.8))),
+            self.set_satellite_opacity)
+        self._overlay_act(m, "lightning", "Lightning flashes (GLM)")
+        self.lightning_window_group = self._radio_menu(
+            m, "Lightning window", [(f"Last {v} minutes", v) for v in (5, 10, 15, 30)], int(s["lightning_minutes"] or 10),
+            self.set_lightning_minutes)
 
     # ---------------------------------------------------------------- Locations: where I am and what to tell me
     def _menu_locations(self, m):

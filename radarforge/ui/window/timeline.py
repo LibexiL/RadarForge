@@ -44,6 +44,7 @@ class TimelineMixin:
             self._update_time_label()
         if not self.data.loading:
             self._prefetch()
+            self.update_sky_layers(prefetch=True)
 
     def _frame_updated(self, frame):
         if frame is self.current_frame() and not self._update_timer.isActive():

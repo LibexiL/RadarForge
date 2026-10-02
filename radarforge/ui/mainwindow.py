@@ -8,8 +8,10 @@ from .. import themes
 from ..config import APP_NAME
 from ..overlays.chasers import ChasersOverlay
 from ..overlays.level3 import Level3Overlay
+from ..overlays.lightning import LightningOverlay
 from ..overlays.locations import MyLocation
 from ..overlays.placefile import PlacefileManager
+from ..overlays.satellite import SatelliteLayer
 from ..overlays.spc import SpcOverlay
 from ..overlays.warnings import WarningsOverlay
 from ..products.engine import ProductEngine
@@ -90,12 +92,16 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
         self.spc = SpcOverlay(settings, is_live, self)
         self.spc._view = self.view
         self.my_location = MyLocation(settings)
-        self.view.overlays = [self.spc, self.warnings, self.placefiles, self.l3ov, self.chasers, self.my_location]
-        self.view.underlays = [self.placefiles]
+        self.satellite = SatelliteLayer(settings, self)
+        self.lightning = LightningOverlay(settings, self)
+        self.view.overlays = [self.satellite, self.lightning, self.spc, self.warnings, self.placefiles, self.l3ov,
+                              self.chasers, self.my_location]
+        self.view.underlays = [self.satellite, self.placefiles]
         self.view.hover_providers = [self.l3ov, self.chasers, self.placefiles, self.warnings, self.my_location, self.spc]
-        for sig in (self.warnings.changed, self.placefiles.changed, self.chasers.changed, self.spc.changed):
+        for sig in (self.warnings.changed, self.placefiles.changed, self.chasers.changed, self.spc.changed,
+                    self.satellite.changed, self.lightning.changed):
             sig.connect(self.view.update)
-        for ov in (self.warnings, self.placefiles, self.chasers, self.spc):
+        for ov in (self.warnings, self.placefiles, self.chasers, self.spc, self.satellite, self.lightning):
             ov.status.connect(self._status_msg)
         self.warnings.changed.connect(self._check_location_alerts)
         self._notified = dict(settings["notified_warnings"] or {})

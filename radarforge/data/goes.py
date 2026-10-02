@@ -197,6 +197,26 @@ def _attr(ds, name, default=None):
     return v.decode() if isinstance(v, bytes) else v
 
 
+def _unsigned(ds) -> bool:
+    return str(_attr(ds, "_Unsigned", "false")).lower() == "true"
+
+
+def _raw(ds, key=Ellipsis):
+    """The stored integers of a variable. netCDF marks unsigned data with _Unsigned = "true", which h5py
+    doesn't apply, so 16-bit values above 32767 would otherwise come back negative."""
+    a = ds[key]
+    if _unsigned(ds) and a.dtype.kind == "i":
+        return a.view(f"u{a.dtype.itemsize}")
+    return a
+
+
+def _fill(ds):
+    v = _attr(ds, "_FillValue")
+    if v is None:
+        return None
+    return int(v) & ((1 << (8 * ds.dtype.itemsize)) - 1) if _unsigned(ds) else float(v)
+
+
 def open_h5(data):
     """An HDF5 / netCDF4 file from bytes or a path."""
     import h5py
@@ -227,9 +247,9 @@ def reproject(data, lat0: float, lon0: float, half_km: float = 1200.0, step_km: 
             iyi = iy[ok].astype(np.int64)
             x0, x1, y0, y1 = ixi.min(), ixi.max() + 1, iyi.min(), iyi.max() + 1
             cmi = f["CMI"]
-            win = cmi[y0:y1, x0:x1]                                 # only the part of the picture we need
+            win = _raw(cmi, (slice(y0, y1), slice(x0, x1)))         # only the part of the picture we need
             raw = win[iyi - y0, ixi - x0].astype(np.float32)
-            fill = _attr(cmi, "_FillValue")
+            fill = _fill(cmi)
             scale, offset = float(_attr(cmi, "scale_factor", 1.0)), float(_attr(cmi, "add_offset", 0.0))
             good = np.ones(raw.shape, bool) if fill is None else raw != float(fill)
             vals = raw * scale + offset
@@ -275,12 +295,13 @@ def read_glm(data) -> Flashes:
         lat = f["flash_lat"][:].astype(np.float32)
         lon = f["flash_lon"][:].astype(np.float32)
         tv = f["flash_time_offset_of_first_event"]
-        off = tv[:].astype(np.float64) * float(_attr(tv, "scale_factor", 1.0)) + float(_attr(tv, "add_offset", 0.0))
+        off = _raw(tv).astype(np.float64) * float(_attr(tv, "scale_factor", 1.0)) + float(_attr(tv, "add_offset", 0.0))
         base = datetime(2000, 1, 1, 12, tzinfo=timezone.utc) + timedelta(seconds=float(f["product_time"][()]))
         t = base.timestamp() + off
         ev = f["flash_energy"]
-        raw = ev[:].astype(np.float64)
+        raw = _raw(ev).astype(np.float64)
         energy = (raw * float(_attr(ev, "scale_factor", 1.0)) + float(_attr(ev, "add_offset", 0.0))) * 1e15
+        energy[raw == (_fill(ev) if _fill(ev) is not None else -1)] = 0.0
         keep = np.isfinite(lat) & np.isfinite(lon)
         if "flash_quality_flag" in f:
             keep &= f["flash_quality_flag"][:] == 0
@@ -289,5 +310,5 @@ def read_glm(data) -> Flashes:
         f.close()
 
 
-def fetch_scan(scan: Scan) -> bytes:
-    return aws.fetch(scan.bucket, scan.key, timeout=120)
+def fetch_scan(scan: Scan, cache: bool = True) -> bytes:
+    return aws.fetch(scan.bucket, scan.key, cache=cache, timeout=180)

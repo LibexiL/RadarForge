@@ -193,6 +193,7 @@ class RadarView(QOpenGLWindow):
         self._sprites: dict = {}
         self._city_cache: dict = {}
         self._header_w = 0
+        self._caption_y = 16              # next free line for draw_caption()
         self.prog_blit = None
         self._blit_vao = None
 
@@ -823,7 +824,15 @@ class RadarView(QOpenGLWindow):
         qp.end()
         return img
 
+    def draw_caption(self, painter, vt, text, color=QColor(190, 205, 225)):
+        """A line of small text in the panel's top-right corner; each call stacks below the previous one."""
+        font = ui_font(8, True)
+        w = QFontMetricsF(font).horizontalAdvance(text)
+        self._halo_text(painter, vt.rect.right() - w - 12, vt.rect.top() + self._caption_y, text, color, font)
+        self._caption_y += 15
+
     def _paint_overlays(self, painter, p, vt):
+        self._caption_y = 16
         if self.show_range_rings:
             self._paint_rings(painter, vt)
         if self.show_cities:

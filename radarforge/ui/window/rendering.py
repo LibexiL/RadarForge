@@ -78,6 +78,7 @@ class RenderingMixin:
             self.time_label.setText(" no data ")
         for p in self.view.panels:
             self._request_panel(p, frame)
+        self.update_sky_layers()
         self._fill_tilt_combo(frame)
         if self.xs_win is not None and self.xs_win.isVisible():
             self.xs_win.refresh()
@@ -291,6 +292,9 @@ class RenderingMixin:
         cur = self.view.panels[panel].readout if panel < len(self.view.panels) else ""
         if cur:
             parts.append(f"{catalog.get(self.view.panels[panel].product).short}: {cur}")
+        sky = self.satellite.readout(x, y, self.view)
+        if sky:
+            parts.append(sky)
         self.readout.setText("   |   ".join(parts))
         if self.inspector_panel.isVisible():
             beam = next((p for p in parts if p.startswith("beam")), "")

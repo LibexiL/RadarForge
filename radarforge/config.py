@@ -46,7 +46,7 @@ DEFAULTS = {
                    "lakes": True, "countries": True, "range_rings": False},
     "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "meso": True,
                  "tvs": True, "hail": False, "melting_layer": False, "reports": False,
-                 "chasers": False, "spc_outlook": False, "spc_mcd": False},
+                 "chasers": False, "spc_outlook": False, "spc_mcd": False, "satellite": False, "lightning": False},
     "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
@@ -56,6 +56,10 @@ DEFAULTS = {
     "spotter_reports": True,       # add Spotter Network reports to the NWS ones (live)
     "chasers_active_only": False,  # Spotter Network: only members with 5+ accepted reports
     "chaser_names": True,
+    "satellite_channel": "ir",     # ir | wv | swir | vis (see data/goes.py)
+    "satellite_sat": "auto",       # auto | east | west
+    "satellite_opacity": 0.8,
+    "lightning_minutes": 10,       # minutes of GLM flashes shown (5, 10, 15, 30)
     "favorite_sites": [],
     "my_location": None,           # [lat, lon] set from the map's right-click menu
     "warn_at_location": True,      # pop up a new warning that covers my location (live)
