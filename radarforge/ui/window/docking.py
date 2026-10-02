@@ -6,7 +6,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from ...tools.volume3d import Volume3DWindow
 from ...tools.xsection import CrossSectionWindow
 from ..dialogs import PlacefilePanel
-from ..panels import CellsPanel, InspectorPanel, LayersPanel, ProductsPanel, WarningsPanel
+from ..panels import CellsPanel, InspectorPanel, LayersPanel, LocationsPanel, ProductsPanel, WarningsPanel
 
 
 class _Lazy3D(QWidget):
@@ -34,7 +34,7 @@ class _Lazy3D(QWidget):
 class DockingMixin:
     """Side panels and the movable-panel workspace."""
 
-    SIDE_PANELS = ("products", "warnings", "cells", "inspector", "placefiles", "layers")
+    SIDE_PANELS = ("products", "warnings", "locations", "cells", "inspector", "placefiles", "layers")
 
     def _build_panels(self):
         ws = self.ws
@@ -44,8 +44,10 @@ class DockingMixin:
         self.inspector_panel = InspectorPanel(self)
         self.placefile_panel = PlacefilePanel(self.placefiles, compact=True)
         self.layers_panel = LayersPanel(self)
+        self.locations_panel = LocationsPanel(self)
         for key, title, w in (("products", "Products", self.products_panel),
                               ("warnings", "Warnings", self.warnings_panel),
+                              ("locations", "Locations", self.locations_panel),
                               ("cells", "Storm cells", self.cells_panel),
                               ("inspector", "Inspector", self.inspector_panel),
                               ("placefiles", "Placefiles", self.placefile_panel),

@@ -5,12 +5,15 @@ import numpy as np
 from datetime import datetime, timezone
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton, QStackedWidget, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel, QPushButton,
+                               QStackedWidget, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from ...data import feeds
 from ...data.sites import nearest_site
 from ...overlays.warnings import FILTERS
 from ...products.geometry import aeqd_forward
+from ...services import geo
 from .common import _chip, _hint, _swatch, _zoom_to
 
 
@@ -45,11 +48,18 @@ class WarningsPanel(QWidget):
             frow.addWidget(cb)
         wl.addLayout(frow)
         row2 = QHBoxLayout()
-        self.in_view = QCheckBox("Only in view")
+        self.in_view = QCheckBox("In view")
         self.in_view.setChecked(True)
         self.in_view.setToolTip("Only list warnings that overlap the area you're looking at")
         self.in_view.toggled.connect(self.refresh)
         row2.addWidget(self.in_view)
+        self.sort = QComboBox()
+        for label, key in (("By severity", "severity"), ("By time left", "time"), ("Nearest me", "distance")):
+            self.sort.addItem(label, key)
+        self.sort.setCurrentIndex(max(0, self.sort.findData(main.settings["warning_sort"])))
+        self.sort.setToolTip("How the warnings are ordered: most severe first, ending soonest, or closest to my location")
+        self.sort.activated.connect(self._sort_changed)
+        row2.addWidget(self.sort)
         row2.addStretch(1)
         self.count = QLabel()
         row2.addWidget(self.count)
@@ -167,6 +177,23 @@ class WarningsPanel(QWidget):
         m.view.update()
         self.refresh()
 
+    def _sort_changed(self, i):
+        self.main.settings["warning_sort"] = self.sort.itemData(i)
+        self.main.settings.save()
+        self.refresh()
+
+    def _sort_key(self, now):
+        """Ordering of the list: severity (default), the time left, or the distance to my location."""
+        mode = self.main.settings["warning_sort"]
+        far = datetime.max.replace(tzinfo=timezone.utc)
+        if mode == "time":
+            return lambda a: (a.expires or far, -a.style[3])
+        if mode == "distance":
+            me = self.main.my_location.latlon()
+            if me is not None:
+                return lambda a: (geo.rings_distance_km(me[0], me[1], a.rings), -a.style[3])
+        return lambda a: (-a.style[3], a.expires or now)
+
     def sync_filters(self):
         """Match the buttons to the settings (after the Map menu changed them)."""
         for key, cb in self.filters.items():
@@ -192,7 +219,7 @@ class WarningsPanel(QWidget):
                         break
             alerts = keep
         now = self._now()
-        alerts.sort(key=lambda a: (-a.style[3], a.expires or now))
+        alerts.sort(key=self._sort_key(now))
         sel = m.warnings.selected_uid
         self.tree.blockSignals(True)
         self.tree.clear()

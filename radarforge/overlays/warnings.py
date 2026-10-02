@@ -337,6 +337,7 @@ class WarningsOverlay(QObject):
         self.alerts: list = []
         self.reports: list = []
         self.mode = "live"
+        self.force_alerts = False        # location alerts need the warnings even when their layer is off
         self.archive_time = None
         self._last_fetch = 0.0
         self._busy = False
@@ -359,7 +360,7 @@ class WarningsOverlay(QObject):
 
     def refresh(self, force=False):
         ov = self.settings["overlays"]
-        want_w = ov.get("warnings", True) or ov.get("watches", True)
+        want_w = ov.get("warnings", True) or ov.get("watches", True) or self.force_alerts
         want_r = ov.get("reports", False)
         if self._busy or not (want_w or want_r):
             return

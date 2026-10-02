@@ -147,9 +147,10 @@ def test_track_tool_and_new_ui(tmp_path):
     assert v.track["b"] == pytest.approx((80.0, 0.0)) and {e[0] for e in v.track["etas"]} == {"Town", "Far"}
     v.clear_track()
     assert v.track is None and seen
-    from radarforge.overlays.locations import MyLocation
+    from radarforge.overlays.locations import LocationsOverlay
+    from radarforge.services.locations import LocationBook
     s["my_location"] = [35.0, -97.0]
-    assert MyLocation(s).latlon() == (35.0, -97.0)
+    assert LocationsOverlay(LocationBook(s)).latlon() == (35.0, -97.0)
     from radarforge.ui.dialogs import SiteDialog
     d = SiteDialog("KTLX", None, s)
     d.list.setCurrentRow(0)

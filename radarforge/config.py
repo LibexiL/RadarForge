@@ -50,6 +50,7 @@ DEFAULTS = {
     "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
+    "warning_sort": "severity",    # Warnings panel order: severity | time | distance
     "go_to_nearest_radar": True,   # going to a warning switches to the radar nearest it
     "report_hours": 3,             # live storm reports: how many hours back (1, 3, 6, 12, 24)
     "report_types": {"tornado": True, "hail": True, "wind": True, "flood": True, "other": False},
@@ -61,8 +62,10 @@ DEFAULTS = {
     "satellite_opacity": 0.8,
     "lightning_minutes": 10,       # minutes of GLM flashes shown (5, 10, 15, 30)
     "favorite_sites": [],
-    "my_location": None,           # [lat, lon] set from the map's right-click menu
-    "warn_at_location": True,      # pop up a new warning that covers my location (live)
+    "my_location": None,           # [lat, lon] of the first saved location (kept for older versions)
+    "locations": [],               # saved locations: [{id, name, lat, lon, rules}] (services/locations.py)
+    "alert_options": {"popup": True, "sound": True, "notify": True},
+    "warn_at_location": True,      # alerts for the saved locations are on (live data)
     "notified_warnings": {},       # warning key -> [priority, expiry epoch s] already shown for my location
     "track_minutes": 60,           # storm track tool: minutes the arrow covers
     "loop_frames": 12,

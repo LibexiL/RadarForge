@@ -1221,7 +1221,7 @@ class Workspace(QWidget):
 
     def apply_default(self, total_w=1500, total_h=900):
         side = [k for k in self._panels if self.group(k) == "side"]
-        groups = [["products"], ["warnings", "cells", "inspector"], ["placefiles", "layers"]]
+        groups = [["products", "locations"], ["warnings", "cells", "inspector"], ["placefiles", "layers"]]
         groups = [[k for k in g if k in side] for g in groups]
         extra = [k for k in side if not any(k in g for g in groups)]
         if extra:

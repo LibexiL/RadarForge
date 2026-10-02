@@ -61,18 +61,25 @@ class SpcOverlay(QObject):
         self.mcds: list = []
         self._next = {"outlook": 0.0, "mcd": 0.0}
         self._busy = set()
+        self.force = {"outlook": False, "mcd": False}      # location alerts need these even when the layer is off
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(30_000)
 
     def _on(self, key):
+        """Is the layer shown?"""
         return bool(self.settings["overlays"].get(key, False)) and self.is_live()
+
+    def _fetch_on(self, key):
+        """Should it be downloaded? (shown, or needed by a location's alert rules)"""
+        name = "outlook" if key == "spc_outlook" else "mcd"
+        return (bool(self.settings["overlays"].get(key, False)) or self.force.get(name, False)) and self.is_live()
 
     def refresh(self, force=False):
         jobs = []
-        if self._on("spc_outlook") and (force or time.time() >= self._next["outlook"]):
+        if self._fetch_on("spc_outlook") and (force or time.time() >= self._next["outlook"]):
             jobs.append(("outlook", fetch_outlook, 15 * 60))
-        if self._on("spc_mcd") and (force or time.time() >= self._next["mcd"]):
+        if self._fetch_on("spc_mcd") and (force or time.time() >= self._next["mcd"]):
             jobs.append(("mcd", fetch_mcds, 3 * 60))
         for name, fn, period in jobs:
             if name in self._busy:

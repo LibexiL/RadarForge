@@ -39,6 +39,7 @@ class LightningOverlay(QObject):
         self._lock = threading.Lock()
         self._files: OrderedDict = OrderedDict()      # file key -> Flashes
         self._index: dict = {}                        # satellite -> {"scans", "start", "end", "listed"}
+        self.force = False                            # location alerts need the flashes even when the layer is off
         self._flashes = goes.Flashes.empty()
         self._shown_at = None                         # frame time the flashes belong to
         self._want = None
@@ -50,6 +51,9 @@ class LightningOverlay(QObject):
 
     def enabled(self) -> bool:
         return bool(self.settings["overlays"].get("lightning", False))
+
+    def wanted(self) -> bool:
+        return self.enabled() or self.force
 
     def minutes(self) -> int:
         try:
@@ -72,7 +76,7 @@ class LightningOverlay(QObject):
             self.refresh()
 
     def refresh(self, force=False):
-        if not self.enabled() or self._want is None:
+        if not self.wanted() or self._want is None:
             return
         if force:
             self._index.clear()
@@ -127,7 +131,7 @@ class LightningOverlay(QObject):
 
     def prefetch(self, times: list, lat0: float, lon0: float):
         """Load the lightning files for a loop in the background."""
-        if not self.enabled() or not times:
+        if not self.wanted() or not times:
             return
         sat, minutes = self.satellite(lon0), self.minutes()
         lo, hi = min(times) - timedelta(minutes=minutes), max(times)

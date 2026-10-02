@@ -235,6 +235,17 @@ class RenderingMixin:
                 a = menu.addAction(f"Read SPC Mesoscale Discussion {mcd['number']}…")
                 a.triggered.connect(lambda: McdDialog(mcd, self).show())
             menu.addSeparator()
+            under = self.my_location.at(x, y, 10.0 / self.view.scale)
+            if under is not None:
+                a = menu.addAction(f"Edit “{under.name}”…")
+                a.triggered.connect(lambda: self.edit_location(under))
+                if under is not self.book.primary():
+                    a = menu.addAction(f"Make “{under.name}” my location")
+                    a.triggered.connect(lambda: (self.book.make_primary(under.id), self.locations_changed()))
+                a = menu.addAction(f"Remove “{under.name}”")
+                a.triggered.connect(lambda: (self.book.remove(under.id), self.locations_changed()))
+            a = menu.addAction("Add a location here…")
+            a.triggered.connect(lambda: self.add_location_dialog(lat, lon))
             a = menu.addAction("Set my location here")
             a.triggered.connect(lambda: self.set_my_location(lat, lon))
         if self.my_location.latlon() is not None:

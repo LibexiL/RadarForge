@@ -9,7 +9,6 @@ from ..config import APP_NAME
 from ..overlays.chasers import ChasersOverlay
 from ..overlays.level3 import Level3Overlay
 from ..overlays.lightning import LightningOverlay
-from ..overlays.locations import MyLocation
 from ..overlays.placefile import PlacefileManager
 from ..overlays.satellite import SatelliteLayer
 from ..overlays.spc import SpcOverlay
@@ -42,6 +41,7 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
 
     stateChanged = Signal()          # frame / panel / tilt / product changed (side panels refresh)
     cursorInfo = Signal(object)      # dict for the cursor inspector
+    locationsUpdated = Signal()      # saved locations or what's happening at them changed
 
     def __init__(self, settings):
         super().__init__()
@@ -91,9 +91,9 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
         self.chasers = ChasersOverlay(settings, is_live, self)
         self.spc = SpcOverlay(settings, is_live, self)
         self.spc._view = self.view
-        self.my_location = MyLocation(settings)
         self.satellite = SatelliteLayer(settings, self)
         self.lightning = LightningOverlay(settings, self)
+        self._init_locations()
         self.view.overlays = [self.satellite, self.lightning, self.spc, self.warnings, self.placefiles, self.l3ov,
                               self.chasers, self.my_location]
         self.view.underlays = [self.satellite, self.placefiles]
@@ -103,8 +103,6 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
             sig.connect(self.view.update)
         for ov in (self.warnings, self.placefiles, self.chasers, self.spc, self.satellite, self.lightning):
             ov.status.connect(self._status_msg)
-        self.warnings.changed.connect(self._check_location_alerts)
-        self._notified = dict(settings["notified_warnings"] or {})
         # storm track tool
         self.view.track_minutes = int(settings["track_minutes"] or 60)
         self.view.track_time_fn = self._track_start_time

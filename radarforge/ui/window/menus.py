@@ -220,9 +220,20 @@ class MenusMixin:
     # ---------------------------------------------------------------- Locations: where I am and what to tell me
     def _menu_locations(self, m):
         self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L")
+        self.saved_menu = m.addMenu("Go to a saved location")
+        self.saved_menu.aboutToShow.connect(self._fill_locations_menu)
+        m.addSeparator()
+        self._act(m, "Add a location…", lambda: self.add_location_dialog(), "Ctrl+Shift+L")
         self._act(m, "Set my location…", self.set_my_location_dialog, None)
-        self.warn_loc_act = self._act(m, "Alert me when a warning covers my location", self._toggle_warn_loc, None,
+        self._act(m, "Locations and alerts…", self.manage_locations, None)
+        self._act(m, "Locations panel", lambda: self.show_panel("locations"), None)
+        m.addSeparator()
+        self.warn_loc_act = self._act(m, "Alert me about my locations (live data)", self._toggle_warn_loc, None,
                                       checkable=True, checked=bool(self.settings["warn_at_location"]))
+        test = m.addMenu("Test an alert")
+        for kind, label in (("tornado", "Tornado warning"), ("severe", "Severe thunderstorm warning"),
+                            ("info", "Lightning / other")):
+            self._act(test, label, lambda k=kind: self.test_alert(k), None)
 
     # ---------------------------------------------------------------- Tools: things you use on a storm
     def _menu_tools(self, m):

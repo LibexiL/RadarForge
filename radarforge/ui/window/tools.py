@@ -64,10 +64,11 @@ class ToolsMixin:
             left = round((at - now).total_seconds() / 60)
             return f"{fmt.local_hm(at)} (" + (f"in {left} min" if left > 0 else "now" if left == 0 else "passed") + ")"
         parts = [f"Track {fmt.compass(heading)} {kmh / 1.852:.0f} kt"]
-        loc = self.my_location.xy(self.view)
-        if loc is not None:
-            e = track.eta_at(t["a"], t["b"], self.view.track_minutes, loc, self.view.track_half_width)
-            parts.append("You: " + (when(e) if e is not None else "not in its path"))
+        for i, saved in enumerate(self.book.items):
+            xy = self.my_location._position(saved, self.view)
+            e = track.eta_at(t["a"], t["b"], self.view.track_minutes, xy, self.view.track_half_width)
+            if i == 0 or e is not None:                   # my location always; the others only when in its path
+                parts.append(("You: " if i == 0 else f"{saved.name}: ") + (when(e) if e is not None else "not in its path"))
         parts += [f"{n} {when(mins)}" for n, mins, _x, _y in t["etas"][:3]]
         if not t["etas"]:
             parts.append(f"no towns in the next {self.view.track_minutes} min")
