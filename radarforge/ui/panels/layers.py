@@ -35,7 +35,7 @@ class LayersPanel(QWidget):
             ("chasers", "Storm chasers"), ("spc_outlook", "SPC outlook"), ("spc_mcd", "SPC discussions"),
             ("storm_tracks", "Storm tracks"), ("meso", "Mesocyclones"), ("tvs", "TVS"), ("hail", "Hail"),
             ("melting_layer", "Melting layer"), ("satellite", "Satellite"), ("lightning", "Lightning"),
-            ("mrms", "MRMS tracks"), ("surface", "Surface obs"))])
+            ("mrms", "MRMS tracks"), ("surface", "Surface obs"), ("signatures", "Signature flags"))])
         group("Map", [(main.sites_act, "Radar sites"), (main.tdwr_act, "TDWR sites"),
                       (main.cities_act, "City labels"), (main.rings_act, "Range rings")] +
               [(a, a.text()) for a in main.layer_acts.values()])

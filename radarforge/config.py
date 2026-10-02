@@ -47,7 +47,7 @@ DEFAULTS = {
     "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "meso": True,
                  "tvs": True, "hail": False, "melting_layer": False, "reports": False,
                  "chasers": False, "spc_outlook": False, "spc_mcd": False, "satellite": False, "lightning": False, "mrms": False,
-                 "surface": False},
+                 "surface": False, "signatures": False},
     "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
@@ -62,6 +62,7 @@ DEFAULTS = {
     "satellite_sat": "auto",       # auto | east | west
     "satellite_opacity": 0.8,
     "lightning_minutes": 10,       # minutes of GLM flashes shown (5, 10, 15, 30)
+    "signature_kinds": {"ROT": True, "DEBRIS": True, "ZDRCOL": True},   # which automatic flags to look for
     "spc_day": 1,                  # which SPC convective outlook the map shows (1, 2 or 3)
     "mrms_product": "rotation",    # rotation | hail | qpe (see data/mrms.py)
     "mrms_window": {},             # product -> accumulation window (minutes, or hours for qpe)

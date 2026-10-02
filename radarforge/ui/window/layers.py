@@ -54,6 +54,8 @@ class LayersMixin:
             self.chasers.refresh(force=True)
         if key in ("spc_outlook", "spc_mcd") and on:
             self.spc.refresh(force=True)
+        if key == "signatures" and on:
+            self.signatures.analyse(self.current_frame(), self.tilt_elev)
         if key == "surface" and on:
             self.surface.set_centre(self.view.lat0, self.view.lon0)
             self.surface.refresh(force=True)

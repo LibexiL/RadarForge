@@ -18,7 +18,7 @@ PREFIX = "RFV1:"
 EXTENSION = ".rfview"
 
 OVERLAY_KEYS = ("warnings", "watches", "reports", "chasers", "spc_outlook", "spc_mcd", "storm_tracks", "meso", "tvs",
-                "hail", "melting_layer", "satellite", "lightning")
+                "hail", "melting_layer", "satellite", "lightning", "mrms", "surface", "signatures")
 _SITE = re.compile(r"^[A-Z0-9]{4}$")
 
 

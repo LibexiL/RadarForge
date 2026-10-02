@@ -79,6 +79,7 @@ class RenderingMixin:
         for p in self.view.panels:
             self._request_panel(p, frame)
         self.update_timed_layers()
+        self.signatures.analyse(frame, self.tilt_elev)
         self._fill_tilt_combo(frame)
         if self.xs_win is not None and self.xs_win.isVisible():
             self.xs_win.refresh()

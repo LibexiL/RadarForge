@@ -12,6 +12,7 @@ from ..overlays.lightning import LightningOverlay
 from ..overlays.mrms import MrmsLayer
 from ..overlays.placefile import PlacefileManager
 from ..overlays.satellite import SatelliteLayer
+from ..overlays.signatures import SignatureOverlay
 from ..overlays.surface import SurfaceObsOverlay
 from ..overlays.spc import SpcOverlay
 from ..overlays.warnings import WarningsOverlay
@@ -101,17 +102,19 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
         self.lightning = LightningOverlay(settings, self)
         self.mrms = MrmsLayer(settings, self)
         self.surface = SurfaceObsOverlay(settings, is_live, self)
+        self.signatures = SignatureOverlay(settings, self.engine, self)
         self._init_locations()
-        self.view.overlays = [self.satellite, self.mrms, self.lightning, self.surface, self.spc, self.warnings, self.placefiles, self.l3ov,
+        self.view.overlays = [self.satellite, self.mrms, self.lightning, self.surface, self.signatures, self.spc, self.warnings, self.placefiles, self.l3ov,
                               self.chasers, self.my_location]
         self.view.underlays = [self.satellite, self.placefiles]
         self.view.hover_providers = [self.l3ov, self.chasers, self.placefiles, self.warnings, self.my_location, self.spc,
-                                     self.surface]
+                                     self.surface, self.signatures]
         for sig in (self.warnings.changed, self.placefiles.changed, self.chasers.changed, self.spc.changed,
-                    self.satellite.changed, self.mrms.changed, self.lightning.changed, self.surface.changed):
+                    self.satellite.changed, self.mrms.changed, self.lightning.changed, self.surface.changed,
+                    self.signatures.changed):
             sig.connect(self.view.update)
         for ov in (self.warnings, self.placefiles, self.chasers, self.spc, self.satellite, self.mrms, self.lightning,
-                   self.surface):
+                   self.surface, self.signatures):
             ov.status.connect(self._status_msg)
         # storm track tool
         self.view.track_minutes = int(settings["track_minutes"] or 60)
