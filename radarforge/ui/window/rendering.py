@@ -230,6 +230,8 @@ class RenderingMixin:
                 a.triggered.connect(lambda: self.switch_site(ns.id, keep_view=True))
             a = menu.addAction("Centre here")
             a.triggered.connect(lambda: self.view.set_view(x, y, self.view.scale))
+            a = menu.addAction("Model sounding here (HRRR)…")
+            a.triggered.connect(lambda: self.open_sounding_at(lat, lon))
             mcd = self.spc.mcd_at(lat, lon)
             if mcd is not None:
                 a = menu.addAction(f"Read SPC Mesoscale Discussion {mcd['number']}…")

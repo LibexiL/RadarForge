@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
+from PySide6.QtCore import QSize
 from PySide6.QtWidgets import QMessageBox
 
 from ... import fmt
@@ -82,13 +83,7 @@ class ToolsMixin:
         if m is None:
             return
         kmh, heading = m
-        self.settings["storm_motion_dir"] = float(round((heading + 180) % 360))
-        self.settings["storm_motion_kts"] = float(round(kmh / 1.852))
-        self.settings.save()
-        self._update_sm_label()
-        self._panel_req.clear()
-        self._show_frame()
-        self.stateChanged.emit()
+        self.set_storm_motion(round((heading + 180) % 360), round(kmh / 1.852))
         self._status_msg(f"SRV storm motion set from the track: {self.settings['storm_motion_dir']:03.0f}° / "
                          f"{self.settings['storm_motion_kts']:.0f} kt")
 
@@ -105,6 +100,41 @@ class ToolsMixin:
         if tool == "xsection":
             self.open_xsection()
             self.xs_win.set_line(x0, y0, x1, y1)
+
+    def open_sounding(self):
+        """The sounding tool: a floating window the first time (it needs room), where it was left after that."""
+        if self.ws.is_open("sounding"):
+            self.show_panel("sounding")
+        else:
+            self.ws.float_panel("sounding", None, QSize(1180, 780))
+
+    def open_sounding_at(self, lat, lon):
+        """A model sounding at a map point (the right-click menu)."""
+        self.open_sounding()
+        self.sounding_win.model_here(lat, lon)
+
+    def set_storm_motion(self, direction, knots):
+        """Storm motion for SRV: the direction the storm moves FROM, and its speed."""
+        self.settings["storm_motion_dir"] = float(direction)
+        self.settings["storm_motion_kts"] = float(knots)
+        self.settings.save()
+        self._update_sm_label()
+        self._panel_req.clear()
+        self._show_frame()
+        self.stateChanged.emit()
+
+    def place_name(self, lat, lon) -> str:
+        """The nearest city (within 60 km) to a point, or its coordinates."""
+        raw = self.view.maps.raw
+        if "city_name" in raw:
+            import numpy as np
+            keep = raw["city_pop"] >= 5000
+            la, lo = raw["city_lat"][keep], raw["city_lon"][keep]
+            d = np.hypot((la - lat) * 111.19, (lo - lon) * 111.19 * np.cos(np.radians(lat)))
+            i = int(np.argmin(d))
+            if d[i] <= 60:
+                return f"near {raw['city_name'][keep][i]}"
+        return f"{abs(lat):.2f}°{'N' if lat >= 0 else 'S'} {abs(lon):.2f}°{'W' if lon < 0 else 'E'}"
 
     def open_xsection(self):
         self.show_panel("xsection")

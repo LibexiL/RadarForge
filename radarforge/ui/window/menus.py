@@ -278,6 +278,7 @@ class MenusMixin:
         m.addSeparator()
         self._act(m, "Command palette…", self.open_palette, "Ctrl+K")
         m.addSeparator()
+        self._act(m, "Sounding (model or balloon)…", self.open_sounding, None)
         self._act(m, "Storm cell table", lambda: self.show_panel("cells"), None)
         self._act(m, "Level III storm table (text)", self.show_storm_table, None)
 

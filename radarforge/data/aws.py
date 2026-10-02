@@ -100,6 +100,27 @@ def fetch(bucket: str, key: str, cache: bool = True, timeout: float = 60) -> byt
     return data
 
 
+def fetch_range(bucket: str, key: str, start: int, end: int, cache: bool = True, timeout: float = 120) -> bytes:
+    """Bytes start..end (inclusive) of an object: one message of a big GRIB2 file, found through its .idx."""
+    path = CACHE_DIR / "s3" / bucket / f"{key}.{start}-{end}"
+    if cache and path.exists() and path.stat().st_size == end - start + 1:
+        return path.read_bytes()
+    r = session().get(f"{bucket_url(bucket)}/{key}", headers={"Range": f"bytes={start}-{end}"}, timeout=timeout)
+    r.raise_for_status()
+    data = r.content
+    if len(data) != end - start + 1:
+        raise OSError(f"asked for {end - start + 1} bytes of {key} and got {len(data)}")
+    if cache:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".part")
+            tmp.write_bytes(data)
+            os.replace(tmp, path)
+        except OSError:
+            pass
+    return data
+
+
 def cached_path(bucket: str, key: str) -> Path:
     return CACHE_DIR / "s3" / bucket / key
 
