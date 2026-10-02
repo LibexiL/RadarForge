@@ -10,7 +10,9 @@ from ... import themes
 from ...data.sites import get_site
 from ...products import colortable
 from ...products.geometry import aeqd_forward
+from ...services import views
 from ..dialogs import ArchiveDialog, SiteDialog
+from .jobs import _Bg
 
 
 class SourcesMixin:
@@ -74,6 +76,19 @@ class SourcesMixin:
         else:
             self.live_act.setChecked(True)
 
+    def run_bg(self, work, done, failed=None):
+        """Runs work() on a worker thread, then done(result) (or failed(exc)) on the UI thread."""
+        relay = self.relay
+
+        def job():
+            try:
+                res = work()
+            except Exception as exc:
+                relay.call.emit(lambda exc=exc: failed(exc) if failed else self._status_msg(f"⚠ {exc}"))
+                return
+            relay.call.emit(lambda res=res: done(res))
+        self.bg_pool.start(_Bg(job))
+
     def open_archive(self):
         d = ArchiveDialog(self.data.site_id, self)
         if not d.exec():
@@ -81,7 +96,10 @@ class SourcesMixin:
         files = d.selected_files()
         if not files:
             return
-        site = d.site.text().strip().upper()
+        self.load_archive_files(d.site.text().strip().upper(), files, d.l3.isChecked())
+
+    def load_archive_files(self, site, files, l3=True):
+        """Shows archived Level II volumes (a list of aws.L2File) from a radar."""
         self.live_act.blockSignals(True)
         self.live_act.setChecked(False)
         self.live_act.blockSignals(False)
@@ -94,7 +112,7 @@ class SourcesMixin:
         self._shown_frame = None
         self.follow_latest = False
         self._update_l3_needs()
-        self.data.load_archive(files, l3=d.l3.isChecked())
+        self.data.load_archive(files, l3=l3)
 
     def open_files(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Open Level II / Level III files", os.path.expanduser("~"),
@@ -162,7 +180,10 @@ class SourcesMixin:
         theme_files = [p for p in paths if themes.looks_like_theme(p)]
         for p in theme_files:
             self.import_theme(p)
-        paths = [p for p in paths if p not in theme_files]
+        view_files = [p for p in paths if p.lower().endswith(views.EXTENSION)]
+        for p in view_files:
+            self.open_view_file(p)
+        paths = [p for p in paths if p not in theme_files and p not in view_files]
         pals = [p for p in paths if colortable.looks_like_color_table(p)]
         radar = [p for p in paths if p not in pals]
         if pals:

@@ -41,7 +41,7 @@ def scaled_to_width(img: QImage, width: int) -> QImage:
 
 
 def annotate(img: QImage, title: str, subtitle: str = "", footer: str = "", dark: bool = True) -> QImage:
-    """The picture with a title band on top (and a thin footer line below, if given)."""
+    """The picture with a title band on top (the subtitle may have several lines) and a thin footer line below."""
     scale = max(1.0, img.width() / 1100.0)
     big, small = QFont(), QFont()
     big.setPointSizeF(13 * scale)
@@ -49,7 +49,8 @@ def annotate(img: QImage, title: str, subtitle: str = "", footer: str = "", dark
     small.setPointSizeF(9.5 * scale)
     fb, fs = QFontMetricsF(big), QFontMetricsF(small)
     pad = 9 * scale
-    top = pad * 2 + fb.height() + (fs.height() + pad * 0.4 if subtitle else 0)
+    sub_lines = [ln for ln in (subtitle or "").split("\n") if ln.strip()]
+    top = pad * 2 + fb.height() + (len(sub_lines) * fs.height() + pad * 0.4 if sub_lines else 0)
     bottom = (fs.height() + pad * 1.4) if footer else 0
     out = QImage(img.width(), int(round(img.height() + top + bottom)), QImage.Format_RGB888)
     bg = QColor(18, 20, 26) if dark else QColor(244, 246, 249)
@@ -62,10 +63,10 @@ def annotate(img: QImage, title: str, subtitle: str = "", footer: str = "", dark
     p.setFont(big)
     p.setPen(fg)
     p.drawText(QPointF(pad * 1.5, pad + fb.ascent()), title)
-    if subtitle:
-        p.setFont(small)
-        p.setPen(dim)
-        p.drawText(QPointF(pad * 1.5, pad * 1.4 + fb.height() + fs.ascent()), subtitle)
+    p.setFont(small)
+    p.setPen(dim)
+    for i, ln in enumerate(sub_lines):
+        p.drawText(QPointF(pad * 1.5, pad * 1.4 + fb.height() + fs.ascent() + i * fs.height()), ln)
     if footer:
         p.setFont(small)
         p.setPen(dim)

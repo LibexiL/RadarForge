@@ -42,6 +42,7 @@ class LightningOverlay(QObject):
         self.force = False                            # location alerts need the flashes even when the layer is off
         self._flashes = goes.Flashes.empty()
         self._shown_at = None                         # frame time the flashes belong to
+        self.has_data = False                         # False when GLM has no files for that time (before 2016)
         self._want = None
         self._gen = 0
         self._proj = None                             # (lat0, lon0, x, y) flashes projected for the view
@@ -119,6 +120,7 @@ class LightningOverlay(QObject):
                 if gen != self._gen:
                     return
                 parts.append(self._file(sc))
+            self.has_data = bool(scans)
             fl = goes.Flashes.concat(parts)
             keep = (fl.t >= start.timestamp()) & (fl.t <= t.timestamp())
             self._flashes = goes.Flashes(fl.lat[keep], fl.lon[keep], fl.t[keep], fl.energy[keep])
@@ -180,7 +182,9 @@ class LightningOverlay(QObject):
                     painter.setPen(QPen(QColor(*rgb), width, Qt.SolidLine, Qt.RoundCap))
                     painter.drawPoints(poly)
                 painter.restore()
-        view.draw_caption(painter, vt, f"GLM lightning: {n} flashes in view (last {self.minutes()} min)", QColor(255, 225, 90))
+        text = (f"GLM lightning: {n} flashes in view (last {self.minutes()} min)" if self.has_data
+                else "GLM lightning: no data for this time")
+        view.draw_caption(painter, vt, text, QColor(255, 225, 90))
 
     def hover(self, x, y, tol):
         return None

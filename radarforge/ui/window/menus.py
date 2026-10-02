@@ -50,9 +50,19 @@ class MenusMixin:
         self._act(m, "Open radar files…", self.open_files, "Ctrl+O")
         self._act(m, "Open archive from AWS…", self.open_archive, "Ctrl+A")
         m.addSeparator()
+        self.bookmarks_menu = m.addMenu("Bookmarks")
+        self.bookmarks_menu.aboutToShow.connect(self._fill_bookmarks_menu)
+        self._fill_bookmarks_menu()                         # so Ctrl+B works before the menu is opened
+        share = m.addMenu("Share this view")
+        self._act(share, "Save as a view file (.rfview)…", self.share_view_to_file, None)
+        self._act(share, "Copy as text (to paste in a chat)", self.copy_view_text, None)
+        self._act(m, "Open a shared view…", self.open_view_file, None)
+        self._act(m, "Open a view from the clipboard", self.open_view_from_clipboard, None)
+        m.addSeparator()
         ex = m.addMenu("Export")
         self._act(ex, "Image (PNG)…", self.save_image, "Ctrl+S")
         self._act(ex, "Image with title bar…", self.save_image_titled, "Ctrl+Shift+S")
+        self._act(ex, "Briefing image (with a summary of what's in view)…", self.save_briefing_image, None)
         ex.addSeparator()
         self._act(ex, "Loop as animated GIF…", lambda: self.export_loop("gif"), None)
         self._act(ex, "Loop as MP4 video…", lambda: self.export_loop("mp4"), None)
@@ -84,6 +94,9 @@ class MenusMixin:
         self.link_act = self._act(m, "Linked cursor", self._toggle_link, None, checkable=True,
                                   checked=bool(self.settings["cursor_link"]))
         m.addSeparator()
+        self.workspace_menu = m.addMenu("Workspaces")
+        self.workspace_menu.aboutToShow.connect(self._fill_workspaces_menu)
+        self._act(m, "Briefing view", self.toggle_briefing, "F10")
         self.theme_menu = m.addMenu("Theme")
         self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
         m.addSeparator()
@@ -239,6 +252,8 @@ class MenusMixin:
     def _menu_tools(self, m):
         for a in self.tool_group.actions():
             m.addAction(a)
+        m.addSeparator()
+        self._act(m, "Command palette…", self.open_palette, "Ctrl+K")
         m.addSeparator()
         self._act(m, "Storm cell table", lambda: self.show_panel("cells"), None)
         self._act(m, "Level III storm table (text)", self.show_storm_table, None)

@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, QRunnable, Signal
 
 class _Relay(QObject):
     imageReady = Signal(int, object)      # panel index, result dict
+    call = Signal(object)                 # a function to run on the UI thread (see MainWindow.run_bg)
 
 
 class _ImageJob(QRunnable):

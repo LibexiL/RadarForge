@@ -42,9 +42,26 @@ class TimelineMixin:
             self._show_frame()
         else:
             self._update_time_label()
+        self._apply_pending_goto()
         if not self.data.loading:
             self._prefetch()
             self.update_sky_layers(prefetch=True)
+
+    def goto_time_when_loaded(self, t):
+        """Show the frame closest to t as soon as frames have loaded (a bookmark that opens an archive time)."""
+        self._goto_time = t
+        self._apply_pending_goto()
+
+    def _apply_pending_goto(self):
+        t = getattr(self, "_goto_time", None)
+        frames = self.data.frames
+        if t is None or not frames:
+            return
+        best = min(range(len(frames)), key=lambda i: abs((frames[i].time - t).total_seconds()))
+        if best != self.frame_index:
+            self.goto_frame(best)
+        if not self.data.loading:
+            self._goto_time = None
 
     def _frame_updated(self, frame):
         if frame is self.current_frame() and not self._update_timer.isActive():

@@ -8,9 +8,10 @@ from PySide6.QtCore import QEventLoop
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QProgressDialog
 
 from ... import __version__
+from ...data import feeds
 from ...data.sites import get_site
 from ...products import catalog
-from ...services import export
+from ...services import briefing, export
 from ..dialogs import LoopExportDialog
 
 
@@ -54,6 +55,51 @@ class ExportMixin:
     def titled_image(self, img, frame):
         title, sub, foot = self.export_title(frame)
         return export.annotate(img, title, sub, foot, dark=self.view.bg.lightness() < 128)
+
+    def briefing_lines(self) -> list:
+        """What is happening in the area on screen, as a few lines for a briefing picture."""
+        panel = self.view.panels[min(self.view.active_panel, len(self.view.panels) - 1)]
+        x0, y0, x1, y1 = self.view.transform(panel).world_bounds()
+        alerts = []
+        for a in self.warnings.active_alerts():
+            if not self.warnings.visible(a):
+                continue
+            if any(xy[:, 0].max() >= x0 and xy[:, 0].min() <= x1 and xy[:, 1].max() >= y0 and xy[:, 1].min() <= y1
+                   for xy in self.warnings._xy(a, self.view.lat0, self.view.lon0)):
+                alerts.append(a)
+        mcds = [m for m in self.spc.mcds if self.spc._on("spc_mcd")]
+        outlook = None
+        me = self.my_location.latlon()
+        if me is not None and self.spc.outlook:
+            o = feeds.outlook_at(self.spc.outlook, *me)
+            if o is not None:
+                chances = " · ".join(f"{k} {v * 100:.0f}%" for k in ("tornado", "wind", "hail") if (v := o.get(k)) is not None)
+                outlook = f"SPC outlook at {self.book.primary().name}: {feeds.CAT_NAME[o['cat']]}" + (f" ({chances})" if chances else "")
+        flashes = None
+        if self.lightning.enabled() and self.lightning.has_data:
+            lat, lon = self._map_centre()
+            flashes = self.lightning.counts_near(lat, lon, (x1 - x0) / 2.0)
+        reports = None
+        if self.settings["overlays"].get("reports"):
+            reports = {}
+            for r in self.warnings.visible_reports():
+                if "xy" in r and x0 <= r["xy"][0] <= x1 and y0 <= r["xy"][1] <= y1:
+                    reports[r["kind"]] = reports.get(r["kind"], 0) + 1
+        return briefing.summary_lines(alerts, mcds, outlook, flashes, reports)
+
+    def save_briefing_image(self):
+        """The map with a summary of the warnings, discussions, outlook, lightning and reports in view."""
+        f = self.current_frame()
+        name = f"{self.data.site_id}_{f.time:%Y%m%d_%H%M}_briefing.png" if f else "briefing.png"
+        path, _ = QFileDialog.getSaveFileName(self, "Save briefing image", os.path.join(os.path.expanduser("~"), name),
+                                              "PNG (*.png)")
+        if not path:
+            return
+        title, _names, foot = self.export_title(f)
+        lines = self.briefing_lines()
+        export.annotate(self.view.grabFramebuffer(), title, "\n".join(lines), foot,
+                        dark=self.view.bg.lightness() < 128).save(path)
+        self._status_msg(f"Saved {path}")
 
     # ---------------------------------------------------------------- loops
     def export_loop(self, fmt="gif"):

@@ -19,10 +19,12 @@ from .datamanager import DataManager
 from .window.jobs import _Relay
 from .window.toolbars import ToolbarsMixin
 from .window.menus import MenusMixin
+from .window.commands import CommandsMixin
 from .window.docking import DockingMixin
 from .window.appearance import AppearanceMixin
 from .window.sources import SourcesMixin
 from .window.timeline import TimelineMixin
+from .window.views import ViewsMixin
 from .window.rendering import RenderingMixin
 from .window.tools import ToolsMixin
 from .window.locations import LocationsMixin
@@ -33,7 +35,8 @@ from .workspace import Workspace
 
 
 class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, SourcesMixin, TimelineMixin,
-                 RenderingMixin, ToolsMixin, LocationsMixin, LayersMixin, ExportMixin, SessionMixin, QMainWindow):
+                 RenderingMixin, ToolsMixin, LocationsMixin, LayersMixin, ExportMixin, ViewsMixin, CommandsMixin,
+                 SessionMixin, QMainWindow):
     """RadarForge main window.
 
     Each area of the interface lives in its own mixin under ui/window/; this class builds the window and
@@ -80,6 +83,7 @@ class MainWindow(ToolbarsMixin, MenusMixin, DockingMixin, AppearanceMixin, Sourc
         self._update_timer.timeout.connect(self._show_frame)
         self.relay = _Relay()
         self.relay.imageReady.connect(self._image_ready)
+        self.relay.call.connect(lambda fn: fn())
         self.xs_win = None
         self.v3d_host = None
 
