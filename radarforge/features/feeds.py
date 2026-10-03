@@ -258,6 +258,21 @@ def outlook_requests(now: datetime, limit: int = 4) -> list:
     return [(d, c) for _t, d, c in cands[:limit]]
 
 
+DAY_CYCLES = {2: (17, 6, 7, 1), 3: (20, 19, 8, 7)}
+
+
+def outlook_requests_ahead(now: datetime, day: int) -> list:
+    """(valid date, cycle) to try for the day 2 or day 3 outlook, newest first. IEM files them under the
+    date they cover; the date flips with the 06 UTC day 1 issuance."""
+    now = now.astimezone(timezone.utc)
+    base = now.date() if now.hour >= 6 else now.date() - timedelta(days=1)
+    out = []
+    for back in (0, 1):
+        d = (base + timedelta(days=day - 1 - back)).strftime("%Y-%m-%d")
+        out += [(d, c) for c in DAY_CYCLES.get(day, DAY_CYCLES[2])]
+    return out
+
+
 def _rings(geom: dict) -> list:
     """All rings (outer and holes) of a Polygon / MultiPolygon as lists of (lon, lat)."""
     t = (geom or {}).get("type")
@@ -345,6 +360,17 @@ def outlook_at(areas: list, lat: float, lon: float) -> dict | None:
                 except ValueError:
                     pass
         res[key.lower()] = max(vals) if vals else None
+    anys = []
+    for a in hits:                      # day 3 (and day 4-8) give one "any severe" probability
+        if a["category"] in ("ANY SEVERE", "ANYSEVERE", "PROBABILISTIC"):
+            if a["threshold"] == "SIGN":
+                res["sig"].add("ANY")
+            else:
+                try:
+                    anys.append(float(a["threshold"]))
+                except ValueError:
+                    pass
+    res["any"] = max(anys) if anys else None
     return res
 
 

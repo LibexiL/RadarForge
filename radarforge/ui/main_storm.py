@@ -79,15 +79,19 @@ class StormToolsMixin:
         if m is None:
             return
         kmh, heading = m
-        self.settings["storm_motion_dir"] = float(round((heading + 180) % 360))
-        self.settings["storm_motion_kts"] = float(round(kmh / 1.852))
+        self.set_storm_motion((heading + 180) % 360, kmh / 1.852, "the track")
+
+    def set_storm_motion(self, from_deg, kts, source=None):
+        """Storm motion used by SRV and the track tool (direction it moves FROM, knots)."""
+        self.settings["storm_motion_dir"] = float(round(from_deg) % 360)
+        self.settings["storm_motion_kts"] = float(round(kts))
         self.settings.save()
         self._update_sm_label()
         self._panel_req.clear()
         self._show_frame()
         self.stateChanged.emit()
-        self._status_msg(f"SRV storm motion set from the track: {self.settings['storm_motion_dir']:03.0f}° / "
-                         f"{self.settings['storm_motion_kts']:.0f} kt")
+        self._status_msg(f"SRV storm motion set{' from ' + source if source else ''}: "
+                         f"{self.settings['storm_motion_dir']:03.0f}° / {self.settings['storm_motion_kts']:.0f} kt")
 
     def set_track_minutes(self, m):
         self.settings["track_minutes"] = m

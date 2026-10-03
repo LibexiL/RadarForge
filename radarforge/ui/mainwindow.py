@@ -29,6 +29,7 @@ from .settings_dialog import SettingsDialog
 from . import icons
 from .panels import CELL_CODES, CellsPanel, InspectorPanel, LayersPanel, ProductsPanel, WarningsPanel
 from .workspace import Workspace
+from .main_data import DataLayersMixin
 from .main_export import ExportMixin
 from .main_layers import LayersMixin
 from .main_location import LocationMixin
@@ -93,7 +94,7 @@ class _Lazy3D(QWidget):
         super().showEvent(ev)
 
 
-class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, ExportMixin, QMainWindow):
+class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, ExportMixin, DataLayersMixin, QMainWindow):
     stateChanged = Signal()          # frame / panel / tilt / product changed (side panels refresh)
     cursorInfo = Signal(object)      # dict for the cursor inspector
 
@@ -146,15 +147,13 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.spc = SpcOverlay(settings, is_live, self)
         self.spc._view = self.view
         self.my_location = MyLocation(settings)
-        self.view.overlays = [self.spc, self.warnings, self.placefiles, self.l3ov, self.chasers, self.my_location]
-        self.view.underlays = [self.placefiles]
-        self.view.hover_providers = [self.l3ov, self.chasers, self.placefiles, self.warnings, self.my_location, self.spc]
+        self._notified = dict(settings["notified_warnings"] or {})
+        self._init_data_layers()          # satellite, lightning, MRMS, obs, storm flags; sets the overlay lists
         for sig in (self.warnings.changed, self.placefiles.changed, self.chasers.changed, self.spc.changed):
             sig.connect(self.view.update)
         for ov in (self.warnings, self.placefiles, self.chasers, self.spc):
             ov.status.connect(self._status_msg)
         self.warnings.changed.connect(self._check_location_alerts)
-        self._notified = dict(settings["notified_warnings"] or {})
         # storm track tool
         self.view.track_minutes = int(settings["track_minutes"] or 60)
         self.view.track_time_fn = self._track_start_time
@@ -400,6 +399,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             self.data.start_live()
             self.chasers.refresh(force=True)
             self.spc.refresh(force=True)
+            self._refresh_data_layers(force=True)
         else:
             self.data.stop_live()
 
@@ -790,6 +790,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._fill_tilt_combo(frame)
         if self.xs_win is not None and self.xs_win.isVisible():
             self.xs_win.refresh()
+        self._layers_frame_changed(frame)
         self.view.update()
         self.stateChanged.emit()
 
@@ -935,6 +936,8 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 a = menu.addAction(f"Read SPC Mesoscale Discussion {mcd['number']}…")
                 a.triggered.connect(lambda: McdDialog(mcd, self).show())
             menu.addSeparator()
+            self._map_menu_extras(menu, lat, lon, x, y)
+            menu.addSeparator()
             a = menu.addAction("Set my location here")
             a.triggered.connect(lambda: self.set_my_location(lat, lon))
         if self.my_location.latlon() is not None:
@@ -979,12 +982,15 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         s_km = dist * UNIT_F[du]
         parts = [f"{abs(lat):.4f}°{'N' if lat >= 0 else 'S'} {abs(lon):.4f}°{'W' if lon < 0 else 'E'}",
                  f"{dist:.1f} {du} @ {az:03.0f}°"]
+        raw, beam_ft = {}, None
         for p in self.view.panels:
             p.readout = ""
             img = p.image
             if img is None or p.palette is None:
                 continue
             v = img.sample(az, s_km)
+            if v is not None and p.product not in raw:
+                raw[p.product] = v
             pd = catalog.get(p.product)
             if v is None or (isinstance(v, float) and math.isnan(v)):
                 txt = "—"
@@ -1000,6 +1006,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             p.readout = txt
             if p.index == panel and img.elevation and not img.ground_range:
                 h_ft = (beam_height(slant_range(s_km, img.elevation), img.elevation)) * 3280.84
+                beam_ft = float(h_ft)
                 parts.append(f"beam {h_ft:,.0f} ft ARL")
         cur = self.view.panels[panel].readout if panel < len(self.view.panels) else ""
         if cur:
@@ -1019,7 +1026,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                     under = None
                 if under:
                     break
-            self.cursorInfo.emit({"loc_html": loc, "values": values, "under": under})
+            active = self.view.panels[panel].product if panel < len(self.view.panels) else ""
+            self.cursorInfo.emit({"loc_html": loc, "values": values, "under": under,
+                                  "learn": self._learn_notes(raw, beam_ft, active)})
 
     # ================================================================== tools
     # ---------------------------------------------------------------- storm track

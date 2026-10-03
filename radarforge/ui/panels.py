@@ -706,7 +706,10 @@ class LayersPanel(QWidget):
             ("warnings", "Warnings"), ("watches", "Watches"), ("reports", "Storm reports"),
             ("chasers", "Storm chasers"), ("spc_outlook", "SPC outlook"), ("spc_mcd", "SPC discussions"),
             ("storm_tracks", "Storm tracks"), ("meso", "Mesocyclones"), ("tvs", "TVS"), ("hail", "Hail"),
-            ("melting_layer", "Melting layer"))])
+            ("melting_layer", "Melting layer"), ("storm_flags", "Storm flags"))])
+        group("Weather data", [(main.overlay_acts[k], t) for k, t in (
+            ("satellite", "Satellite"), ("lightning", "Lightning"), ("lightning_density", "Lightning density"),
+            ("mrms", "MRMS swath"), ("surface_obs", "Surface obs"))])
         group("Map", [(main.sites_act, "Radar sites"), (main.tdwr_act, "TDWR sites"),
                       (main.cities_act, "City labels"), (main.rings_act, "Range rings")] +
               [(a, a.text()) for a in main.layer_acts.values()])
@@ -757,6 +760,13 @@ class InspectorPanel(QWidget):
         lay.addWidget(_section("Values under the cursor"))
         lay.addWidget(self.tree, 1)
         lay.addWidget(self.under)
+        self.learn = QLabel()
+        self.learn.setWordWrap(True)
+        self.learn.setTextFormat(Qt.PlainText)
+        self.learn.setProperty("role", "card")
+        self.learn.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.learn.hide()
+        lay.addWidget(self.learn, 1)
         main.cursorInfo.connect(self.update_info)
 
     def update_info(self, info):
@@ -778,4 +788,8 @@ class InspectorPanel(QWidget):
         self.under.setVisible(bool(under))
         if under:
             self.under.setText(under)
+        learn = info.get("learn")
+        self.learn.setVisible(bool(learn))
+        if learn:
+            self.learn.setText("What this means\n" + learn)
 

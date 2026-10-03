@@ -6,11 +6,11 @@ import time
 from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QApplication, QInputDialog, QMessageBox)
+from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from ..data.sites import get_site, nearest_site
-from ..features import feeds
-from ..features.warnings import EVENT_GROUP
+from ..features import alerts
+from ..features.warnings import EVENT_GROUP, report_on
 from ..products.geometry import aeqd_forward
 
 
@@ -78,65 +78,108 @@ class LocationMixin:
             ll = self.my_location.latlon()
             if ll is None:
                 return
+        self.go_to_latlon(*ll)
+
+    def go_to_latlon(self, lat, lon, zoom=3.0):
+        """Centre the map on a point (switching to its nearest radar if it's far from this one)."""
         s = get_site(self.data.site_id)
         if s is not None and self.settings["go_to_nearest_radar"]:
-            near = nearest_site(*ll)
+            near = nearest_site(lat, lon)
             if near is not None and near.id != s.id:
-                d = math.hypot(*aeqd_forward(ll[0], ll[1], s.lat, s.lon))
+                d = math.hypot(*aeqd_forward(lat, lon, s.lat, s.lon))
                 if d > 230:
                     self.switch_site(near.id)
-        x, y = aeqd_forward(ll[0], ll[1], self.view.lat0, self.view.lon0)
-        self.view.set_view(float(x), float(y), max(self.view.scale, 3.0))
+        x, y = aeqd_forward(lat, lon, self.view.lat0, self.view.lon0)
+        self.view.set_view(float(x), float(y), max(self.view.scale, zoom))
+
+    def _mine_entry(self):
+        return next((loc for loc in (self.settings["saved_locations"] or []) if loc.get("mine")), None)
 
     def _toggle_warn_loc(self, on):
         self.settings["warn_at_location"] = on
+        mine = self._mine_entry()
+        if mine is not None:
+            mine["enabled"] = bool(on)
         self.settings.save()
         if on:
             self._check_location_alerts()
 
+    def open_locations(self, select_id=None):
+        from .locations_dialog import LocationsDialog
+        d = LocationsDialog(self, select_id)
+        if d.exec():
+            mine = self._mine_entry()
+            if mine is not None and hasattr(self, "warn_loc_act"):
+                self.warn_loc_act.blockSignals(True)
+                self.warn_loc_act.setChecked(bool(mine.get("enabled", True)))
+                self.warn_loc_act.blockSignals(False)
+            self.view.update()
+            self.lightning.refresh()
+            self._check_location_alerts()
+
+    def save_location_here(self, lat, lon):
+        name, ok = QInputDialog.getText(self, "Save this location", "Name for this place:",
+                                        text=f"Place {len(self.settings['saved_locations'] or [])}")
+        if not ok:
+            return
+        loc = alerts.new_location(name.strip() or "Saved place", lat, lon)
+        self.settings["saved_locations"] = list(self.settings["saved_locations"] or []) + [loc]
+        self.settings.save()
+        self.view.update()
+        self._status_msg(f"Saved \"{loc['name']}\" – set its alerts in Location → Saved locations & alerts")
+        self.open_locations(loc["id"])
+
+    def _lightning_needed(self):
+        return any(loc.get("enabled", True) and loc.get("lightning")
+                   for loc in (self.settings["saved_locations"] or []))
+
     def _check_location_alerts(self):
-        """Pops up a new tornado / severe / flash flood warning that covers my location (live data):
-        once per warning, and again only when it's upgraded (e.g. to PDS or an emergency)."""
-        if not self.settings["warn_at_location"] or self.data.mode != "live":
+        """Alerts for saved locations (live data): warnings / watches covering them, storm reports and lightning
+        nearby. Each warning alerts once, and again only when it's upgraded (e.g. to PDS or an emergency)."""
+        if self.data.mode != "live":
             return
-        ll = self.my_location.latlon()
-        if ll is None:
+        locs = [alerts.normalise(loc) for loc in (self.settings["saved_locations"] or [])]
+        if not locs:
             return
-        lat, lon = ll
         now = datetime.now(timezone.utc)
-        hits = []
-        for a in list(self.warnings.alerts):
-            if EVENT_GROUP.get(a.event) not in ("TOR", "SVR", "FFW") or a.action in ("CAN", "EXP"):
-                continue
-            if a.expires is not None and a.expires < now:
-                continue
-            if any(r[:, 1].min() <= lat <= r[:, 1].max() and r[:, 0].min() <= lon <= r[:, 0].max() for r in a.rings) \
-                    and feeds.rings_contain(a.rings, lat, lon):
-                hits.append(a)
-        fresh = [a for a in hits if a.key not in self._notified or a.style[3] > self._notified[a.key][0]]
-        if not fresh:
+        ltg = self.lightning if any(loc.get("lightning") for loc in locs) else None
+        events = alerts.evaluate(locs, self.my_location.latlon(), list(self.warnings.alerts),
+                                 list(self.warnings.reports), ltg.flashes_near if ltg is not None else None, now,
+                                 self._notified, EVENT_GROUP.get, lambda r: report_on(self.settings, r))
+        if not events:
             return
         t_now = time.time()
         self._notified = {k: v for k, v in self._notified.items() if v[1] > t_now - 3600}
-        for a in hits:
-            old = self._notified.get(a.key, [0, 0])[0]
-            self._notified[a.key] = [max(a.style[3], old), a.expires.timestamp() if a.expires else t_now + 7200]
         self.settings["notified_warnings"] = self._notified
         self.settings.save()
-        top = max(fresh, key=lambda a: a.style[3])
-        QApplication.alert(self, 0)
-        QApplication.beep()
+        shown = []
+        for i, ev in enumerate(events[:4]):
+            shown.append(self.notifier.notify(ev, sound=i == 0))       # one sound for a burst of alerts
+            self._status_msg(f"⚠ {ev['text']}")
+        top = events[0]
+        loc = top["loc"]
+        if loc.get("popup", True) or (loc.get("desktop", True) and not shown[0]):    # no desktop notifications here
+            self._alert_popup(top)
+
+    def _alert_popup(self, ev):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Warning for your location")
-        box.setText(f"<b>{top.variant_label} ({top.variant})</b><br>covers your location.")
-        box.setInformativeText(top.hover)
+        box.setWindowTitle("RadarForge alert")
+        box.setText(f"<b>{ev['title']}</b><br>{ev['text']}")
+        if ev.get("detail"):
+            box.setInformativeText(ev["detail"])
         go = box.addButton("Show on map", QMessageBox.AcceptRole)
         box.addButton(QMessageBox.Close)
         box.setModal(False)
-        go.clicked.connect(lambda: self._go_to_alert(top))
+        go.clicked.connect(lambda: self._go_to_event(ev))
         box.show()
-        self._status_msg(f"⚠ {top.variant_label} covers your location")
+
+    def _go_to_event(self, ev):
+        t = ev.get("target")
+        if isinstance(t, tuple):
+            self.go_to_latlon(*t)
+        elif t is not None:
+            self._go_to_alert(t)
 
     def _go_to_alert(self, a):
         self.show_panel("warnings")

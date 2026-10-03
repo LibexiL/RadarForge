@@ -32,6 +32,9 @@ if [ ! -x "$VENV/bin/python" ]; then
   "$VENV/bin/python" -m pip install --quiet --upgrade pip wheel
   "$VENV/bin/python" -m pip install -r "$ROOT/requirements.txt"
 fi
+# a newer version may need packages the existing environment doesn't have yet
+"$VENV/bin/python" -c "import h5py, imageio_ffmpeg" 2>/dev/null || \
+  "$VENV/bin/python" -m pip install --quiet -r "$ROOT/requirements.txt"
 # run the program files from the download without installing them
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 exec "$VENV/bin/python" -m radarforge "$@"

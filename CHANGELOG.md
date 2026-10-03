@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.9.0 – 2026-10-03
+
+* **Satellite** (Layers → Satellite): GOES-East / West infrared, visible or water vapour under the radar,
+  reprojected onto the map, with colour-enhanced IR and an opacity choice. Live data (the Iowa
+  Environmental Mesonet's latest CONUS images).
+* **Lightning** (Layers → Lightning):
+  * GOES lightning mapper (GLM) flashes from NOAA's AWS buckets, coloured by age, for the last 5–30
+    minutes. Works with archive cases too. Hover for counts.
+  * An NLDN cloud-to-ground lightning-density map (via MRMS).
+* **MRMS swaths** (Layers → MRMS swaths): rotation tracks (30 min – 24 h), hail size (MESH, 1–24 h)
+  and rainfall (1–24 h) from NOAA's Multi-Radar Multi-Sensor system. Shown for the time on screen, so
+  archive cases get them too. Hover for the value. (RadarForge reads the GRIB2 files itself.)
+* **Surface observations** (Layers → Surface observations): ASOS station plots – temperature, dew
+  point, sky cover and wind barb – decluttered by zoom. Hover for the full report and METAR.
+* **SPC day 2 and day 3 outlooks** (Layers → Storm Prediction Center).
+* **Model soundings**: right-click the map → **Model sounding here…** for a Skew-T, hodograph and the
+  usual numbers (CAPE/CIN, LCL, freezing level, lapse rate, PWAT, 0–1/3/6 km shear, 0–1/3 km helicity,
+  Bunkers storm motion, STP) from the RAP, HRRR, NAM or GFS, any forecast hour.
+  **Use right-mover as storm motion** sets SRV and the track tool.
+* **Saved locations with alert rules** (Location → Saved locations & alerts, Ctrl+Shift+L):
+  * Add places by name, coordinates, the map centre or right-click → **Save this location…**.
+    "My location" is the first entry (your 1.7 alert setting carries over).
+  * Per place: tornado / severe / flash flood / other warnings, watches, storm reports within N miles,
+    lightning within N miles.
+  * Per place: an alert **sound** (chime, siren or beeps, with volume), a **desktop notification**
+    and/or a pop-up. Each warning alerts once, and again when it's upgraded; lightning at most every
+    30 minutes.
+* **Storm tools**:
+  * **Automatic storm flags** (Tools): ROT for rotation, TDS? for a low-CC debris signature beside
+    strong rotation, HAIL for hail cores – each explains why when you hover it.
+  * **Follow a storm**: right-click → **Follow this storm** keeps it centred as the loop plays (it
+    tracks the strongest echo and learns the storm's motion).
+  * **Rotation history**: azimuthal shear and rotational velocity of one storm through the loaded
+    frames, as a chart and a table you can copy as CSV.
+  * **Radar & dual-pol guide** and **Learn mode** (Help): the Inspector explains in plain words what
+    the values under the mouse mean.
+* Small captions in each panel's corner say which data layers are on and how old they are.
+* New dependency: `h5py` (reads the GLM files). The installers include it. `radarforge --check` tests the
+  optional parts (lightning files, MRMS decoding, alert sounds, MP4 export, soundings).
+
 ## 1.8.0 – 2026-10-02
 
 * **Installers**: a Windows installer (`RadarForge-Setup-1.8.0.exe` – no Python, no admin rights) and a

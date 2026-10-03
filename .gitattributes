@@ -8,3 +8,5 @@ Linux/*.txt    text eol=lf
 *.npz   binary
 *.png   binary
 *.ico   binary
+*.npy   binary
+*.gz    binary

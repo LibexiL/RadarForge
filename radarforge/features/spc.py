@@ -1,4 +1,4 @@
-"""SPC day 1 convective outlook and mesoscale discussions (via the Iowa Environmental Mesonet API)."""
+"""SPC day 1-3 convective outlooks and mesoscale discussions (via the Iowa Environmental Mesonet API)."""
 from __future__ import annotations
 
 import threading
@@ -24,13 +24,14 @@ def _get_json(url, params=None):
     return r.json()
 
 
-def fetch_outlook(now=None) -> list:
-    """The newest day 1 outlook (tries the most recent issuances until one has areas)."""
+def fetch_outlook(now=None, day=1) -> list:
+    """The newest day 1, 2 or 3 outlook (tries the most recent issuances until one has areas)."""
     now = now or datetime.now(timezone.utc)
     last_exc, got = None, None
-    for date, cycle in feeds.outlook_requests(now):
+    reqs = feeds.outlook_requests(now) if day == 1 else feeds.outlook_requests_ahead(now, day)
+    for date, cycle in reqs:
         try:
-            areas = feeds.parse_outlook(_get_json(feeds.OUTLOOK_URL, {"day": 1, "valid": date, "cycle": cycle}))
+            areas = feeds.parse_outlook(_get_json(feeds.OUTLOOK_URL, {"day": day, "valid": date, "cycle": cycle}))
         except Exception as exc:
             last_exc = exc
             continue
@@ -58,11 +59,27 @@ class SpcOverlay(QObject):
         self.is_live = is_live
         self.outlook: list = []
         self.mcds: list = []
+        self.outlook_day = 1             # the day the loaded outlook is for
         self._next = {"outlook": 0.0, "mcd": 0.0}
         self._busy = set()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(30_000)
+
+    def day(self) -> int:
+        try:
+            d = int(self.settings["spc_outlook_day"] or 1)
+        except (TypeError, ValueError):
+            d = 1
+        return d if d in (1, 2, 3) else 1
+
+    def set_day(self, day):
+        self.settings["spc_outlook_day"] = day
+        self.settings.save()
+        self.outlook = []
+        self._next["outlook"] = 0.0
+        self.changed.emit()
+        self.refresh(force=True)
 
     def _on(self, key):
         return bool(self.settings["overlays"].get(key, False)) and self.is_live()
@@ -70,7 +87,8 @@ class SpcOverlay(QObject):
     def refresh(self, force=False):
         jobs = []
         if self._on("spc_outlook") and (force or time.time() >= self._next["outlook"]):
-            jobs.append(("outlook", fetch_outlook, 15 * 60))
+            day = self.day()
+            jobs.append(("outlook", lambda day=day: (day, fetch_outlook(day=day)), 15 * 60))
         if self._on("spc_mcd") and (force or time.time() >= self._next["mcd"]):
             jobs.append(("mcd", fetch_mcds, 3 * 60))
         for name, fn, period in jobs:
@@ -82,7 +100,8 @@ class SpcOverlay(QObject):
                 try:
                     data = fn()
                     if name == "outlook":
-                        self.outlook = data
+                        if data[0] == self.day():          # not a late answer for a day no longer shown
+                            self.outlook_day, self.outlook = data
                     else:
                         self.mcds = data
                     self._next[name] = time.time() + period
@@ -177,8 +196,11 @@ class SpcOverlay(QObject):
             v = o.get(key.lower()) if o else None
             s = f"{round(v * 100)}%" if v is not None else f"under {floor}%"
             return s + (" (significant)" if o and key in o["sig"] else "")
-        txt = f"SPC day 1 outlook: {feeds.CAT_NAME[cat]}"
-        txt += f"\nTornado {p('TORNADO', 2)} · Wind {p('WIND', 5)} · Hail {p('HAIL', 5)}"
+        txt = f"SPC day {self.outlook_day} outlook: {feeds.CAT_NAME[cat]}"
+        if o and o.get("any") is not None:
+            txt += f"\nAny severe weather: {round(o['any'] * 100)}%" + (" (significant)" if "ANY" in o["sig"] else "")
+        elif self.outlook_day < 3 or (o and any(o.get(k) is not None for k in ("tornado", "wind", "hail"))):
+            txt += f"\nTornado {p('TORNADO', 2)} · Wind {p('WIND', 5)} · Hail {p('HAIL', 5)}"
         exp = (o or {}).get("expire") or next((a["expire"] for a in self.outlook if a["expire"]), None)
         if exp is not None:
             txt += f"\nValid until {feeds.local_hm(exp)}"

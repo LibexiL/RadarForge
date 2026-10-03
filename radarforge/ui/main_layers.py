@@ -64,8 +64,9 @@ class LayersMixin:
             self.chasers.refresh(force=True)
         if key in ("spc_outlook", "spc_mcd") and on:
             self.spc.refresh(force=True)
-        if on and key in ("chasers", "spc_outlook", "spc_mcd") and self.data.mode != "live":
-            self._status_msg("Storm chasers and SPC products are shown with live data")
+        if on and key in ("chasers", "spc_outlook", "spc_mcd", "satellite", "surface_obs") and self.data.mode != "live":
+            self._status_msg("Storm chasers, SPC products, satellite and surface observations are shown with live data")
+        self._data_overlay_toggled(key, on)
         if key in ("warnings", "watches") and hasattr(self, "warnings_panel"):
             self.warnings_panel.sync_filters()
         self._update_l3_needs()

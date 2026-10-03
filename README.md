@@ -51,12 +51,24 @@ keep the extracted files together – everything else is the program itself, sha
 * **Storm reports**: NWS local storm reports plus Spotter Network reports for the last 1–24 hours,
   with type filters. Live reports fade as they get older.
 * **Storm chasers**: live Spotter Network positions with the direction they're driving.
-* **SPC**: the day 1 convective outlook (hover for tornado / wind / hail chances) and mesoscale
-  discussions (right-click to read one).
+* **SPC**: the day 1, 2 or 3 convective outlook (hover for tornado / wind / hail chances) and
+  mesoscale discussions (right-click to read one).
+* **Satellite**: GOES infrared, visible or water vapour under the radar (live), reprojected onto the map.
+* **Lightning**: GOES lightning mapper flashes coloured by age (live and archive), and an NLDN
+  lightning-density map.
+* **MRMS swaths**: rotation tracks, hail size (MESH) and rainfall totals from NOAA's Multi-Radar
+  Multi-Sensor system – for the time shown, so they work with archive cases too.
+* **Surface observations**: ASOS station plots (temperature, dew point, sky, wind barb); hover for the METAR.
+* **Model soundings**: right-click anywhere → Skew-T, hodograph, CAPE, shear, helicity and storm motion
+  from the RAP, HRRR, NAM or GFS. One click makes the Bunkers right-mover your storm motion.
 * **Storm track tool**: click a storm and drag its arrow to see when it reaches the towns ahead –
   and you. One click turns the track into the storm motion for SRV.
-* **My location**: set it from the map. RadarForge pops up a new tornado, severe or flash flood
-  warning that covers it.
+* **Saved locations with alerts**: my location plus any places you add. For each, choose which
+  warnings and watches to be told about, and storm reports or lightning within so many miles; get a
+  sound, a desktop notification and/or a pop-up.
+* **Storm tools**: automatic flags for rotation, possible tornado debris and hail cores; follow a storm
+  as the loop plays; a rotation history chart; a dual-pol guide and a **learn mode** that explains the
+  values under the mouse in plain words.
 * **Favourite radars**, and **copy the map** to the clipboard to paste anywhere.
 * **Export**: loops as **GIF or MP4**, pictures with the colour bars and a title / details bar, and a
   **briefing view** (map + warnings, reports, SPC and storm motion beside it) you can save or copy.
@@ -157,6 +169,7 @@ Add these after `radarforge` (Linux), `radarforge.bat` or `run.bat` (Windows):
 | `--safe-graphics` | plainest OpenGL setup (no antialiasing, no frame reuse) – for driver trouble |
 | `--gl-reset` | forget the remembered graphics setup and detect it again (after a driver update) |
 | `--x11` / `--software` | Linux only: force XWayland, or software rendering (slow) |
+| `--check` | check the optional parts (lightning files, MRMS decoding, alert sounds, MP4 export, soundings), print OK / FAIL and exit |
 
 ## Updating & uninstalling
 
@@ -195,8 +208,15 @@ whether to delete your settings and downloaded data too.
 | Cross section | **X**, then drag a line across a storm |
 | Distance / bearing | **M**, then drag (or Shift-drag at any time). The line stays until the next one or **Esc** |
 | Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
-| Storm reports / chasers / SPC | **Map** menu (or side panel → **Layers**). Options: **Map → Storm report options** and **Storm chaser options** |
-| My location | right-click the map → **Set my location here**; **Ctrl+L** goes back to it. **Radar → Alert me when a warning covers my location** |
+| Storm reports / chasers / SPC | **Layers** menu (or side panel → **Layers**): **Warnings & reports**, **Storm chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook there) |
+| Satellite / lightning / MRMS / surface obs | **Layers → Satellite** (IR, visible, water vapour, opacity), **Lightning** (GLM flashes, last 5–30 min; NLDN density), **MRMS swaths** (rotation tracks, hail size, rainfall; 30 min – 24 h), **Surface observations**. Hover any of them for values |
+| Model sounding | right-click the map → **Model sounding here…** (or **Tools → Model sounding at the map centre**). Pick the model and forecast hour; **Use right-mover as storm motion** sets SRV |
+| My location | right-click the map → **Set my location here**; **Ctrl+L** goes back to it |
+| Saved locations & alerts | **Location → Saved locations & alerts** (**Ctrl+Shift+L**), or right-click the map → **Save this location…**. Per place: tornado / severe / flash flood / other warnings, watches, storm reports within N mi, lightning within N mi; sound, desktop notification, pop-up. Live data only |
+| Storm flags | **Tools → Automatic storm flags**: ROT (rotation), TDS? (possible debris), HAIL markers on the lowest tilt; hover one to see why |
+| Follow a storm | right-click a storm → **Follow this storm**: the map recentres on it every frame (**Tools → Follow storm** to stop) |
+| Rotation history | right-click a storm → **Rotation history for this storm…**: azimuthal shear and rotational velocity through the loaded frames, copyable as CSV |
+| Learning radar | **Help → Learn mode** explains the values under the mouse in the Inspector; **Help → Radar & dual-pol guide** is the cheat sheet |
 | Favourite radars | **Ctrl+D** adds the current radar; **Radar → Favourite radars**, or ☆ in the radar list |
 | 3-D view | **B** (or **3D**), then drag a box around a storm. In the 3-D view: drag to rotate, right-drag to pan, wheel to zoom |
 | Colour table | drag a `.pal` file onto a panel |
@@ -345,13 +365,17 @@ RadarForge/
 │   ├── data/             Level II decoder, Level III (MetPy), AWS access, live chunks, radar sites
 │   ├── products/         product catalog, colour tables, dealiasing, derived & volume products
 │   ├── render/           OpenGL radar view, shaders, basemap
-│   ├── features/         placefiles, warnings, storm reports, chasers, SPC, Level III overlays, my location
+│   ├── features/         placefiles, warnings, storm reports, chasers, SPC, Level III overlays, locations
+│   │                     and alerts, satellite, lightning, MRMS (with a small GRIB2 reader), surface obs,
+│   │                     model soundings, storm flags / rotation / learn-mode rules
 │   ├── tools/            cross section, 3-D view
 │   ├── ui/               the main window, split by topic:
 │   │   ├── mainwindow.py     data, frames, panels, cursor readout
 │   │   ├── main_menus.py     toolbar, menus, shortcuts      main_layers.py    layer switches
 │   │   ├── main_storm.py     mouse tools, storm track       main_location.py  favourites, my location, alerts
 │   │   ├── main_export.py    + export.py: pictures, loops, briefing view
+│   │   ├── main_data.py      satellite, lightning, MRMS, obs, storm flags, following, learn mode
+│   │   ├── sounding_dialog.py · storm_tools_ui.py · locations_dialog.py · notify.py
 │   │   └── panels.py · workspace.py · dialogs.py · settings_dialog.py · icons.py
 │   └── assets/           basemap, icons
 ├── packaging/            Windows installer (PyInstaller + Inno Setup) and Linux AppImage recipes
@@ -370,13 +394,21 @@ RadarForge/
   are the official ones.
 * MESH/POSH use the 0 °C and −20 °C heights from Settings.
 * Watches are shown in live mode; archive mode shows storm-based warnings and storm reports.
-* Storm chasers, Spotter Network reports and the SPC outlook / discussions are shown with live data.
+* Storm chasers, Spotter Network reports, the SPC outlook / discussions, satellite pictures and surface
+  observations are shown with live data. Lightning (GLM) and MRMS swaths follow archive cases too.
+* Alerts for saved locations run with live data while RadarForge is open.
+* Automatic storm flags are rules of thumb on the lowest tilt (15–150 km from the radar) – hints to look
+  closer, not warnings. Model soundings are forecasts, not observations.
+* Satellite pictures come from the Iowa Environmental Mesonet's latest GOES images; MRMS and GLM
+  lightning come straight from NOAA's buckets on AWS.
 
 ## Credits
 
 Radar data: NOAA NEXRAD on AWS (Unidata). Warnings: National Weather Service API and the Iowa
 Environmental Mesonet. Storm reports, SPC outlooks and mesoscale discussions: NWS and the Storm Prediction
-Center via the Iowa Environmental Mesonet. Storm chasers and spotter reports: Spotter Network
+Center via the Iowa Environmental Mesonet. GOES satellite pictures, surface observations and model
+soundings (BUFKIT): Iowa Environmental Mesonet. MRMS and GOES GLM lightning: NOAA Open Data
+Dissemination on AWS. Soundings computed with MetPy. Storm chasers and spotter reports: Spotter Network
 (non-commercial use). Level III decoding: MetPy. Map data: US Census Bureau, Natural Earth, GeoNames.
 Radar site list derived from Supercell Wx. Details and licences: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

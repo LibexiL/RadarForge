@@ -22,7 +22,7 @@ binaries = []
 hidden = (collect_submodules("radarforge") + collect_submodules("OpenGL.platform") +
           collect_submodules("OpenGL.arrays") + collect_submodules("metpy.io") +
           ["OpenGL.GL", "OpenGL.GL.shaders", "PIL.GifImagePlugin", "imageio.plugins.ffmpeg",
-           "imageio.plugins.pillow", "scipy.ndimage", "skimage.measure"])
+           "imageio.plugins.pillow", "scipy.ndimage", "skimage.measure", "h5py", "PySide6.QtMultimedia"])
 
 a = Analysis(
     [os.path.join(SPECPATH, "radarforge_launcher.py")],
@@ -33,7 +33,7 @@ a = Analysis(
     excludes=["tkinter", "cv2", "sklearn", "IPython", "jupyter_client", "notebook", "sphinx", "pytest",
               "shapely", "geonamescache", "matplotlib.tests", "numpy.tests", "scipy.tests", "PySide6.Qt3DAnimation",
               "PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtQuick3D",
-              "PySide6.QtMultimedia", "PySide6.QtCharts", "PySide6.QtDataVisualization"],
+              "PySide6.QtCharts", "PySide6.QtDataVisualization"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

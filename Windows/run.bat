@@ -29,6 +29,8 @@ if errorlevel 1 goto :fail
 if errorlevel 1 goto :fail
 
 :run
+rem a newer version may need packages the existing environment doesn't have yet
+"%VENV%\Scripts\python.exe" -c "import h5py, imageio_ffmpeg" 2>nul || "%VENV%\Scripts\python.exe" -m pip install --quiet -r "%ROOT%\requirements.txt"
 set "PYTHONPATH=%ROOT%"
 "%VENV%\Scripts\python.exe" -m radarforge %*
 exit /b %errorlevel%

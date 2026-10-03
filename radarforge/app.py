@@ -91,6 +91,64 @@ class _Tee:
                 pass
 
 
+def self_check() -> int:
+    """Prints whether each optional component works (used to test the installers). Exit code 1 on failure."""
+    results = []
+
+    def check(name, fn):
+        try:
+            results.append((name, True, fn() or "ok"))
+        except Exception as exc:
+            results.append((name, False, f"{type(exc).__name__}: {exc}"))
+
+    def glm():
+        import io
+        import h5py
+        import numpy as np
+        buf = io.BytesIO()
+        with h5py.File(buf, "w") as f:
+            f.create_dataset("flash_lat", data=np.array([35.0], np.float32))
+            f.create_dataset("flash_lon", data=np.array([-97.0], np.float32))
+        from .features.lightning import parse_glm
+        lat, lon, _e = parse_glm(buf.getvalue())
+        assert lat.tolist() == [35.0]
+        return f"h5py {h5py.__version__}"
+
+    def grib():
+        import numpy as np
+        from PIL import Image
+        import io
+        png = io.BytesIO()
+        Image.fromarray(np.arange(6, dtype=np.uint16).reshape(2, 3)).save(png, "PNG")
+        from .features.grib2 import _image_values
+        assert _image_values(png.getvalue(), 16).tolist() == [0, 1, 2, 3, 4, 5]
+        return "PNG unpacking"
+
+    def sound():
+        from PySide6.QtCore import QCoreApplication, QUrl
+        from PySide6.QtMultimedia import QSoundEffect
+        from .features.alerts import sound_file
+        app = QCoreApplication.instance() or QCoreApplication([])
+        eff = QSoundEffect(app)
+        eff.setSource(QUrl.fromLocalFile(str(sound_file("chime"))))
+        return "QtMultimedia"
+
+    def mp4():
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+
+    def metpy():
+        import metpy.calc
+        return f"MetPy ({len(dir(metpy.calc))} functions)"
+
+    for name, fn in (("lightning files (GLM)", glm), ("MRMS decoding", grib), ("alert sounds", sound),
+                     ("MP4 export", mp4), ("soundings", metpy)):
+        check(name, fn)
+    for name, ok, msg in results:
+        print(f"{'OK  ' if ok else 'FAIL'} {name}: {msg}", flush=True)
+    return 0 if all(ok for _n, ok, _m in results) else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="radarforge", description="NEXRAD Level II/III radar viewer")
     parser.add_argument("files", nargs="*", help="Level II / Level III files to open")
@@ -105,7 +163,11 @@ def main(argv=None):
                         help="forget the remembered OpenGL setup and detect it again")
     parser.add_argument("--safe-graphics", action="store_true",
                         help="plainest OpenGL setup: no antialiasing, no frame reuse (for driver trouble)")
+    parser.add_argument("--check", action="store_true",
+                        help="check the optional parts (lightning files, alert sounds, MP4 export) and exit")
     args = parser.parse_args(argv)
+    if args.check:
+        return self_check()
 
     from . import gl_setup
     from .config import LOG_FILE, Settings, ensure_dirs

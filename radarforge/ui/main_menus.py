@@ -190,6 +190,7 @@ class MenusMixin:
         self._menu_location(mb.addMenu("L&ocation"))
         self.panels_menu = mb.addMenu("&Panels")
         m = mb.addMenu("&Help")
+        self._menu_help_extras(m)
         self._act(m, "Keyboard shortcuts", self.show_shortcuts, "F1")
         self._act(m, "About RadarForge", self.show_about, None)
 
@@ -305,8 +306,13 @@ class MenusMixin:
                   checked=bool(self.settings["chaser_names"]))
         # SPC
         spc = m.addMenu("Storm Prediction Center")
-        self._overlay_act(spc, "spc_outlook", "Day 1 convective outlook")
+        self._overlay_act(spc, "spc_outlook", "Convective outlook")
         self._overlay_act(spc, "spc_mcd", "Mesoscale discussions")
+        self._menu_spc_days(spc)
+        # weather data: satellite, lightning, MRMS, surface obs
+        m.addSeparator()
+        self._menu_data_layers(m)
+        m.addSeparator()
         # Level III
         l3 = m.addMenu("Level III overlays")
         for key, label in (("storm_tracks", "Storm tracks (NST)"), ("meso", "Mesocyclones (NMD)"),
@@ -340,6 +346,7 @@ class MenusMixin:
         m.addSeparator()
         self._act(m, "Storm cell table", lambda: self.show_panel("cells"), None)
         self._act(m, "Level III storm table (text)", self.show_storm_table, None)
+        self._menu_storm_tools(m)
 
     def _menu_location(self, m):
         self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L")
@@ -348,6 +355,11 @@ class MenusMixin:
         m.addSeparator()
         self.warn_loc_act = self._act(m, "Alert me when a warning covers my location", self._toggle_warn_loc, None,
                                       checkable=True, checked=bool(self.settings["warn_at_location"]))
+        m.addSeparator()
+        self._act(m, "Saved locations && alerts…", lambda: self.open_locations(), "Ctrl+Shift+L")
+        self._act(m, "Save the map centre as a location…",
+                  lambda: self.save_location_here(*self.view.world_to_latlon(self.view.cx, self.view.cy)), None)
+        self._act(m, "Test the alert sound", lambda: self.notifier.play(), None)
 
     def _fill_theme_menu(self):
         m = self.theme_menu
@@ -430,6 +442,7 @@ class MenusMixin:
             ("Window", [("F9", "show / hide the side panel"), ("F11", "full screen"), ("F1", "this list")]),
             ("Files & data", [("Ctrl+O", "open files"), ("Ctrl+A", "archive"), ("Ctrl+R", "choose radar"),
                               ("Ctrl+D", "add / remove favourite radar"), ("Ctrl+L", "go to my location"),
+                              ("Ctrl+Shift+L", "saved locations & alerts"),
                               ("Ctrl+P", "placefiles"), ("Ctrl+S", "save image"), ("Ctrl+Shift+C", "copy image"),
                               ("Ctrl+,", "settings")]),
         ]
@@ -445,7 +458,8 @@ class MenusMixin:
         QMessageBox.about(self, "About RadarForge", (
             f"<b>RadarForge {__version__}</b> – NEXRAD Level II / III viewer<br><br>"
             "Data: NOAA NEXRAD on AWS (Unidata buckets), NWS API alerts, Iowa Environmental Mesonet archives, "
-            "storm reports and SPC products; storm chasers and spotter reports from Spotter Network "
+            "storm reports, SPC products, GOES satellite pictures, surface observations and model soundings; "
+            "NOAA MRMS and GOES GLM lightning on AWS; storm chasers and spotter reports from Spotter Network "
             "(non-commercial use).<br>"
             "Maps: US Census county boundaries, Natural Earth, GeoNames.<br>"
             "Level III decoding by MetPy.<br><br>"

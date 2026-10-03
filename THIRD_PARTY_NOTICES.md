@@ -18,7 +18,10 @@ RadarForge's own code is yours to use as you like. It bundles or derives data fr
   > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
 
 Runtime dependencies (installed from PyPI): PySide6 (LGPL-3.0), NumPy, SciPy, scikit-image (BSD),
-MetPy (BSD-3, used for Level III decoding), PyOpenGL (BSD-style), requests (Apache-2.0).
+MetPy (BSD-3, used for Level III decoding and sounding parameters), PyOpenGL (BSD-style), requests (Apache-2.0),
+Pillow (HPND), imageio / imageio-ffmpeg (BSD-2; ffmpeg itself is LGPL/GPL), h5py (BSD-3, reads GOES GLM files).
 
-Data services used at runtime: NOAA NEXRAD on AWS (Unidata-managed buckets), the NWS API
-(api.weather.gov), and the Iowa Environmental Mesonet (historical warnings and storm reports).
+Data services used at runtime: NOAA NEXRAD on AWS (Unidata-managed buckets), NOAA MRMS (noaa-mrms-pds) and
+GOES-19 / GOES-18 GLM (noaa-goes19, noaa-goes18) on AWS through the NOAA Open Data Dissemination program, the
+NWS API (api.weather.gov), the Iowa Environmental Mesonet (historical warnings, storm reports, SPC products,
+GOES satellite images, current surface observations and BUFKIT model soundings) and Spotter Network.

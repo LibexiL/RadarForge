@@ -46,7 +46,9 @@ DEFAULTS = {
                    "lakes": True, "countries": True, "range_rings": False},
     "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "meso": True,
                  "tvs": True, "hail": False, "melting_layer": False, "reports": False,
-                 "chasers": False, "spc_outlook": False, "spc_mcd": False},
+                 "chasers": False, "spc_outlook": False, "spc_mcd": False,
+                 "satellite": False, "mrms": False, "lightning": False, "lightning_density": False,
+                 "surface_obs": False, "storm_flags": False},
     "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
@@ -61,6 +63,18 @@ DEFAULTS = {
     "warn_at_location": True,      # pop up a new warning that covers my location (live)
     "notified_warnings": {},       # warning key -> [priority, expiry epoch s] already shown for my location
     "track_minutes": 60,           # storm track tool: minutes the arrow covers
+    "spc_outlook_day": 1,          # SPC convective outlook shown: day 1, 2 or 3
+    "satellite_channel": "ir",     # ir | vis | wv (GOES via IEM, live)
+    "satellite_opacity": 0.85,
+    "satellite_enhance": True,     # colour-enhanced infrared / water vapour
+    "mrms_product": "rot60",       # see features/mrms.py PRODUCTS
+    "mrms_opacity": 0.8,
+    "ltg_density_product": "ltg5",
+    "lightning_minutes": 10,       # GLM flashes: how many minutes back
+    "saved_locations": None,       # [{id, name, lat, lon, mine, enabled, warn{}, ...}] (1.9.0; None = migrate)
+    "alert_sound": "chime",        # chime | siren | beep | none
+    "alert_volume": 0.8,
+    "learn_mode": False,           # plain-language explanations in the Inspector
     "loop_frames": 12,
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
