@@ -125,7 +125,7 @@ def test_storm_track_maths():
 def test_track_tool_and_new_ui(tmp_path):
     """The storm track tool, favourites and location in the real window classes (offscreen)."""
     from PySide6.QtWidgets import QApplication
-    _app = QApplication.instance() or QApplication([])  # noqa: F841
+    QApplication.instance() or QApplication([])
     from radarforge.config import Settings
     from radarforge.render.glview import RadarView
     s = Settings(tmp_path / "s.json")
@@ -155,3 +155,21 @@ def test_track_tool_and_new_ui(tmp_path):
     d._toggle_fav()
     assert s["favorite_sites"] == [first]
     assert d.list.item(0).text().startswith("★")
+
+
+def test_export_encoding(tmp_path):
+    from radarforge.ui import export
+    frames = [np.full((40, 61, 3), v, np.uint8) for v in (0, 120, 250)]
+    d = export.durations(3, 2.0, 1.5)
+    assert d == [500.0, 500.0, 2000.0]
+    gif = tmp_path / "a.gif"
+    export.encode_gif(frames, d, str(gif))
+    from PIL import Image
+    g = Image.open(gif)
+    assert g.n_frames == 3 and g.size == (61, 40)
+    if export.mp4_available():
+        mp4 = tmp_path / "a.mp4"
+        export.encode_mp4(frames, d, str(mp4), 10.0)
+        import imageio.v2 as iio
+        r = iio.get_reader(str(mp4))
+        assert r.count_frames() == 5 + 5 + 20 and r.get_meta_data()["size"] == (60, 40)   # even width

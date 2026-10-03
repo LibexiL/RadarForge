@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "radarforge"
-version = "1.7.0"
+version = "1.8.0"
 description = "NEXRAD Level II / Level III weather radar viewer: live and archive data, 1-6 linked panels, derived products, placefiles, cross sections and 3-D"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,9 @@ dependencies = [
   "scikit-image>=0.21",
   "PyOpenGL>=3.1.7",
   "requests>=2.28",
+  "pillow>=9",             # GIF export
+  "imageio>=2.20",
+  "imageio-ffmpeg>=0.4",   # MP4 export (bundles ffmpeg)
 ]
 
 [project.optional-dependencies]

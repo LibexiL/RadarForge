@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.8.0 – 2026-10-02
+
+* **Installers**: a Windows installer (`RadarForge-Setup-1.8.0.exe` – no Python, no admin rights) and a
+  Linux **AppImage**, built automatically for every release. The source zip and its install scripts still work.
+* **Export** (File → Export):
+  * **Loop as GIF or MP4** (Ctrl+E): pick the frames, speed, pause on the last frame and size; every
+    panel and overlay is recorded as shown.
+  * **Save image with legend and details** (Ctrl+Shift+S): colour bars plus a title bar (radar, UTC and
+    local time) and a details bar (products, storm motion, warnings).
+  * **Briefing view** (Ctrl+B): the map with warnings in view, storm reports, the SPC outlook, storm
+    motion and storm-track arrivals beside it. It follows the frame shown; save or copy it.
+* **Menus reorganised**: File (data in, pictures out), View, Radar (with favourites), **Layers**
+  (everything drawn on the map, grouped: warnings & reports, chasers, SPC, Level III, map), Tools,
+  **Location**, Panels, Help.
+* The main window's code is split into topic files (menus, layers, storm tools, location, export).
+* Fixed: a saved picture could show the map from just before the last change.
+
 ## 1.7.0 – 2026-10-01
 
 * **Storm track tool** (**T**, or **Track** on the toolbar):

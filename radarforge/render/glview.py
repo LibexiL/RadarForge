@@ -165,6 +165,7 @@ class RadarView(QOpenGLWindow):
         self.track_half_width = 10.0      # km either side of the track for "towns in its path"
         self._track_drag = None           # "a" / "b" while dragging an end
         self._gl_ready = False
+        self.paint_serial = 0             # counts finished paints (loop export waits for a fresh one)
         self._gpu: OrderedDict = OrderedDict()
         self._luts: dict = {}
         self._map_vbos: dict = {}
@@ -551,6 +552,7 @@ class RadarView(QOpenGLWindow):
             self._scene_dirty = False
         self._paint_live(painter)
         painter.end()
+        self.paint_serial += 1
 
     def _interacting(self):
         return self._drag is not None or self._wheel_timer.isActive()
@@ -1448,6 +1450,11 @@ class RadarView(QOpenGLWindow):
         self.persistent_lines = [l for l in self.persistent_lines if kind is not None and l[0] != kind]
         self.update()
 
+    def grab_fresh(self):
+        """The view drawn from scratch right now (never the cached scene, which can lag a frame behind)."""
+        self._scene_dirty = True
+        self._cache_valid = False
+        return self.grabFramebuffer()
+
     def grab_png(self, path):
-        img = self.grabFramebuffer()
-        return img.save(path)
+        return self.grab_fresh().save(path)

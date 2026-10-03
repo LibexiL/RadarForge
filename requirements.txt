@@ -5,3 +5,6 @@ metpy>=1.5
 scikit-image>=0.21
 PyOpenGL>=3.1.7
 requests>=2.28
+pillow>=9
+imageio>=2.20
+imageio-ffmpeg>=0.4

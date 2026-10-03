@@ -4,25 +4,19 @@ from __future__ import annotations
 import math
 import os
 import numpy as np
-import time
-from datetime import datetime, timezone
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QInputDialog, QLabel, QMainWindow, QMenu,
-                               QMessageBox, QProgressBar, QSizePolicy, QSlider, QToolBar, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QObject, QPointF, QRunnable, QThreadPool, QTimer, Signal
+from PySide6.QtWidgets import (QApplication, QFileDialog, QMainWindow, QMenu, QMessageBox, QVBoxLayout, QWidget)
 
-from .. import __version__, themes
+from .. import themes
 from ..config import APP_NAME
 from ..data.sites import get_site, nearest_site
-from ..features import feeds
 from ..features.chasers import ChasersOverlay
 from ..features.l3overlay import Level3Overlay
 from ..features.location import MyLocation
 from ..features.placefile import PlacefileManager
 from ..features.spc import SpcOverlay
-from ..features.warnings import EVENT_GROUP, WarningsOverlay
+from ..features.warnings import WarningsOverlay
 from ..products import catalog, colortable
 from ..products.engine import ProductEngine
 from ..products.geometry import aeqd_forward, beam_height, slant_range
@@ -30,11 +24,16 @@ from ..render.glview import RadarView
 from ..tools.volume3d import Volume3DWindow
 from ..tools.xsection import CrossSectionWindow
 from .datamanager import DataManager
-from .dialogs import ArchiveDialog, McdDialog, PlacefilePanel, SiteDialog, StormMotionDialog
+from .dialogs import ArchiveDialog, McdDialog, PlacefilePanel, SiteDialog
 from .settings_dialog import SettingsDialog
 from . import icons
 from .panels import CELL_CODES, CellsPanel, InspectorPanel, LayersPanel, ProductsPanel, WarningsPanel
 from .workspace import Workspace
+from .main_export import ExportMixin
+from .main_layers import LayersMixin
+from .main_location import LocationMixin
+from .main_menus import MenusMixin
+from .main_storm import StormToolsMixin
 
 L3_TILT_ELEVS = [0.5, 0.9, 1.3, 1.8]
 UNIT_F = {"nm": 1.852, "km": 1.0, "mi": 1.609344}
@@ -94,7 +93,7 @@ class _Lazy3D(QWidget):
         super().showEvent(ev)
 
 
-class MainWindow(QMainWindow):
+class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, ExportMixin, QMainWindow):
     stateChanged = Signal()          # frame / panel / tilt / product changed (side panels refresh)
     cursorInfo = Signal(object)      # dict for the cursor inspector
 
@@ -117,6 +116,7 @@ class MainWindow(QMainWindow):
         self.playing = False
         self._palettes: dict = {}
         self._panel_req: dict = {}
+        self._panel_done: dict = {}          # panel -> request whose image is shown (loop export waits on it)
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(3)
         self.bg_pool = QThreadPool(self)
@@ -217,329 +217,6 @@ class MainWindow(QMainWindow):
         return self.v3d_host.win if self.v3d_host is not None else None
 
     # ================================================================== UI build
-    def _tb_button(self, tb, action, text_beside=True):
-        tb.addAction(action)
-        w = tb.widgetForAction(action)
-        if isinstance(w, QToolButton):
-            w.setToolButtonStyle(Qt.ToolButtonTextBesideIcon if text_beside else Qt.ToolButtonIconOnly)
-        return w
-
-    def _group_label(self, tb, text):
-        lab = QLabel(text)
-        lab.setProperty("role", "group")
-        tb.addWidget(lab)
-
-    def _build_toolbar(self):
-        tb = QToolBar("Main", self)
-        tb.setObjectName("main_toolbar")
-        tb.setMovable(False)
-        tb.setFloatable(False)
-        tb.setIconSize(QSize(18, 18))
-        tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        self.addToolBar(tb)
-        self.main_tb = tb
-        self._icon_targets = []           # (action or button, icon name) re-tinted when the theme changes
-
-        # radar + data source
-        self.site_btn = QToolButton()
-        self.site_btn.setText(self.settings["site"])
-        self.site_btn.setToolTip("Choose radar (Ctrl+R) – or click a radar square on the map")
-        self.site_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.site_btn.clicked.connect(self.choose_site)
-        f = self.site_btn.font()
-        f.setBold(True)
-        self.site_btn.setFont(f)
-        tb.addWidget(self.site_btn)
-        self._icon_targets.append((self.site_btn, "radar"))
-        tb.addSeparator()
-        self.live_act = QAction("Live", self, checkable=True)
-        self.live_act.setToolTip("Real-time data from AWS (Level II chunks + Level III)")
-        self.live_act.toggled.connect(self._toggle_live)
-        self._tb_button(tb, self.live_act)
-        self._icon_targets.append((self.live_act, "live"))
-        self.archive_act = QAction("Archive", self)
-        self.archive_act.setToolTip("Load past data from the AWS archive (Ctrl+A)")
-        self.archive_act.triggered.connect(self.open_archive)
-        self._tb_button(tb, self.archive_act)
-        self._icon_targets.append((self.archive_act, "archive"))
-        self.open_act = QAction("Open", self)
-        self.open_act.setToolTip("Open Level II / Level III files (Ctrl+O)")
-        self.open_act.triggered.connect(self.open_files)
-        self._tb_button(tb, self.open_act)
-        self._icon_targets.append((self.open_act, "open"))
-        tb.addSeparator()
-
-        # layout
-        self.layout_group = QActionGroup(self)
-        for n in range(1, 7):
-            act = QAction(str(n), self, checkable=True)
-            act.setToolTip(f"{n}-panel layout (Alt+{n})")
-            act.setData(n)
-            act.setChecked(n == int(self.settings["layout"]))
-            act.triggered.connect(lambda _=False, n=n: self.set_layout(n))
-            self.layout_group.addAction(act)
-            self._tb_button(tb, act, text_beside=False)
-            self._icon_targets.append((act, f"layout{n}"))
-        tb.addSeparator()
-
-        # tilt
-        down = QAction("Lower tilt", self)
-        down.setToolTip("Lower tilt (Down)")
-        down.triggered.connect(lambda: self.step_tilt(-1))
-        self._tb_button(tb, down, text_beside=False)
-        self._icon_targets.append((down, "down"))
-        self.tilt_combo = QComboBox()
-        self.tilt_combo.setMinimumContentsLength(7)
-        self.tilt_combo.setToolTip("Elevation angle")
-        self.tilt_combo.activated.connect(self._tilt_chosen)
-        tb.addWidget(self.tilt_combo)
-        up = QAction("Higher tilt", self)
-        up.setToolTip("Higher tilt (Up)")
-        up.triggered.connect(lambda: self.step_tilt(1))
-        self._tb_button(tb, up, text_beside=False)
-        self._icon_targets.append((up, "up"))
-        tb.addSeparator()
-
-        # mouse tools
-        self.tool_group = QActionGroup(self)
-        for tool, text, tip, ic in (("pan", "Pan", "Pan / zoom (P)", "pan"),
-                                    ("xsection", "X-Section", "Drag a line to make a vertical cross section (X)",
-                                     "xsection"),
-                                    ("measure", "Measure", "Drag to measure distance / bearing (M)", "measure"),
-                                    ("track", "Track", "Storm track: click a storm, then drag the yellow arrowhead to "
-                                     "where it's going – shows when it reaches the towns ahead (T)", "track"),
-                                    ("box3d", "3D", "Drag a box around a storm to see it in 3-D (B)", "box3d")):
-            act = QAction(text, self, checkable=True)
-            act.setToolTip(tip)
-            act.setData(tool)
-            act.setChecked(tool == "pan")
-            act.triggered.connect(lambda _=False, t=tool: self.set_tool(t))
-            self.tool_group.addAction(act)
-            self._tb_button(tb, act)
-            self._icon_targets.append((act, ic))
-        tb.addSeparator()
-        self.sm_act = QAction("", self)
-        self.sm_act.triggered.connect(self.edit_storm_motion)
-        self._tb_button(tb, self.sm_act)
-        self._icon_targets.append((self.sm_act, "motion"))
-        self._update_sm_label()
-
-        # the side-panel switch lives in the menu bar's free right-hand corner, so it's never
-        # pushed off a narrow window
-        self.side_act = QAction("Side panel", self, checkable=True)
-        self.side_act.setToolTip("Show / hide the side panel (F9)")
-        self.side_act.setShortcut(QKeySequence("F9"))
-        self.side_act.triggered.connect(self.toggle_side_panel)
-        self.addAction(self.side_act)
-        self.side_btn = QToolButton()
-        self.side_btn.setDefaultAction(self.side_act)
-        self.side_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.side_btn.setAutoRaise(True)
-        self.side_btn.setIconSize(QSize(16, 16))
-        self.menuBar().setCornerWidget(self.side_btn, Qt.TopRightCorner)
-        self._icon_targets.append((self.side_act, "side"))
-
-    def _build_timeline(self):
-        """Frame / loop controls along the bottom, above the status bar."""
-        tb = QToolBar("Timeline", self)
-        tb.setObjectName("timeline_toolbar")
-        tb.setMovable(False)
-        tb.setFloatable(False)
-        tb.setIconSize(QSize(16, 16))
-        self.addToolBar(Qt.BottomToolBarArea, tb)
-        self.timeline_tb = tb
-        for name, tip, fn in (("first", "First frame", lambda: self.goto_frame(0)),
-                              ("prev", "Previous frame (Left)", lambda: self.step_frame(-1))):
-            act = QAction(tip, self)
-            act.setToolTip(tip)
-            act.triggered.connect(fn)
-            self._tb_button(tb, act, text_beside=False)
-            self._icon_targets.append((act, name))
-        self.play_act = QAction("Play", self)
-        self.play_act.setToolTip("Play / pause loop (Space)")
-        self.play_act.triggered.connect(self.toggle_play)
-        self._tb_button(tb, self.play_act, text_beside=False)
-        self._icon_targets.append((self.play_act, "play"))
-        for name, tip, fn in (("next", "Next frame (Right)", lambda: self.step_frame(1)),
-                              ("last", "Latest frame (End)", lambda: self.goto_frame(len(self.data.frames) - 1))):
-            act = QAction(tip, self)
-            act.setToolTip(tip)
-            act.triggered.connect(fn)
-            self._tb_button(tb, act, text_beside=False)
-            self._icon_targets.append((act, name))
-        self.frame_slider = QSlider(Qt.Horizontal)
-        self.frame_slider.setMinimumWidth(160)
-        self.frame_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.frame_slider.setToolTip("Drag to scrub through the loaded frames")
-        self.frame_slider.valueChanged.connect(self._slider_moved)
-        tb.addWidget(self.frame_slider)
-        self.time_label = QLabel(" --:--:--Z ")
-        self.time_label.setMinimumWidth(230)
-        self.time_label.setAlignment(Qt.AlignCenter)
-        f = self.time_label.font()
-        f.setBold(True)
-        self.time_label.setFont(f)
-        tb.addWidget(self.time_label)
-
-    def _build_menus(self):
-        mb = self.menuBar()
-        # File
-        m = mb.addMenu("&File")
-        self._act(m, "Open radar files…", self.open_files, "Ctrl+O")
-        self._act(m, "Open archive from AWS…", self.open_archive, "Ctrl+A")
-        m.addSeparator()
-        self._act(m, "Save image…", self.save_image, "Ctrl+S")
-        self._act(m, "Copy image", self.copy_image, "Ctrl+Shift+C")
-        m.addSeparator()
-        self._act(m, "Settings…", self.open_settings, "Ctrl+,")
-        m.addSeparator()
-        self._act(m, "Quit", self.close, "Ctrl+Q")
-
-        # View
-        m = mb.addMenu("&View")
-        lay = m.addMenu("Panel layout")
-        for a in self.layout_group.actions():
-            lay.addAction(a)
-        m.addSeparator()
-        self.smooth_act = self._act(m, "Smoothing", self._toggle_smooth, "S", checkable=True,
-                                    checked=bool(self.settings["gpu_smooth"]))
-        vf = m.addMenu("Velocity noise filter")
-        self.vf_group = QActionGroup(self)
-        for lvl, label in ((0, "Off (raw data)"), (1, "Normal"), (2, "Aggressive")):
-            a = QAction(label, self, checkable=True)
-            a.setChecked(int(self.settings["velocity_filter"]) == lvl)
-            a.triggered.connect(lambda _=False, lv=lvl: self.set_velocity_filter(lv))
-            self.vf_group.addAction(a)
-            vf.addAction(a)
-        self.legend_act = self._act(m, "Colour bars", self._toggle_legend, None, checkable=True,
-                                    checked=bool(self.settings["show_legend"]))
-        self.link_act = self._act(m, "Linked cursor", self._toggle_link, None, checkable=True,
-                                  checked=bool(self.settings["cursor_link"]))
-        m.addSeparator()
-        self.theme_menu = m.addMenu("Theme")
-        self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
-        m.addSeparator()
-        self._act(m, "Reset view", lambda: self.view.set_view(0, 0, max(0.3, self.view.panels[0].rect.width() / 500)),
-                  "Home")
-        self._act(m, "Full screen", lambda: self.showNormal() if self.isFullScreen() else self.showFullScreen(),
-                  "F11")
-
-        # Radar
-        m = mb.addMenu("&Radar")
-        self._act(m, "Choose radar…", self.choose_site, "Ctrl+R")
-        m.addAction(self.live_act)
-        m.addAction(self.archive_act)
-        m.addSeparator()
-        self._act(m, "Previous frame", lambda: self.step_frame(-1), None)
-        self._act(m, "Next frame", lambda: self.step_frame(1), None)
-        self._act(m, "Play / pause loop", self.toggle_play, None)
-        self._act(m, "Latest frame", lambda: self.goto_frame(len(self.data.frames) - 1), None)
-        m.addSeparator()
-        self._act(m, "Tilt up", lambda: self.step_tilt(1), None)
-        self._act(m, "Tilt down", lambda: self.step_tilt(-1), None)
-        m.addSeparator()
-        self._act(m, "Storm motion…", self.edit_storm_motion, None)
-        m.addSeparator()
-        self.fav_menu = m.addMenu("Favourite radars")
-        self.fav_menu.aboutToShow.connect(self._fill_fav_menu)
-        self._act(m, "Add / remove this radar as a favourite", self.toggle_favorite, "Ctrl+D")
-        m.addSeparator()
-        self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L")
-        self._act(m, "Set my location…", self.set_my_location_dialog, None)
-        self.warn_loc_act = self._act(m, "Alert me when a warning covers my location", self._toggle_warn_loc, None,
-                                      checkable=True, checked=bool(self.settings["warn_at_location"]))
-
-        # Map (overlays + map layers + placefiles)
-        m = mb.addMenu("&Map")
-        self.overlay_acts = {}
-        m.addSection("Warnings")
-        for key, label in (("warnings", "NWS warnings"), ("watches", "Watches (live)"),
-                           ("reports", "Local storm reports")):
-            self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
-                                               None, checkable=True,
-                                               checked=bool(self.settings["overlays"].get(key, False)))
-        rep = m.addMenu("Storm report options")
-        hours = rep.addMenu("Show the last")
-        self.rep_hours_group = QActionGroup(self)
-        for h in (1, 3, 6, 12, 24):
-            a = QAction(f"{h} hour" + ("s" if h > 1 else ""), self, checkable=True)
-            a.setChecked(int(self.settings["report_hours"] or 3) == h)
-            a.triggered.connect(lambda _=False, h=h: self.set_report_hours(h))
-            self.rep_hours_group.addAction(a)
-            hours.addAction(a)
-        rep.addSeparator()
-        self.rep_type_acts = {}
-        for g, label in feeds.REPORT_GROUPS:
-            on = bool((self.settings["report_types"] or {}).get(g, g != "other"))
-            self.rep_type_acts[g] = self._act(rep, label + (" (rain, snow…)" if g == "other" else ""),
-                                              lambda checked, g=g: self.set_report_type(g, checked), None,
-                                              checkable=True, checked=on)
-        rep.addSeparator()
-        self.sn_rep_act = self._act(rep, "Include Spotter Network reports", self._toggle_sn_reports, None,
-                                    checkable=True, checked=bool(self.settings["spotter_reports"]))
-        self._act(m, "Refresh warnings now", lambda: self.warnings.refresh(force=True), None)
-        m.addSection("Storm chasers")
-        self.overlay_acts["chasers"] = self._act(m, "Storm chasers (Spotter Network)",
-                                                 lambda checked: self._toggle_overlay("chasers", checked), None,
-                                                 checkable=True, checked=bool(self.settings["overlays"].get("chasers")))
-        ch = m.addMenu("Storm chaser options")
-        grp = QActionGroup(self)
-        for active, label in ((False, "Everyone"), (True, "Active reporters only (5+ reports in a year)")):
-            a = QAction(label, self, checkable=True)
-            a.setChecked(bool(self.settings["chasers_active_only"]) == active)
-            a.triggered.connect(lambda _=False, v=active: self._set_chasers_active(v))
-            grp.addAction(a)
-            ch.addAction(a)
-        ch.addSeparator()
-        self._act(ch, "Show names (zoomed in)", self._toggle_chaser_names, None, checkable=True,
-                  checked=bool(self.settings["chaser_names"]))
-        m.addSection("Storm Prediction Center")
-        for key, label in (("spc_outlook", "Day 1 convective outlook"), ("spc_mcd", "Mesoscale discussions")):
-            self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
-                                               None, checkable=True,
-                                               checked=bool(self.settings["overlays"].get(key, False)))
-        m.addSection("Level III")
-        for key, label in (("storm_tracks", "Storm tracks (NST)"), ("meso", "Mesocyclones (NMD)"),
-                           ("tvs", "TVS (NTV)"), ("hail", "Hail index (NHI)"), ("melting_layer", "Melting layer (N0M)")):
-            self.overlay_acts[key] = self._act(m, label, lambda checked, k=key: self._toggle_overlay(k, checked),
-                                               None, checkable=True,
-                                               checked=bool(self.settings["overlays"].get(key, False)))
-        m.addSection("Map")
-        self.cities_act = self._act(m, "City labels", self._toggle_cities, None, checkable=True,
-                                    checked=bool(self.settings["map_layers"].get("cities", True)))
-        self.sites_act = self._act(m, "Radar sites", self._toggle_sites, None, checkable=True,
-                                   checked=bool(self.settings["map_layers"].get("radar_sites", True)))
-        self.tdwr_act = self._act(m, "Include TDWR sites", self._toggle_tdwr, None, checkable=True,
-                                  checked=bool(self.settings["map_layers"].get("tdwr_sites", False)))
-        self.rings_act = self._act(m, "Range rings", self._toggle_rings, None, checkable=True,
-                                   checked=bool(self.settings["map_layers"].get("range_rings", False)))
-        maps = m.addMenu("Map layers")
-        self.layer_acts = {}
-        from ..render.maps import LAYER_STYLE
-        for name, (label, *_rest) in LAYER_STYLE.items():
-            on = bool(self.settings["map_layers"].get(name, True))
-            self.view.map_visible[name] = on
-            self.layer_acts[name] = self._act(maps, label, lambda checked, n=name: self._toggle_layer(n, checked),
-                                              None, checkable=True, checked=on)
-        m.addSection("Placefiles")
-        self._act(m, "Placefile manager", self.open_placefiles, "Ctrl+P")
-
-        # Tools
-        m = mb.addMenu("&Tools")
-        for a in self.tool_group.actions():
-            m.addAction(a)
-        m.addSeparator()
-        self._act(m, "Storm cell table", lambda: self.show_panel("cells"), None)
-        self._act(m, "Level III storm table (text)", self.show_storm_table, None)
-
-        # Panels
-        self.panels_menu = mb.addMenu("&Panels")
-
-        # Help
-        m = mb.addMenu("&Help")
-        self._act(m, "Keyboard shortcuts", self.show_shortcuts, "F1")
-        self._act(m, "About RadarForge", self.show_about, None)
-
     # ================================================================== side panel / workspace
     SIDE_PANELS = ("products", "warnings", "cells", "inspector", "placefiles", "layers")
 
@@ -638,77 +315,10 @@ class MainWindow(QMainWindow):
                 w.update()
         return theme
 
-    def _fill_theme_menu(self):
-        m = self.theme_menu
-        m.clear()
-        grp = QActionGroup(m)
-        cur = self.settings["theme"]
-        for t in themes.all_themes():
-            a = m.addAction(t["name"])
-            a.setCheckable(True)
-            a.setChecked(t["name"] == cur)
-            grp.addAction(a)
-            a.triggered.connect(lambda _=False, n=t["name"]: self.apply_theme(n))
-        m.addSeparator()
-        m.addAction("Manage themes…", lambda: self.open_settings("Themes"))
-
-    def _act(self, menu, text, fn, shortcut=None, checkable=False, checked=False):
-        a = QAction(text, self)
-        if shortcut:
-            a.setShortcut(QKeySequence(shortcut))
-        if checkable:
-            a.setCheckable(True)
-            a.setChecked(checked)
-            a.toggled.connect(fn)
-        else:
-            a.triggered.connect(fn)
-        menu.addAction(a)
-        return a
-
-    def _build_status(self):
-        sb = self.statusBar()
-        self.readout = QLabel("")
-        self.readout.setMinimumWidth(500)
-        sb.addWidget(self.readout, 1)
-        self.prog = QProgressBar()
-        self.prog.setMaximumWidth(140)
-        self.prog.setVisible(False)
-        sb.addPermanentWidget(self.prog)
-        self.track_lbl = QLabel("")
-        self.track_lbl.setStyleSheet("color:#ffd23c;font-weight:bold;")
-        self.track_lbl.setVisible(False)
-        sb.addPermanentWidget(self.track_lbl)
-        self.status_lbl = QLabel("")
-        sb.addPermanentWidget(self.status_lbl)
-        self.gl_warn = QLabel("⚠ Software OpenGL")
-        self.gl_warn.setStyleSheet("color:#ffb347;font-weight:bold;")
-        self.gl_warn.setVisible(False)
-        sb.addPermanentWidget(self.gl_warn)
-
     def show_gl_warning(self, text):
         self.gl_warn.setToolTip(text)
         self.gl_warn.setVisible(True)
         self._status_msg(text)
-
-    def _shortcuts(self):
-        def sc(key, fn):
-            s = QShortcut(QKeySequence(key), self)
-            s.setContext(Qt.WindowShortcut)
-            s.activated.connect(fn)
-        sc(Qt.Key_Left, lambda: self.step_frame(-1))
-        sc(Qt.Key_Right, lambda: self.step_frame(1))
-        sc(Qt.Key_Up, lambda: self.step_tilt(1))
-        sc(Qt.Key_Down, lambda: self.step_tilt(-1))
-        sc(Qt.Key_Space, self.toggle_play)
-        sc(Qt.Key_End, lambda: self.goto_frame(len(self.data.frames) - 1))
-        sc("P", lambda: self.set_tool("pan"))
-        sc("X", lambda: self.set_tool("xsection"))
-        sc("M", lambda: self.set_tool("measure"))
-        sc("B", lambda: self.set_tool("box3d"))
-        sc("T", lambda: self.set_tool("track"))
-        sc(Qt.Key_Escape, self._escape)
-        for n in range(1, 7):
-            sc(f"Alt+{n}", lambda n=n: self.set_layout(n))
 
     def _apply_view_settings(self):
         s = self.settings
@@ -1223,11 +833,13 @@ class MainWindow(QMainWindow):
             return
         p = self.view.panels[idx]
         if "error" in res:
+            self._panel_done[idx] = self._panel_req.get(idx)
             p.message = "Error: " + res["error"][:80]
             self.view.update()
             return
         if self._panel_req.get(idx) != res["req"]:
             return
+        self._panel_done[idx] = res["req"]
         pd = catalog.get(p.product)
         img = res["img"]
         p.image = img
@@ -1410,131 +1022,7 @@ class MainWindow(QMainWindow):
             self.cursorInfo.emit({"loc_html": loc, "values": values, "under": under})
 
     # ================================================================== tools
-    def set_tool(self, tool):
-        self.view.set_tool(tool)
-        for a in self.tool_group.actions():
-            a.setChecked(a.data() == tool)
-        if tool == "xsection":
-            self._status_msg("Cross-section: drag a line across a storm (A → B)")
-        elif tool == "box3d":
-            self._status_msg("3-D: drag a box around the storm you want to render (Esc to cancel)")
-        elif tool == "track":
-            self._status_msg("Storm track: click a storm, then drag the yellow arrowhead to where it's going "
-                             "(right-click for options, Esc twice to clear)")
-
-    def _escape(self):
-        """Esc: back to pan; pressed again, clears the measurement and the storm track."""
-        if self.view.tool != "pan":
-            self.set_tool("pan")
-        else:
-            self.view.clear_lines("measure")
-            self.view.clear_track()
-
     # ---------------------------------------------------------------- storm track
-    def _track_start_time(self):
-        f = self.current_frame()
-        return f.time if f is not None and getattr(f, "time", None) else datetime.now(timezone.utc)
-
-    def _track_default(self, x, y, minutes):
-        """Where the storm motion (Storm motion…) takes a storm at x, y in `minutes`."""
-        heading = math.radians((float(self.settings["storm_motion_dir"]) + 180.0) % 360.0)
-        kts = float(self.settings["storm_motion_kts"]) or 30.0
-        d = kts * 1.852 * minutes / 60.0
-        return x + math.sin(heading) * d, y + math.cos(heading) * d
-
-    def _track_changed(self):
-        t = self.view.track
-        if t is None:
-            self.track_lbl.setVisible(False)
-            return
-        m = self.view.track_motion()
-        if m is None:
-            self.track_lbl.setVisible(False)
-            return
-        kmh, heading = m
-        now = datetime.now(timezone.utc)
-        from datetime import timedelta
-
-        def when(mins):
-            at = t["start"] + timedelta(minutes=mins)
-            left = round((at - now).total_seconds() / 60)
-            return f"{feeds.local_hm(at)} (" + (f"in {left} min" if left > 0 else "now" if left == 0 else "passed") + ")"
-        parts = [f"Track {feeds.compass(heading)} {kmh / 1.852:.0f} kt"]
-        loc = self.my_location.xy(self.view)
-        if loc is not None:
-            e = feeds.eta_at(t["a"], t["b"], self.view.track_minutes, loc, self.view.track_half_width)
-            parts.append("You: " + (when(e) if e is not None else "not in its path"))
-        parts += [f"{n} {when(mins)}" for n, mins, _x, _y in t["etas"][:3]]
-        if not t["etas"]:
-            parts.append(f"no towns in the next {self.view.track_minutes} min")
-        self.track_lbl.setText("  ·  ".join(parts))
-        self.track_lbl.setToolTip("Towns the storm reaches (within 6 miles of the track):\n" +
-                                  ("\n".join(f"{n}: {when(mins)}" for n, mins, _x, _y in t["etas"]) or "none"))
-        self.track_lbl.setVisible(True)
-
-    def use_track_for_srv(self):
-        m = self.view.track_motion()
-        if m is None:
-            return
-        kmh, heading = m
-        self.settings["storm_motion_dir"] = float(round((heading + 180) % 360))
-        self.settings["storm_motion_kts"] = float(round(kmh / 1.852))
-        self.settings.save()
-        self._update_sm_label()
-        self._panel_req.clear()
-        self._show_frame()
-        self.stateChanged.emit()
-        self._status_msg(f"SRV storm motion set from the track: {self.settings['storm_motion_dir']:03.0f}° / "
-                         f"{self.settings['storm_motion_kts']:.0f} kt")
-
-    def set_track_minutes(self, m):
-        self.settings["track_minutes"] = m
-        self.view.set_track_minutes(m)
-
-    def _box_drawn(self, x0, y0, x1, y1):
-        self.set_tool("pan")
-        self.open_3d()
-        self.v3d_host.ensure().set_box(x0, y0, x1, y1)
-
-    def _line_drawn(self, tool, x0, y0, x1, y1):
-        if tool == "xsection":
-            self.open_xsection()
-            self.xs_win.set_line(x0, y0, x1, y1)
-
-    def open_xsection(self):
-        self.show_panel("xsection")
-
-    def _xsection_closed(self):
-        self.view.clear_lines("xsection")
-        if self.view.tool == "xsection":
-            self.set_tool("pan")
-
-    def open_3d(self):
-        self.show_panel("3d")
-
-    def edit_storm_motion(self):
-        d = StormMotionDialog(self.settings, self.l3ov.mean_storm_motion, self)
-        if d.exec():
-            self._update_sm_label()
-            self._show_frame()
-            self.stateChanged.emit()
-
-    def _update_sm_label(self):
-        self.sm_act.setText(f"SM {self.settings['storm_motion_dir']:03.0f}°/{self.settings['storm_motion_kts']:.0f}kt")
-        self.sm_act.setToolTip("Storm motion used for SRV (click to edit)")
-
-    def show_storm_table(self):
-        f = self.current_frame()
-        prod = f.l3.get("NST") if f else None
-        if prod is None or not prod.text_pages:
-            QMessageBox.information(self, "Storm table", "No Level III storm-structure table (NST) for this frame. "
-                                    "Enable Overlays → Storm tracks to download it.")
-            return
-        box = QMessageBox(self)
-        box.setWindowTitle(f"NST {prod.time:%H:%M:%S}Z")
-        box.setText("<pre>" + "\n\n".join(prod.text_pages[:4]) + "</pre>")
-        box.exec()
-
     def open_placefiles(self):
         self.show_panel("placefiles")
 
@@ -1558,258 +1046,10 @@ class MainWindow(QMainWindow):
             self.warnings_panel.refresh()          # warning colours may have changed
             self.view.update()
 
-    def save_image(self):
-        f = self.current_frame()
-        name = f"{self.data.site_id}_{f.time:%Y%m%d_%H%M%S}.png" if f else "radar.png"
-        path, _ = QFileDialog.getSaveFileName(self, "Save image", os.path.join(os.path.expanduser("~"), name),
-                                              "PNG (*.png)")
-        if path:
-            self.view.grab_png(path)
-            self._status_msg(f"Saved {path}")
-
-    def copy_image(self):
-        """The map as a picture on the clipboard (paste it into a chat, e-mail or document)."""
-        QApplication.clipboard().setImage(self.view.grabFramebuffer())
-        self._status_msg("Map picture copied – paste it anywhere")
-
     # ---------------------------------------------------------------- favourites
-    def _favorites(self):
-        return [s for s in (self.settings["favorite_sites"] or []) if get_site(s)]
-
-    def _fill_fav_menu(self):
-        m = self.fav_menu
-        m.clear()
-        favs = self._favorites()
-        if not favs:
-            a = m.addAction("No favourites yet – Ctrl+D adds the current radar")
-            a.setEnabled(False)
-        for sid in favs:
-            s = get_site(sid)
-            a = m.addAction(f"{sid}  {s.place}, {s.state}")
-            a.setCheckable(True)
-            a.setChecked(sid == self.data.site_id)
-            a.triggered.connect(lambda _=False, sid=sid: self.switch_site(sid))
-
-    def toggle_favorite(self, sid=None):
-        sid = sid if isinstance(sid, str) else self.data.site_id
-        favs = list(self.settings["favorite_sites"] or [])
-        if sid in favs:
-            favs.remove(sid)
-            self._status_msg(f"{sid} removed from favourites")
-        else:
-            favs.append(sid)
-            self._status_msg(f"{sid} added to favourites (Radar → Favourite radars)")
-        self.settings["favorite_sites"] = favs
-        self.settings.save()
-
     # ---------------------------------------------------------------- my location
-    def set_my_location(self, lat, lon):
-        self.settings["my_location"] = None if lat is None else [round(float(lat), 5), round(float(lon), 5)]
-        self.settings.save()
-        self.view.update()
-        self._track_changed()
-        if lat is not None:
-            self._status_msg("My location set – Ctrl+L goes back to it")
-            self._check_location_alerts()
-
-    def set_my_location_dialog(self):
-        cur = self.my_location.latlon()
-        text, ok = QInputDialog.getText(self, "My location", "Latitude, longitude (e.g. 35.22, -97.44).\n"
-                                        "You can also right-click the map and choose \"Set my location here\".",
-                                        text=f"{cur[0]:.4f}, {cur[1]:.4f}" if cur else "")
-        if not ok:
-            return
-        try:
-            lat, lon = (float(v) for v in text.replace(";", ",").split(",")[:2])
-            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                raise ValueError
-        except ValueError:
-            QMessageBox.warning(self, "My location", "Please type the latitude and longitude separated by a comma.")
-            return
-        self.set_my_location(lat, lon)
-
-    def go_to_my_location(self):
-        ll = self.my_location.latlon()
-        if ll is None:
-            self.set_my_location_dialog()
-            ll = self.my_location.latlon()
-            if ll is None:
-                return
-        s = get_site(self.data.site_id)
-        if s is not None and self.settings["go_to_nearest_radar"]:
-            near = nearest_site(*ll)
-            if near is not None and near.id != s.id:
-                d = math.hypot(*aeqd_forward(ll[0], ll[1], s.lat, s.lon))
-                if d > 230:
-                    self.switch_site(near.id)
-        x, y = aeqd_forward(ll[0], ll[1], self.view.lat0, self.view.lon0)
-        self.view.set_view(float(x), float(y), max(self.view.scale, 3.0))
-
-    def _toggle_warn_loc(self, on):
-        self.settings["warn_at_location"] = on
-        self.settings.save()
-        if on:
-            self._check_location_alerts()
-
-    def _check_location_alerts(self):
-        """Pops up a new tornado / severe / flash flood warning that covers my location (live data):
-        once per warning, and again only when it's upgraded (e.g. to PDS or an emergency)."""
-        if not self.settings["warn_at_location"] or self.data.mode != "live":
-            return
-        ll = self.my_location.latlon()
-        if ll is None:
-            return
-        lat, lon = ll
-        now = datetime.now(timezone.utc)
-        hits = []
-        for a in list(self.warnings.alerts):
-            if EVENT_GROUP.get(a.event) not in ("TOR", "SVR", "FFW") or a.action in ("CAN", "EXP"):
-                continue
-            if a.expires is not None and a.expires < now:
-                continue
-            if any(r[:, 1].min() <= lat <= r[:, 1].max() and r[:, 0].min() <= lon <= r[:, 0].max() for r in a.rings) \
-                    and feeds.rings_contain(a.rings, lat, lon):
-                hits.append(a)
-        fresh = [a for a in hits if a.key not in self._notified or a.style[3] > self._notified[a.key][0]]
-        if not fresh:
-            return
-        t_now = time.time()
-        self._notified = {k: v for k, v in self._notified.items() if v[1] > t_now - 3600}
-        for a in hits:
-            old = self._notified.get(a.key, [0, 0])[0]
-            self._notified[a.key] = [max(a.style[3], old), a.expires.timestamp() if a.expires else t_now + 7200]
-        self.settings["notified_warnings"] = self._notified
-        self.settings.save()
-        top = max(fresh, key=lambda a: a.style[3])
-        QApplication.alert(self, 0)
-        QApplication.beep()
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Warning)
-        box.setWindowTitle("Warning for your location")
-        box.setText(f"<b>{top.variant_label} ({top.variant})</b><br>covers your location.")
-        box.setInformativeText(top.hover)
-        go = box.addButton("Show on map", QMessageBox.AcceptRole)
-        box.addButton(QMessageBox.Close)
-        box.setModal(False)
-        go.clicked.connect(lambda: self._go_to_alert(top))
-        box.show()
-        self._status_msg(f"⚠ {top.variant_label} covers your location")
-
-    def _go_to_alert(self, a):
-        self.show_panel("warnings")
-        p = self.warnings_panel
-        p.refresh()
-        it = next((p.tree.topLevelItem(i) for i in range(p.tree.topLevelItemCount())
-                   if p.tree.topLevelItem(i).data(0, Qt.UserRole) == a.uid), None)
-        if it is not None:
-            p._zoom(it)
-        else:
-            self.go_to_my_location()
-
     # ---------------------------------------------------------------- report / chaser options
-    def set_report_hours(self, h):
-        self.settings["report_hours"] = h
-        self.settings.save()
-        for a in self.rep_hours_group.actions():
-            a.setChecked(a.text().startswith(f"{h} "))
-        self.warnings.refresh(force=True)
-        if hasattr(self, "warnings_panel"):
-            self.warnings_panel.sync_report_options()
-
-    def set_report_type(self, group, on):
-        types = dict(self.settings["report_types"] or {})
-        types[group] = on
-        self.settings["report_types"] = types
-        self.settings.save()
-        act = self.rep_type_acts.get(group)
-        if act is not None and act.isChecked() != on:
-            act.blockSignals(True)
-            act.setChecked(on)
-            act.blockSignals(False)
-        self.view.update()
-        if hasattr(self, "warnings_panel"):
-            self.warnings_panel.sync_report_options()
-
-    def _toggle_sn_reports(self, on):
-        self.settings["spotter_reports"] = on
-        self.settings.save()
-        self.warnings.refresh(force=True)
-
-    def _set_chasers_active(self, active):
-        self.settings["chasers_active_only"] = active
-        self.settings.save()
-        self.chasers.refresh(force=True)
-
-    def _toggle_chaser_names(self, on):
-        self.settings["chaser_names"] = on
-        self.settings.save()
-        self.view.update()
-
     # ================================================================== toggles
-    def _toggle_smooth(self, on):
-        self.settings["gpu_smooth"] = on
-        self.view.smooth = on
-        self.view.update()
-
-    def _toggle_legend(self, on):
-        self.settings["show_legend"] = on
-        self.view.show_legend = on
-        self.view.update()
-
-    def _toggle_cities(self, on):
-        self.settings["map_layers"]["cities"] = on
-        self.view.show_cities = on
-        self.view.update()
-
-    def _toggle_sites(self, on):
-        self.settings["map_layers"]["radar_sites"] = on
-        self.view.show_sites = on
-        self.view.update()
-
-    def _toggle_tdwr(self, on):
-        self.settings["map_layers"]["tdwr_sites"] = on
-        self.view.show_tdwr = on
-        self.view.update()
-
-    def _toggle_rings(self, on):
-        self.settings["map_layers"]["range_rings"] = on
-        self.view.show_range_rings = on
-        self.view.update()
-
-    def set_velocity_filter(self, level):
-        self.settings["velocity_filter"] = level
-        self.settings.save()
-        for a, lv in zip(self.vf_group.actions(), (0, 1, 2)):
-            a.setChecked(lv == level)
-        self._panel_req.clear()
-        self._show_frame()
-        self._prefetch()
-
-    def _toggle_link(self, on):
-        self.settings["cursor_link"] = on
-        self.view.link_cursor = on
-
-    def _toggle_layer(self, name, on):
-        self.settings["map_layers"][name] = on
-        self.view.map_visible[name] = on
-        self.view.update()
-
-    def _toggle_overlay(self, key, on):
-        self.settings["overlays"][key] = on
-        self.settings.save()
-        if key in ("warnings", "watches", "reports") and on:
-            self.warnings.refresh(force=True)
-        if key == "chasers" and on:
-            self.chasers.refresh(force=True)
-        if key in ("spc_outlook", "spc_mcd") and on:
-            self.spc.refresh(force=True)
-        if on and key in ("chasers", "spc_outlook", "spc_mcd") and self.data.mode != "live":
-            self._status_msg("Storm chasers and SPC products are shown with live data")
-        if key in ("warnings", "watches") and hasattr(self, "warnings_panel"):
-            self.warnings_panel.sync_filters()
-        self._update_l3_needs()
-        self.view.update()
-
     # ================================================================== misc
     def _status_msg(self, msg):
         self.status_lbl.setText(msg[:160])
@@ -1823,41 +1063,6 @@ class MainWindow(QMainWindow):
                 self.prog.setRange(0, total)
             self.prog.setValue(done)
             self.prog.setFormat(f"{done}/{total}")
-
-    def show_shortcuts(self):
-        rows = [
-            ("Frames", [("← / →", "previous / next frame"), ("Space", "play / pause the loop"),
-                        ("End", "latest frame")]),
-            ("Tilts & layout", [("↑ / ↓", "tilt up / down"), ("Alt+1 … Alt+6", "1–6 panels")]),
-            ("Mouse tools", [("P", "pan / zoom"), ("X", "cross section (drag a line)"), ("M", "measure"),
-                             ("T", "storm track (click a storm, drag the arrowhead)"),
-                             ("B", "3-D (drag a box around a storm)"), ("Esc", "back to pan; again: clear measure / track"),
-                             ("Shift+drag", "quick measure")]),
-            ("Map", [("wheel / drag", "zoom / pan"), ("double-click", "centre here"), ("Home", "reset view"),
-                     ("right-click", "product, colour table, nearest radar"), ("S", "smoothing on/off")]),
-            ("Window", [("F9", "show / hide the side panel"), ("F11", "full screen"), ("F1", "this list")]),
-            ("Files & data", [("Ctrl+O", "open files"), ("Ctrl+A", "archive"), ("Ctrl+R", "choose radar"),
-                              ("Ctrl+D", "add / remove favourite radar"), ("Ctrl+L", "go to my location"),
-                              ("Ctrl+P", "placefiles"), ("Ctrl+S", "save image"), ("Ctrl+Shift+C", "copy image"),
-                              ("Ctrl+,", "settings")]),
-        ]
-        html = "<table cellspacing='0' cellpadding='3'>"
-        for title, items in rows:
-            html += f"<tr><td colspan='2'><br><b>{title}</b></td></tr>"
-            html += "".join(f"<tr><td style='padding-right:18px'><code>{k}</code></td><td>{v}</td></tr>"
-                            for k, v in items)
-        html += "</table><p>Drag a panel's tab to move it; drop zones show where it will go.</p>"
-        QMessageBox.information(self, "Keyboard shortcuts", html)
-
-    def show_about(self):
-        QMessageBox.about(self, "About RadarForge", (
-            f"<b>RadarForge {__version__}</b> – NEXRAD Level II / III viewer<br><br>"
-            "Data: NOAA NEXRAD on AWS (Unidata buckets), NWS API alerts, Iowa Environmental Mesonet archives, "
-            "storm reports and SPC products; storm chasers and spotter reports from Spotter Network "
-            "(non-commercial use).<br>"
-            "Maps: US Census county boundaries, Natural Earth, GeoNames.<br>"
-            "Level III decoding by MetPy.<br><br>"
-            f"OpenGL: {self.view.gl_info}"))
 
     def _save_state(self):
         s = self.settings

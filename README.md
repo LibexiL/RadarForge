@@ -8,9 +8,15 @@ placefiles and colour tables, cross sections, a 3-D storm view, warnings, and th
 
 ## Download
 
-**[⬇ Download RadarForge](https://github.com/LibexiL/RadarForge/releases)** – under **Assets** of the newest
-version, click **Source code (zip)** (or use the green **Code** button above → **Download ZIP**).
-Extract it, then open the folder for your computer:
+**[⬇ Download RadarForge](https://github.com/LibexiL/RadarForge/releases)** – under **Assets** of the newest version:
+
+| Windows 10 / 11 | Linux |
+|---|---|
+| **`RadarForge-Setup-<version>.exe`** – run it, click through, done. No Python needed, no admin rights. | **`RadarForge-<version>-x86_64.AppImage`** – right-click → Properties → *Allow executing as program* (or `chmod +x`), then double-click. |
+
+Windows may show *"Windows protected your PC"* for a new download: click **More info → Run anyway**.
+
+**Prefer installing from source?** Download **Source code (zip)**, extract it, and open the folder for your computer:
 
 | Windows 10 / 11 | Linux |
 |---|---|
@@ -52,6 +58,8 @@ keep the extracted files together – everything else is the program itself, sha
 * **My location**: set it from the map. RadarForge pops up a new tornado, severe or flash flood
   warning that covers it.
 * **Favourite radars**, and **copy the map** to the clipboard to paste anywhere.
+* **Export**: loops as **GIF or MP4**, pictures with the colour bars and a title / details bar, and a
+  **briefing view** (map + warnings, reports, SPC and storm motion beside it) you can save or copy.
 * **Storm cell table** (hail, mesocyclone rank, TVS), a **cursor inspector**, **cross sections** and a
   **3-D isosurface view** of any storm.
 * **Movable panels with drop zones**: drag any tool panel to a new spot, stack panels as tabs, or float them.
@@ -195,7 +203,9 @@ whether to delete your settings and downloaded data too.
 | Storm motion (for SRV) | click **SM …** on the toolbar – it can use the average motion of the tracked storms |
 | Placefiles | side panel → **Placefiles** (or **Ctrl+P**): add a URL or file; **On** shows it, **Below** draws it under the radar |
 | Side panel | **F9** or **Side panel** (top right) |
-| Save / copy a picture | **Ctrl+S** to save, **Ctrl+Shift+C** to copy it to the clipboard |
+| Save / copy a picture | **File → Export**: **Ctrl+S** save, **Ctrl+Shift+S** save with legend and details, **Ctrl+Shift+C** copy |
+| Loop as GIF / MP4 | **Ctrl+E** (File → Export → Export loop): choose frames, speed, pause and size |
+| Briefing view | **Ctrl+B**: the map with warnings, reports, SPC and storm motion beside it; follows the frame shown; save or copy it |
 | All shortcuts | **F1** |
 
 ### Side panel
@@ -311,6 +321,13 @@ python -m pyflakes radarforge tests                    # lint
 decode + product test. The basemap is rebuilt with `tools/build_maps.py` (needs `pip install -e ".[maps]"`).
 Tests run automatically on Windows and Linux for every push (`.github/workflows/tests.yml`).
 
+### Building the installers
+
+`.github/workflows/release.yml` builds `RadarForge-Setup-<version>.exe` and `RadarForge-<version>-x86_64.AppImage`
+for every tag like `v1.8.0` and attaches them to that release (or run it by hand from the **Actions** tab).
+Locally: `pip install pyinstaller`, `pyinstaller --noconfirm packaging/radarforge.spec`, then
+`bash packaging/build_appimage.sh` (Linux) or `iscc /DAppVersion=1.8.0 packaging\radarforge.iss` (Windows).
+
 ### Project layout
 
 ```
@@ -330,8 +347,14 @@ RadarForge/
 │   ├── render/           OpenGL radar view, shaders, basemap
 │   ├── features/         placefiles, warnings, storm reports, chasers, SPC, Level III overlays, my location
 │   ├── tools/            cross section, 3-D view
-│   ├── ui/               main window, panels, workspace (docking), dialogs, settings, icons
+│   ├── ui/               the main window, split by topic:
+│   │   ├── mainwindow.py     data, frames, panels, cursor readout
+│   │   ├── main_menus.py     toolbar, menus, shortcuts      main_layers.py    layer switches
+│   │   ├── main_storm.py     mouse tools, storm track       main_location.py  favourites, my location, alerts
+│   │   ├── main_export.py    + export.py: pictures, loops, briefing view
+│   │   └── panels.py · workspace.py · dialogs.py · settings_dialog.py · icons.py
 │   └── assets/           basemap, icons
+├── packaging/            Windows installer (PyInstaller + Inno Setup) and Linux AppImage recipes
 ├── scripts/              Python check shared by the installers
 ├── tests/                automated tests
 ├── tools/                developer tools (basemap builder)
