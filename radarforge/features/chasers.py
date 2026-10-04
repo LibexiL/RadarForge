@@ -10,6 +10,7 @@ import requests
 from PySide6.QtCore import QObject, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPen, QPolygonF
 
+from ..data.aws import friendly_error
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
 from . import feeds
@@ -64,7 +65,7 @@ class ChasersOverlay(QObject):
                 self.updated = time.time()
                 self.status.emit(f"Storm chasers: {len(self.chasers)}")
             except Exception as exc:
-                self.status.emit(f"Storm chasers unavailable: {exc}")
+                self.status.emit(f"Storm chasers unavailable – {friendly_error(exc)}")
             finally:
                 self._busy = False
                 self.changed.emit()

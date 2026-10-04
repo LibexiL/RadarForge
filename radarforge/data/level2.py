@@ -539,9 +539,12 @@ def run_isolated(fn, *args, timeout: float = 180):
 
 
 def _is_pool_problem(exc) -> bool:
+    """True when the process pool itself is broken (not when the file it was given is bad)."""
     import pickle
     from concurrent.futures import TimeoutError as FutTimeout
     from concurrent.futures.process import BrokenProcessPool
+    if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError, EOFError)):
+        return False                     # a missing or unreadable file: the pool is fine
     return isinstance(exc, (BrokenProcessPool, pickle.PicklingError, FutTimeout, OSError, AttributeError))
 
 

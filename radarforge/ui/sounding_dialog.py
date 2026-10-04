@@ -196,6 +196,7 @@ class SoundingDialog(QDialog):
         self.lat, self.lon = lat, lon
         self.profiles = []
         self.cur = None
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle(f"Model sounding – {abs(lat):.2f}°{'N' if lat >= 0 else 'S'} "
                             f"{abs(lon):.2f}°{'W' if lon < 0 else 'E'}")
         self.resize(1080, 640)
@@ -242,7 +243,7 @@ class SoundingDialog(QDialog):
         lay.addWidget(split, 1)
         self.status = QLabel("")
         lay.addWidget(self.status)
-        self.relay = _Relay()
+        self.relay = _Relay(self)            # goes away with the window, so a late answer is dropped
         self.relay.done.connect(self._loaded)
         self.load()
 
@@ -253,11 +254,17 @@ class SoundingDialog(QDialog):
         lat, lon = self.lat, self.lon
         when = self._archive_time()
 
+        relay = self.relay
+
         def work():
             try:
-                self.relay.done.emit(snd.fetch(lat, lon, model, when), None)
+                res, err = snd.fetch(lat, lon, model, when), None
             except Exception as exc:
-                self.relay.done.emit(None, exc)
+                res, err = None, exc
+            try:
+                relay.done.emit(res, err)
+            except RuntimeError:
+                pass                              # the window was closed meanwhile
         threading.Thread(target=work, daemon=True).start()
 
     def _loaded(self, profiles, err):

@@ -5,8 +5,10 @@ import math
 import os
 import numpy as np
 
-from PySide6.QtCore import QEvent, QObject, QPointF, QRunnable, QThreadPool, QTimer, Signal
-from PySide6.QtWidgets import (QApplication, QFileDialog, QMainWindow, QMenu, QMessageBox, QVBoxLayout, QWidget)
+from PySide6.QtCore import QEvent, QObject, QPointF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QKeySequence
+from PySide6.QtWidgets import (QApplication, QFileDialog, QMainWindow, QMenu, QMessageBox, QToolButton, QVBoxLayout,
+                               QWidget)
 
 from .. import themes
 from ..config import APP_NAME
@@ -28,7 +30,8 @@ from .datamanager import DataManager
 from .dialogs import ArchiveDialog, McdDialog, PlacefilePanel, SiteDialog
 from .settings_dialog import SettingsDialog
 from . import icons
-from .panels import CELL_CODES, CellsPanel, InspectorPanel, LayersPanel, ProductsPanel, WarningsPanel
+from .panels import CELL_CODES, CellsPanel, InspectorPanel, ProductsPanel, WarningsPanel
+from .quick_panel import QuickPanel
 from .workspace import Workspace
 from .main_data import DataLayersMixin
 from .main_export import ExportMixin
@@ -167,10 +170,14 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._build_status()
         self._build_panels()
         self._shortcuts()
+        self._show_menu_checks()
         self.setAcceptDrops(True)
 
         self.play_timer = QTimer(self)
         self.play_timer.timeout.connect(self._play_step)
+        self._age_timer = QTimer(self)
+        self._age_timer.timeout.connect(self._update_data_age)
+        self._age_timer.start(1000)
 
         # data signals
         self.data.framesChanged.connect(self._frames_changed)
@@ -205,8 +212,10 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 self.restoreGeometry(bytes.fromhex(g))
             except Exception:
                 pass
-        if not self.ws.restore(settings["workspace"] or {}):
+        WS_VERSION = 2          # 1.10: Quick panel; one-time switch to the new default arrangement
+        if int(settings["workspace_version"] or 0) < WS_VERSION or not self.ws.restore(settings["workspace"] or {}):
             self.ws.apply_default(self.width(), self.height())
+            settings["workspace_version"] = WS_VERSION
         self.lock_act.setChecked(self.ws.locked)
         self._sync_side_act()
         self.apply_theme(settings["theme"], save=False)
@@ -219,7 +228,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
 
     # ================================================================== UI build
     # ================================================================== side panel / workspace
-    SIDE_PANELS = ("products", "warnings", "cells", "inspector", "placefiles", "layers")
+    SIDE_PANELS = ("quick", "products", "warnings", "cells", "inspector", "placefiles")
 
     def _build_panels(self):
         ws = self.ws
@@ -228,13 +237,13 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.cells_panel = CellsPanel(self)
         self.inspector_panel = InspectorPanel(self)
         self.placefile_panel = PlacefilePanel(self.placefiles, compact=True)
-        self.layers_panel = LayersPanel(self)
-        for key, title, w in (("products", "Products", self.products_panel),
+        self.quick_panel = QuickPanel(self)
+        for key, title, w in (("quick", "Quick", self.quick_panel),
+                              ("products", "Products", self.products_panel),
                               ("warnings", "Warnings", self.warnings_panel),
                               ("cells", "Storm cells", self.cells_panel),
                               ("inspector", "Inspector", self.inspector_panel),
-                              ("placefiles", "Placefiles", self.placefile_panel),
-                              ("layers", "Layers", self.layers_panel)):
+                              ("placefiles", "Placefiles", self.placefile_panel)):
             ws.register(key, title, w, "side")
         self.xs_win = CrossSectionWindow(self)
         self.xs_win.closed.connect(self._xsection_closed)
@@ -246,13 +255,26 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         ws.sideToggled.connect(lambda _on: self._sync_side_act())
         ws.layoutChanged.connect(self._sync_side_act)
         ws.layoutChanged.connect(self._update_l3_needs)
+        # the Quick panel's switch sits beside the side-panel switch in the menu bar corner (F8)
+        qa = ws.action("quick")
+        qa.setShortcut(QKeySequence("F8"))
+        qa.setToolTip("Quick panel: every radar, overlay and layer switch in one place (F8)")
+        self.addAction(qa)
+        self._iconize(qa, "quick")
+        qb = QToolButton()
+        qb.setDefaultAction(qa)
+        qb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        qb.setAutoRaise(True)
+        qb.setIconSize(QSize(16, 16))
+        self.corner.layout().insertWidget(0, qb)
+        self.quick_btn = qb
         # Panels menu
         pm = self.panels_menu
         pm.addAction(self.side_act)
-        pm.addSection("Side panels")
+        self._header(pm, "Side panels")
         for key in self.SIDE_PANELS:
             pm.addAction(ws.action(key))
-        pm.addSection("Tools")
+        self._header(pm, "Tool panels")
         for key in ("xsection", "3d"):
             pm.addAction(ws.action(key))
         pm.addSeparator()
@@ -311,6 +333,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         icons.clear_cache()
         for target, ic in self._icon_targets:
             target.setIcon(icons.icon(ic))
+        self._update_layout_btn()
         self.play_act.setIcon(icons.icon("pause" if self.playing else "play"))
         for w in (self.ws, self.xs_win, self.v3d_host):
             if w is not None:
@@ -686,6 +709,16 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 return int(np.argmin(np.abs(els - self.tilt_elev)))
         return int(np.argmin(np.abs(np.array(L3_TILT_ELEVS) - self.tilt_elev)))
 
+    def set_tilt_elev(self, elev):
+        """Show the tilt nearest elev (degrees); 0 = the lowest."""
+        els = self._tilt_elevs(self.current_frame()) or [0.5]
+        self.tilt_elev = min(els, key=lambda e: abs(e - elev))
+        self._show_frame()
+        self._prefetch()
+
+    def reset_view(self):
+        self.view.set_view(0, 0, max(0.3, self.view.panels[0].rect.width() / 500))
+
     def step_tilt(self, d):
         frame = self.current_frame()
         els = self._tilt_elevs(frame)
@@ -742,6 +775,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.settings["layout"] = n
         for a in self.layout_group.actions():
             a.setChecked(a.data() == n)
+        self._update_layout_btn()
         self.view.set_layout(n, list(self.settings["panels"]))
         self._update_l3_needs()
         self._show_frame()
@@ -936,8 +970,17 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
 
     # ================================================================== panel menu
     def _panel_menu(self, idx, gpos):
+        """Right-click on a panel: its product and colour table, then things to do at that spot."""
         menu = QMenu(self)
         cur = self.view.panels[idx].product
+
+        def act(m, text, fn, icon=None):
+            a = m.addAction(text)
+            if icon:
+                a.setIcon(icons.icon(icon))
+            a.triggered.connect(fn)
+            return a
+        self._header(menu, f"Panel {idx + 1}: {catalog.get(cur).name}")
         for cat in catalog.CATEGORIES:
             sub = menu.addMenu(cat)
             for p in catalog.PRODUCTS:
@@ -947,47 +990,47 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 a.setCheckable(True)
                 a.setChecked(p.id == cur)
                 a.triggered.connect(lambda _=False, pid=p.id: self.set_panel_product(idx, pid))
-        menu.addSeparator()
-        a = menu.addAction("Load colour table for this product…")
-        a.triggered.connect(lambda: self._load_pal_for(cur))
-        a = menu.addAction("Default colour table")
-        a.triggered.connect(lambda: self._reset_pal_for(cur))
-        menu.addSeparator()
+        ct = menu.addMenu("Colour table")
+        ct.setIcon(icons.icon("palette"))
+        act(ct, "Load colour table for this product…", lambda: self._load_pal_for(cur))
+        act(ct, "Default colour table", lambda: self._reset_pal_for(cur))
         if self.view.cursor_world is not None:
             x, y = self.view.cursor_world
             lat, lon = self.view.world_to_latlon(x, y)
-            ns = nearest_site(lat, lon)
-            if ns is not None and ns.id != self.data.site_id:
-                a = menu.addAction(f"Switch to nearest radar ({ns.id} – {ns.place})")
-                a.triggered.connect(lambda: self.switch_site(ns.id, keep_view=True))
-            a = menu.addAction("Centre here")
-            a.triggered.connect(lambda: self.view.set_view(x, y, self.view.scale))
+            self._header(menu, f"Here: {abs(lat):.3f}°{'N' if lat >= 0 else 'S'} {abs(lon):.3f}°{'W' if lon < 0 else 'E'}")
+            act(menu, "Model sounding here…", lambda: self.open_sounding(lat, lon), "sounding")
+            if self.data.frames:
+                act(menu, "Rotation history for this storm…", lambda: self.open_rotation_history(x, y), "chart")
+                if self._follow is None:
+                    act(menu, "Follow this storm", lambda: self.start_follow(x, y), "target")
+            if self._follow is not None:
+                act(menu, "Stop following the storm", self.stop_follow, "target")
             mcd = self.spc.mcd_at(lat, lon)
             if mcd is not None:
-                a = menu.addAction(f"Read SPC Mesoscale Discussion {mcd['number']}…")
-                a.triggered.connect(lambda: McdDialog(mcd, self).show())
-            menu.addSeparator()
-            self._map_menu_extras(menu, lat, lon, x, y)
-            menu.addSeparator()
-            a = menu.addAction("Set my location here")
-            a.triggered.connect(lambda: self.set_my_location(lat, lon))
+                act(menu, f"Read SPC Mesoscale Discussion {mcd['number']}…", lambda: McdDialog(mcd, self).show(), "flag")
+            act(menu, "Centre here", lambda: self.view.set_view(x, y, self.view.scale))
+            ns = nearest_site(lat, lon)
+            if ns is not None and ns.id != self.data.site_id:
+                act(menu, f"Switch to nearest radar ({ns.id} – {ns.place})",
+                    lambda: self.switch_site(ns.id, keep_view=True), "radar")
+            self._header(menu, "Location")
+            act(menu, "Set my location here", lambda: self.set_my_location(lat, lon), "pin")
+            act(menu, "Save this location…", lambda: self.save_location_here(lat, lon), "star")
         if self.my_location.latlon() is not None:
-            a = menu.addAction("Remove my location")
-            a.triggered.connect(lambda: self.set_my_location(None, None))
+            act(menu, "Remove my location", lambda: self.set_my_location(None, None))
         if self.view.track is not None:
+            menu.addSeparator()
             tm = menu.addMenu("Storm track")
-            a = tm.addAction("Use for SRV storm motion")
-            a.triggered.connect(self.use_track_for_srv)
-            a = tm.addAction("Reset to the storm motion")
-            a.triggered.connect(lambda: self.view.set_track(self.view.track["a"]))
+            tm.setIcon(icons.icon("track"))
+            act(tm, "Use for SRV storm motion", self.use_track_for_srv)
+            act(tm, "Reset to the storm motion", lambda: self.view.set_track(self.view.track["a"]))
             lm = tm.addMenu("Track length")
             for mins in (30, 60, 90, 120):
                 a = lm.addAction(f"{mins} minutes")
                 a.setCheckable(True)
                 a.setChecked(self.view.track_minutes == mins)
                 a.triggered.connect(lambda _=False, mm=mins: self.set_track_minutes(mm))
-            a = tm.addAction("Clear the storm track")
-            a.triggered.connect(self.view.clear_track)
+            act(tm, "Clear the storm track", self.view.clear_track)
         menu.exec(gpos)
 
     def _load_pal_for(self, pid):
@@ -1067,20 +1110,43 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.show_panel("placefiles")
 
     def open_settings(self, page=None):
+        s = self.settings
+        keys = ("dealias_velocity", "trail_mode", "satellite_channel", "satellite_enhance", "satellite_opacity",
+                "lightning_minutes", "mrms_product", "mrms_opacity", "warn_at_location")
+        before = {k: s[k] for k in keys}
         d = SettingsDialog(self.settings, self, page if isinstance(page, str) else None)
         if d.exec():
+            changed = {k for k in keys if s[k] != before[k]}
+            for act, key in ((self.dealias_act, "dealias_velocity"), (self.trail_act, "trail_mode"),
+                             (self.sat_enhance_act, "satellite_enhance"), (self.warn_loc_act, "warn_at_location")):
+                if key in changed:
+                    s[key] = before[key]
+                    act.setChecked(not before[key])            # runs the usual toggle (saves, redraws)
+            if "satellite_channel" in changed:
+                self.set_satellite_channel(s["satellite_channel"])
+            if "lightning_minutes" in changed:
+                self.set_lightning_minutes(s["lightning_minutes"])
+            if "mrms_product" in changed:
+                self.set_mrms_product(s["mrms_product"])
+            for which in ("satellite", "mrms"):
+                if f"{which}_opacity" in changed:
+                    self._set_opacity(which, s[f"{which}_opacity"])
             self._palettes.clear()
             self._apply_view_settings()
             self.legend_act.setChecked(bool(self.settings["show_legend"]))
             self.link_act.setChecked(bool(self.settings["cursor_link"]))
             self.data._live_timer.setInterval(max(5, int(self.settings["live_poll_seconds"])) * 1000)
-            from ..data.frames import VOLUMES
-            VOLUMES.capacity = int(self.settings["volume_cache"])
+            from ..data.frames import VOLUMES, volume_capacity
+            VOLUMES.capacity = volume_capacity(self.settings)
             self.smooth_act.blockSignals(True)
             self.smooth_act.setChecked(bool(self.settings["gpu_smooth"]))
             self.smooth_act.blockSignals(False)
             for a, lv in zip(self.vf_group.actions(), (0, 1, 2)):
                 a.setChecked(lv == int(self.settings["velocity_filter"]))
+            self.hover_act.blockSignals(True)
+            self.hover_act.setChecked(bool(self.settings["hover_text"]))
+            self.hover_act.blockSignals(False)
+            self._update_loop_buttons()
             self._panel_req.clear()
             self._show_frame()
             self.warnings_panel.refresh()          # warning colours may have changed
@@ -1091,6 +1157,39 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
     # ---------------------------------------------------------------- report / chaser options
     # ================================================================== toggles
     # ================================================================== misc
+    def _update_data_age(self):
+        """Status bar badge: how fresh the data on screen is."""
+        from datetime import datetime, timezone
+        mode = self.data.mode
+        frames = self.data.frames
+        if mode == "live" and frames:
+            newest = frames[-1]
+            age = (datetime.now(timezone.utc) - newest.time).total_seconds()
+            if newest.live:
+                txt, col = "● LIVE  scanning now", "#46d27a"
+            else:
+                mins = age / 60.0
+                when = f"{int(age)} s" if age < 90 else f"{mins:.0f} min"
+                col = "#46d27a" if mins < 10 else "#ffb347" if mins < 20 else "#ff5c5c"
+                txt = f"● LIVE  newest {newest.time:%H:%MZ} · {when} ago"
+        elif mode == "live":
+            txt, col = "● LIVE  connecting…", "#ffb347"
+        elif mode == "archive" and frames:
+            txt, col = f"ARCHIVE  {frames[0].time:%Y-%m-%d}", "#8d909b"
+        elif mode == "local" and frames:
+            txt, col = "FILES", "#8d909b"
+        else:
+            txt, col = "", "#8d909b"
+        if self.data_lbl.text() != txt:
+            self.data_lbl.setText(txt)
+            self.data_lbl.setStyleSheet(f"color:{col}; font-weight:bold; padding: 0 6px;")
+        site = get_site(self.data.site_id)
+        where = f"{site.id} {site.place}, {site.state}" if site else self.data.site_id
+        kind = {"live": "Live", "archive": "Archive", "local": "Files"}.get(mode, "")
+        title = f"{APP_NAME} – {where}" + (f" · {kind}" if kind else "")
+        if self.windowTitle() != title:
+            self.setWindowTitle(title)
+
     def _status_msg(self, msg):
         self.status_lbl.setText(msg[:160])
 

@@ -59,6 +59,38 @@ class VolumeCache:
 VOLUMES = VolumeCache()
 
 
+def total_ram_gb() -> float:
+    """Installed memory in GB (0 when it can't be found)."""
+    try:
+        import os
+        if hasattr(os, "sysconf") and "SC_PHYS_PAGES" in os.sysconf_names:
+            return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9
+        import ctypes
+
+        class _Mem(ctypes.Structure):
+            _fields_ = [("len", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong),
+                        ("avail", ctypes.c_ulonglong), ("tpage", ctypes.c_ulonglong), ("apage", ctypes.c_ulonglong),
+                        ("tvirt", ctypes.c_ulonglong), ("avirt", ctypes.c_ulonglong), ("ext", ctypes.c_ulonglong)]
+        m = _Mem()
+        m.len = ctypes.sizeof(_Mem)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            return m.total / 1e9
+    except Exception:
+        pass
+    return 0.0
+
+
+def volume_capacity(settings) -> int:
+    """Decoded volumes kept in memory: at least the setting, and enough to hold the whole loop when the
+    computer has the memory (a decoded volume is about 40-60 MB), so looping and changing products never
+    waits on re-decoding."""
+    want = int(settings["volume_cache"] or 4)
+    loop = int(settings["loop_frames"] or 12) + 2
+    ram = total_ram_gb()
+    room = int(ram * 1.5) if ram else 8           # ~6% of memory for decoded volumes
+    return max(want, min(loop, room))
+
+
 class Frame:
     def __init__(self, site: str, time: datetime, l2_path: str | None = None,
                  l2_volume: Level2Volume | None = None, l3: dict | None = None, live: bool = False,

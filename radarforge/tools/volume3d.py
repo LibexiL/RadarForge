@@ -397,7 +397,6 @@ class Volume3DWindow(QWidget):
         half = ((box[2] - box[0]) / 2, (box[3] - box[1]) / 2)
         res = {"0.5 km": 0.5, "1 km": 1.0, "0.25 km": 0.25}[self.res.currentText()]
         top = self.top.value()
-        vol_h = (frame.level2().height_m or 0.0) / 1000.0
         engine = self.main.engine
         # ground map lines inside the box
         segs = []
@@ -422,7 +421,8 @@ class Volume3DWindow(QWidget):
                             f"at {eff:.2f} km…")
         self._ctx = (ground, half, pid, frame)
         QThreadPool.globalInstance().start(
-            _Job(lambda: build_isosurfaces(engine, frame, pid, box, res, top, levels, pal, units, vol_h),
+            _Job(lambda: build_isosurfaces(engine, frame, pid, box, res, top, levels, pal, units,
+                                           (frame.level2().height_m or 0.0) / 1000.0),     # decode off the UI thread
                  self._relay))
 
     def _done(self, res):

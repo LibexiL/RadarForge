@@ -77,6 +77,8 @@ DEFAULTS = {
     "dealias_velocity": False,     # (1.9.1) base velocity panels show dealiased velocity (toolbar button)
     "trail_mode": False,           # (1.9.1) Σ: panels show the max (CC: min) of the loop up to the frame shown
     "warnings_in_view": False,     # Warnings panel: list only warnings in the area you're looking at
+    "quick_collapsed": [],         # Quick panel sections folded away
+    "workspace_version": 0,        # bumped when the default panel arrangement changes (applied once)
     "camera_caltrans": True,       # street cameras: California DOT (open data, no key)
     "camera_keys": {},             # street cameras: state code (NY, GA...) or "windy" -> free API key
     "loop_frames": 12,

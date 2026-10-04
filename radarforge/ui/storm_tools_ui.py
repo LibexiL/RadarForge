@@ -189,7 +189,8 @@ class RotationDialog(QDialog):
         lay.addLayout(row)
         self.rows = []
         self._stop = False
-        self.relay = _Relay()
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.relay = _Relay(self)
         self.relay.row.connect(self._add_row)
         self.relay.done.connect(self._done)
         frames = list(main.data.frames)
@@ -203,6 +204,7 @@ class RotationDialog(QDialog):
                           "Rotational velocity is half the difference between the strongest outbound and inbound "
                           "velocity within 6 km. Values are approximate – range and beam height matter.")
         engine = main.engine
+        relay = self.relay
 
         def work():
             for f in frames:
@@ -229,8 +231,15 @@ class RotationDialog(QDialog):
                 elev = src.elevation if src is not None else 0.5
                 s_km = math.hypot(rx, ry)
                 h_ft = float(beam_height(slant_range(s_km, elev), elev)) * 3280.84
-                self.relay.row.emit((ft, sh, vr, s_km, h_ft))
-            self.relay.done.emit()
+                try:
+                    relay.row.emit((ft, sh, vr, s_km, h_ft))
+                except RuntimeError:
+                    return                        # window closed
+            if not self._stop:
+                try:
+                    relay.done.emit()
+                except RuntimeError:
+                    pass
         threading.Thread(target=work, daemon=True).start()
 
     def _add_row(self, r):
@@ -315,6 +324,7 @@ couplet and reports.</p>
 class GuideDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WA_DeleteOnClose)
         self.setWindowTitle("Radar & dual-pol guide")
         self.resize(820, 680)
         lay = QVBoxLayout(self)

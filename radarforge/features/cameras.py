@@ -269,20 +269,39 @@ class CamerasOverlay(BackgroundLayer):
             return
         sx, sy = vt.to_screen(x[sel], y[sel])
         idx, counts = declutter(sx - vt.rect.left(), sy - vt.rect.top())
-        body = QColor(110, 200, 235)
+        one, many = self._sprites(view)
+        w, h = one.width() / one.devicePixelRatio(), one.height() / one.devicePixelRatio()
         for i, n in zip(idx, counts):
             cx, cy = float(sx[i]), float(sy[i])
-            c = cams[sel[i]]
-            self._shown.append((float(x[sel[i]]), float(y[sel[i]]), c, n))
-            painter.setPen(QPen(QColor(0, 0, 0, 210), 1.2))
-            painter.setBrush(body)
-            painter.drawRoundedRect(QRectF(cx - 5, cy - 3.5, 8, 7), 1.5, 1.5)
-            painter.drawPolygon(QPolygonF([QPointF(cx + 3, cy - 1.5), QPointF(cx + 6, cy - 3.5),
-                                           QPointF(cx + 6, cy + 3.5), QPointF(cx + 3, cy + 1.5)]))
-            if n > 1:
-                painter.setPen(Qt.NoPen)
-                painter.setBrush(QColor(255, 255, 255))
-                painter.drawEllipse(QPointF(cx + 6, cy - 5), 2.2, 2.2)
+            self._shown.append((float(x[sel[i]]), float(y[sel[i]]), cams[sel[i]], n))
+            painter.drawImage(QPointF(cx - w / 2, cy - h / 2), many if n > 1 else one)
+
+    def _sprites(self, view):
+        """Camera icons drawn once (one camera / several at one spot) and stamped onto the map."""
+        dpr = view.devicePixelRatioF() if hasattr(view, "devicePixelRatioF") else 1.0
+        if getattr(self, "_sprite_dpr", None) != dpr:
+            from PySide6.QtGui import QImage, QPainter
+            out = []
+            for multi in (False, True):
+                img = QImage(int(18 * dpr), int(16 * dpr), QImage.Format_ARGB32_Premultiplied)
+                img.setDevicePixelRatio(dpr)
+                img.fill(0)
+                p = QPainter(img)
+                p.setRenderHint(QPainter.Antialiasing, True)
+                cx, cy = 8.0, 9.0
+                p.setPen(QPen(QColor(0, 0, 0, 210), 1.2))
+                p.setBrush(QColor(110, 200, 235))
+                p.drawRoundedRect(QRectF(cx - 5, cy - 3.5, 8, 7), 1.5, 1.5)
+                p.drawPolygon(QPolygonF([QPointF(cx + 3, cy - 1.5), QPointF(cx + 6, cy - 3.5),
+                                         QPointF(cx + 6, cy + 3.5), QPointF(cx + 3, cy + 1.5)]))
+                if multi:
+                    p.setPen(Qt.NoPen)
+                    p.setBrush(QColor(255, 255, 255))
+                    p.drawEllipse(QPointF(cx + 6, cy - 5), 2.2, 2.2)
+                p.end()
+                out.append(img)
+            self._sprite_imgs, self._sprite_dpr = tuple(out), dpr
+        return self._sprite_imgs
 
     def caption(self):
         if not self.enabled():

@@ -73,6 +73,11 @@ class LayersMixin:
         self._show_frame()
         self._prefetch()
 
+    def _toggle_hover_text(self, on):
+        self.settings["hover_text"] = on
+        self.settings.save()
+        self.view.hover_text = on
+
     def _toggle_link(self, on):
         self.settings["cursor_link"] = on
         self.view.link_cursor = on

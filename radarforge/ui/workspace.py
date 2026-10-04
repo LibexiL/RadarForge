@@ -530,6 +530,7 @@ class Workspace(QWidget):
         self.root.addWidget(self.center)
         self._lay.addWidget(self.root)
         self.overlay = SnapOverlay(self)
+        self.layoutChanged.connect(self._apply_stretch)
 
     # ---------------------------------------------------------------- registry
     def register(self, key, title, widget, group="side"):
@@ -573,6 +574,18 @@ class Workspace(QWidget):
         if isinstance(w, QSplitter):
             for i in range(w.count()):
                 yield from self._walk(w.widget(i))
+
+    def _holds_center(self, w):
+        return w is self.center or (isinstance(w, QSplitter) and
+                                    any(self._holds_center(w.widget(i)) for i in range(w.count())))
+
+    def _apply_stretch(self):
+        """When the window is resized the map takes the change; panel columns keep the size they were given."""
+        for w in self._walk():
+            if isinstance(w, QSplitter):
+                has = [self._holds_center(w.widget(i)) for i in range(w.count())]
+                for i, h in enumerate(has):
+                    w.setStretchFactor(i, 1 if (h or not any(has)) else 0)
 
     def stacks(self, docked_only=False):
         out = [w for w in self._walk() if isinstance(w, PanelStack)]
@@ -1221,16 +1234,16 @@ class Workspace(QWidget):
 
     def apply_default(self, total_w=1500, total_h=900):
         side = [k for k in self._panels if self.group(k) == "side"]
-        groups = [["products"], ["warnings", "cells", "inspector"], ["placefiles", "layers"]]
+        groups = [["quick", "products", "placefiles"], ["warnings", "cells", "inspector"]]
         groups = [[k for k in g if k in side] for g in groups]
         extra = [k for k in side if not any(k in g for g in groups)]
         if extra:
             groups[-1] += extra
         groups = [g for g in groups if g]
-        col_w = 340
+        col_w = 360
         state = {"v": 1, "tree": {"t": "split", "o": "h", "sizes": [max(400, total_w - col_w), col_w], "c": [
             {"t": "center"},
-            {"t": "split", "o": "v", "sizes": [int(total_h * 0.5), int(total_h * 0.31), int(total_h * 0.19)][:len(groups)],
+            {"t": "split", "o": "v", "sizes": [int(total_h * 0.58), int(total_h * 0.42)][:len(groups)],
              "c": [{"t": "stack", "keys": g, "cur": g[0]} for g in groups]}]},
             "floating": [], "closed": [k for k in self._panels if self.group(k) != "side"]}
         for k in self._panels:

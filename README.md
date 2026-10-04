@@ -39,6 +39,11 @@ keep the extracted files together – everything else is the program itself, sha
   tilt by tilt while the radar is still scanning; late or missing chunks are skipped and repaired from
   the archive automatically – plus Level III products.
 * **Archive data** for any date back to 1991, or open files from your computer (drag & drop works).
+* **Quick panel** (**F8**): every radar, overlay and map switch in one place as one-click buttons –
+  smoothing, dealiasing, Σ trail, warnings, SPC, satellite, lightning, MRMS, cameras, map layers and
+  storm tools – with opacity sliders, and sections that fold away.
+* **Always know how fresh the data is**: a status badge shows *scanning now*, or how many minutes old the
+  newest live volume is (green, amber, red), and the window title names the radar and mode.
 * **1–6 linked panels**: pan, zoom and cursor move together; every panel shows its own product.
 * **All the products**: reflectivity, velocity, spectrum width, dual-pol (ZDR, CC, PHI, KDP),
   storm-relative and dealiased velocity, azimuthal shear, divergence, composite reflectivity,
@@ -204,15 +209,16 @@ whether to delete your settings and downloaded data too.
 | Warning details | hover a warning's outline (or open the **Warnings** side panel) |
 | Change a panel's product or colour table | right-click the panel, or use **Products** in the side panel |
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |
-| Live / archive / files | **Live**, **Archive** and **Open** on the toolbar. **F5** (Radar → Reload live data) restarts the live feed |
+| Live / archive / files | **Live**, **Archive** and **Open** on the toolbar. **F5** (Radar → Reload live data) restarts the live feed. The badge at the bottom right shows how old the newest live data is |
+| Quick panel | **F8** or **Quick** (top right): every on/off switch in one place – display, warnings & outlooks, Level III overlays, satellite & lightning (with opacity), MRMS, observations & cameras, map layers, storm tools, location alerts. Click a section title to fold it away; it says how many of its switches are on |
 | Smoothing / dealiasing / Σ trail | toolbar switches (also View menu): **S** smoothing, **D** dealiased velocity, **Ctrl+T** max value trail – each panel shows the highest value over the loop up to the frame shown (CC: the lowest), for hail swaths and rotation tracks |
-| Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom |
+| Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom. The **fps** and **frames** buttons at its right set the loop speed and length |
 | Tilts | **↑ / ↓** or the tilt box |
-| Number of panels | toolbar layout buttons, or **Alt+1 … Alt+6** |
+| Number of panels | the layout button on the toolbar (**View → Panel layout**), or **Alt+1 … Alt+6** |
 | Cross section | **X**, then drag a line across a storm |
 | Distance / bearing | **M**, then drag (or Shift-drag at any time). The line stays until the next one or **Esc** |
 | Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
-| Storm reports / chasers / SPC | **Layers** menu (or side panel → **Layers**): **Warnings & reports**, **Storm chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook there) |
+| Storm reports / chasers / SPC | **Layers** menu (or the **Quick** panel): **Warnings & reports**, **Storm chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook there) |
 | Satellite / lightning / MRMS / surface obs | **Layers → Satellite** (IR, visible, water vapour, opacity), **Lightning** (GLM flashes, last 5–30 min; NLDN density), **MRMS swaths** (rotation tracks, hail size, rainfall; 30 min – 24 h), **Surface observations**. Hover any of them for values |
 | Street cameras | **Layers → Street cameras**: icons appear when zoomed in to about 250 miles across; click one for its live picture. **Camera sources & keys…** adds states' free 511 keys or a Windy key (California needs none) |
 | Map colours & fonts | **Settings → Map style**: roads, borders, radar sites, cities, line widths and the city / site / title fonts |
@@ -238,12 +244,31 @@ whether to delete your settings and downloaded data too.
 
 | Tab | What it does |
 |---|---|
+| **Quick** | every on/off switch in one place (see above) |
 | **Products** | radar and volume info, which panel you're changing, product and tilt buttons, colour table and storm motion |
 | **Warnings** | active warnings for the time shown, time left and tags such as RADAR CONFIRMED. The buttons (tornado / severe / flood / other / watches) choose what is shown on the map and in the list. Click to highlight, double-click to go to it (switching to the nearest radar). **Reports** lists storm reports |
 | **Storm cells** | Level III cells sorted by threat: position, motion, hail probability and size, mesocyclone rank, TVS. Double-click to centre on a cell |
 | **Inspector** | the value of every panel under the mouse, plus pop-up text for anything there |
 | **Placefiles** | the placefile manager |
-| **Layers** | overlays, map layers, smoothing and the velocity noise filter |
+
+### Menus
+
+Every feature has one home:
+
+| Menu | What's there |
+|---|---|
+| **File** | open files, the archive, export pictures and loops, settings |
+| **View** | panel layout, smoothing, dealiasing, Σ trail, velocity noise filter, colour bars, pop-ups, theme, map colours, full screen |
+| **Radar** | choose a radar, favourites, live data and reload, archive, frames, tilts, storm motion |
+| **Layers** | everything drawn on the map, in three groups: *warnings & outlooks*, *weather data* (satellite, lightning, MRMS, surface obs, cameras) and *radar & map* (Level III overlays, map layers, placefiles) |
+| **Tools** | mouse tools (pan, cross section, measure, track, 3-D) and storm analysis (flags, follow, rotation history, sounding, cell tables) |
+| **Location** | my location, saved places and their alerts |
+| **Panels** | show or hide each side and tool panel, lock or reset the layout |
+| **Help** | shortcuts (**F1**), the radar guide, learn mode, the optional-components check, about |
+
+Right-click a radar panel for its product and colour table, and for things to do *at that spot*: a
+sounding, rotation history, following the storm, reading an SPC discussion, the nearest radar, or saving
+the location.
 
 ### Moving panels
 
@@ -291,10 +316,12 @@ A complete example is [docs/example.rftheme](docs/example.rftheme).
 
 ### Settings
 
-**File → Settings** (**Ctrl+,**) has: General (units, start-up, mouse), Display (smoothing, velocity
-noise filter, colour bars), Loop & live, Environment (0 °C / −20 °C heights for MESH/POSH),
-Colour tables, Warnings (a line for each warning type and threat level), Themes and Performance
-(memory, graphics info, log file).
+**File → Settings** (**Ctrl+,**) has: General (units, start-up, mouse), Display (smoothing, dealiasing,
+Σ trail, velocity noise filter, colour bars), Loop & live, Data layers (satellite channel and opacity,
+lightning time window, MRMS product and opacity, street camera keys), Alerts (sound, volume, my-location
+alerts, saved places), Environment (0 °C / −20 °C heights for MESH/POSH), Colour tables, Warnings (a line
+for each warning type and threat level), Themes, Map style (roads, borders, radar sites, cities and
+fonts) and Performance (memory, graphics info, log file).
 
 ### Products
 

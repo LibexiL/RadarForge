@@ -6,6 +6,8 @@ import time
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 
+from ..data.aws import friendly_error
+
 UA = {"User-Agent": "RadarForge (NEXRAD viewer; github.com/LibexiL/RadarForge)"}
 
 
@@ -48,7 +50,7 @@ class BackgroundLayer(QObject):
             self._next[name] = time.time() + period
         except Exception as exc:
             self._next[name] = time.time() + 60
-            self.status.emit(f"{self.title}: {exc}")
+            self.status.emit(f"{self.title}: {friendly_error(exc)}")
         finally:
             self._busy.discard(name)
             self.changed.emit()

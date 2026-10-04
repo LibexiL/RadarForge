@@ -1,62 +1,106 @@
 # Changelog
 
+## 1.10.0 – 2026-10-04
+
+A tidy-up of the whole program: everything has one obvious home, the common switches are one click away,
+and it loops, opens settings and closes faster.
+
+> The first start after updating puts the side panels in the new default arrangement, once.
+> **Panels → Reset panel layout** does the same at any time.
+
+### New
+- **Quick panel** (**F8**, or **Quick** at the top right): every on/off switch in one place as one-click
+  buttons, in sections that fold away:
+  - Display: smoothing, dealias, Σ trail, colour bars, linked cursor, pop-ups, velocity filter.
+  - Warnings & outlooks: warnings, watches, reports (1–24 h), SPC outlook (day 1–3), SPC MDs, chasers.
+  - Radar overlays: storm tracks, hail, melting layer, storm flags, range rings.
+  - Satellite & lightning (channel, opacity slider, flash window), MRMS swaths (product, opacity).
+  - Observations & cameras, map layers, storm tools, location alerts.
+  - Each section title says how many of its switches are on. The buttons and the menus always agree.
+  - It rearranges into fewer columns when the panel is narrow, so nothing is cut off.
+- **Data age badge** at the bottom right: *LIVE scanning now*, or how many minutes old the newest live
+  volume is (green, then amber, then red), *ARCHIVE* with the date, or *FILES*. The window title names
+  the radar and the mode.
+- **Loop buttons** beside the timeline: **fps** and **frames** set the loop speed and length in one click.
+- **Layout button**: one toolbar button with all six panel layouts.
+- **Tilt ▲ / ▼ buttons** either side of the tilt box.
+- **Help → Check optional components…** shows whether lightning files, MRMS decoding, alert sounds,
+  MP4 export and model soundings all work on this computer.
+- **View → Reset view (Home)** and **Radar → Tilt → Lowest tilt**.
+- Settings: new **Data layers** page (satellite channel and opacity, lightning window, MRMS product and
+  opacity, camera keys) and **Alerts** page (sound, volume, my-location alerts, saved places).
+  Dealiasing and the Σ trail are on the Display page. Every page has a short description.
+
+### Reorganised
+- **Menus**, one home per topic:
+  - **File**: data in and pictures out.
+  - **View**: how the radar is drawn.
+  - **Radar**: which radar and when.
+  - **Layers**: everything drawn on the map, in three captioned groups (warnings & outlooks, weather data,
+    radar & map).
+  - **Tools**: mouse tools and storm analysis.
+  - **Location**, **Panels**, **Help**.
+- Menus have icons, and on/off items always show their tick.
+- **Right-click menu**: the panel's product and colour table first, then what you can do at that spot
+  (sounding, rotation history, follow the storm, SPC discussion, nearest radar), then location.
+- **Side panels**: Quick, Products and Placefiles on top; Warnings, Storm cells and Inspector below.
+  The old Layers tab became the Quick panel.
+- Resizing the window resizes the map; the side panels keep their width.
+- The shortcuts list (**F1**) has Display and Window sections.
+
+### Faster and steadier
+- Settings opens about ten times faster.
+- Lightning and street cameras draw much faster when there are thousands of them.
+- Loops play without stutter: RadarForge keeps the whole loop decoded when the computer has the memory.
+- Closing RadarForge is instant, even with downloads still running.
+- Fixed live data sometimes switching to slow decoding for the rest of the session after the download
+  cache was tidied mid-download. Cache writes now retry.
+- Closing a sounding or rotation history window while it was still downloading could crash. Fixed.
+- Cross sections and the 3-D view no longer pause the window while they work out beam heights.
+- Network problems are explained in plain words (for example "no connection to api.weather.gov")
+  instead of long error dumps.
+
 ## 1.9.3 – 2026-10-04
 
-* Removed the automatic Level III **mesocyclone circles** (NMD, "strength rank") and **TVS triangles** (NTV)
-  from the map, with their switches in Layers → Level III overlays and the Layers panel. They're no longer
-  downloaded for the map. The Storm cells table still lists mesocyclone rank and TVS while it's open.
+Includes everything from 1.9.1 and 1.9.2.
 
-## 1.9.2 – 2026-10-04
+### Live data: steadier and faster
+- The newest volume appears first, within a second or two; the rest of the loop fills in newest first.
+- A chunk that never arrives no longer stalls the feed. It's skipped after 30 s, and the volume is
+  swapped for the complete archive file when NOAA publishes it, so you don't have to switch radars to fix it.
+- A volume that never finishes, or a radar that restarts its numbering, is noticed within about 90 s
+  (it used to take 15 minutes).
+- Holes in the loop are filled from the archive every 90 s.
+- Chunks download in parallel on their own thread, failed downloads retry, and switching radars stops
+  the old downloads straight away.
+- **Radar → Reload live data (F5)** restarts the feed for the current radar.
+- The download cache is kept under 3 GB.
 
-* **Street cameras** (Layers → Street cameras): traffic camera icons on the map. Click one to see its
-  picture, which refreshes every minute; if several cameras share a spot you can pick between them.
-  * To keep the radar readable, cameras only show when you're zoomed in (about 250 miles across or
-    less), as small icons, one per patch of screen.
-  * California's cameras (Caltrans) work out of the box.
-  * New York, Georgia, Idaho, Alaska, Louisiana, Utah, Wisconsin, Arizona, Nevada, Connecticut and
-    Florida (their 511 systems), plus Windy Webcams worldwide, need a free developer key. Add keys in
-    **Layers → Street cameras → Camera sources & keys**.
-* **Map style** (Settings → Map style): colours for interstates, highways, state, county and country
-  lines, radar site markers and labels, and city labels and dots, plus line widths. Fonts (family,
-  size, bold) for city labels, radar site labels and panel titles. Changes preview live. Editing a
-  built-in theme saves your version as "<theme> – my map". The theme editor has the fonts too.
-* **Archive Level III fixed**: cases from before the super-res Level III products (N0B / N0G) existed
-  now fall back to N0Q / N0U (and N0R / N0V), so L3 reflectivity and velocity load for older dates.
-* **Archive frames fixed**: Level III products that finished downloading before the Level II volumes no
-  longer turn into extra frames without radar data. They now wait and attach to the volume they
-  belong to, so the loop has one frame per volume with base reflectivity and velocity in each.
-* **Dealias velocity** now also works on Level III velocity (L3 super-res velocity and L3 SRV). The panel
-  title says "dealiased" when it's on. On most scans only gates that were actually aliased change, so
-  the difference shows in strong-wind areas such as hurricanes, intense couplets and strong jets.
+### New
+- **Toolbar switches** (also in the View menu):
+  - **Smoothing (S)**
+  - **Dealias velocity (D)** – unfolds Level II velocity and SRV, and Level III velocity and SRV.
+  - **Σ Max value trail (Ctrl+T)** – each panel shows the most extreme value over the loop up to the
+    frame shown: hail swaths, rotation tracks, strongest winds. On CC it shows the lowest value, which traces debris.
+- **Street cameras** (Layers → Street cameras): traffic camera icons appear when you zoom in. Click
+  one for its live picture.
+  - California works out of the box.
+  - NY, GA, ID, AK, LA, UT, WI, AZ, NV, CT, FL and Windy Webcams (worldwide) need a free key,
+    added in Camera sources & keys.
+- **Map style** (Settings → Map style):
+  - Colours and widths for roads and borders, plus colours for radar sites and cities.
+  - Fonts for city labels, radar site labels and panel titles.
 
-## 1.9.1 – 2026-10-04
+### Fixed
+- Archive Level III for older dates: falls back to N0Q / N0U when N0B / N0G don't exist.
+- Archive loops: Level III no longer creates extra frames without radar data, so every frame has base
+  reflectivity and velocity.
+- The toolbar fits narrow windows: the words beside the icons are dropped first, so no buttons get hidden.
 
-* **Steadier, quicker live data**:
-  * The newest volume now appears first, within a second or two, and the rest of the loop fills in
-    behind it newest first. Before, every earlier volume had to download before live data showed.
-  * A chunk that never arrives no longer stalls the live feed: after 30 seconds it's skipped and
-    the rest of the volume keeps coming. When the complete archive file is published a few minutes
-    later, it replaces the gappy volume automatically (no more switching radars to fix it).
-  * If a volume never finishes, or the radar restarts its numbering, RadarForge notices within about
-    90 seconds and moves to the newest volume (it used to wait 15 minutes).
-  * Holes in the loop are filled from the archive every 90 seconds, including the volume the archive
-    is still behind on (loaded from its live chunks).
-  * Chunks download in parallel and on their own thread, so loading the loop or Level III can't hold
-    up live updates. While a volume is scanning RadarForge checks again every few seconds.
-  * Failed downloads and S3 "slow down" replies are retried automatically, and switching radars stops
-    the old radar's downloads straight away.
-  * **Radar → Reload live data (F5)** restarts the feed for the current radar if anything looks wrong.
-  * The download cache is kept under 3 GB (files older than 10 days are removed).
-* **Toolbar switches** (also in the View menu):
-  * **Smoothing (S).**
-  * **Dealias velocity (D)**: base velocity and storm-relative velocity panels show unfolded
-    velocities. The panel title says "dealiased".
-  * **Σ Max value trail (Ctrl+T)**: every panel shows the most extreme value at each spot over the
-    loop up to the frame shown. Reflectivity or MESH gives hail swaths, azimuthal shear gives rotation
-    tracks, and velocity gives the strongest winds. CC shows its lowest value, which traces debris.
-    Step back through the frames to shorten the trail.
-* The toolbar fits narrow windows: the words beside the icons are dropped first, so every button stays visible.
-* Warnings panel: **Only in view** is now off by default, and RadarForge remembers your choice.
+### Changed
+- Warnings panel: **Only in view** is now off by default, and RadarForge remembers your choice.
+- Removed the Level III mesocyclone circles and TVS triangles from the map. The Storm cells table
+  still lists both.
 
 ## 1.9.0 – 2026-10-03
 

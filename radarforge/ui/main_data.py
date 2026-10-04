@@ -109,64 +109,61 @@ class DataLayersMixin:
                                  "Layers → Street cameras → Camera sources")
 
     # ---------------------------------------------------------------- menus
-    def _radio(self, menu, items, current, fn):
-        grp = QActionGroup(self)
-        acts = []
-        for value, label in items:
-            a = QAction(label, self, checkable=True)
-            a.setChecked(value == current)
-            a.triggered.connect(lambda _=False, v=value: fn(v))
-            grp.addAction(a)
-            menu.addAction(a)
-            acts.append(a)
-        return acts
+    SAT_OPACITY = (0.4, 0.6, 0.85, 1.0)
+    MRMS_OPACITY = (0.5, 0.65, 0.8, 1.0)
+    LTG_MINUTES = (5, 10, 15, 30)
 
     def _menu_data_layers(self, m):
         s = self.settings
-        sat = m.addMenu("Satellite")
+        sat = self._submenu(m, "Satellite", "satellite")
         self._overlay_act(sat, "satellite", "GOES satellite under the radar (live)")
         sat.addSeparator()
-        self._radio(sat, [(k, v[1]) for k, v in satellite.CHANNELS.items()], s["satellite_channel"],
-                    self.set_satellite_channel)
+        self.sat_channel_acts = self._radio(sat, [(k, v[1]) for k, v in satellite.CHANNELS.items()],
+                                            s["satellite_channel"], self.set_satellite_channel)
         sat.addSeparator()
-        self._act(sat, "Colour-enhanced infrared / water vapour", self._toggle_sat_enhance, None, checkable=True,
-                  checked=bool(s["satellite_enhance"]))
+        self.sat_enhance_act = self._act(sat, "Colour-enhanced infrared / water vapour", self._toggle_sat_enhance, None,
+                                         checkable=True, checked=bool(s["satellite_enhance"]))
         op = sat.addMenu("Opacity")
-        self._radio(op, [(v, f"{round(v * 100)}%") for v in (0.4, 0.6, 0.85, 1.0)],
-                    round(float(s["satellite_opacity"] or 0.85), 2), lambda v: self._set_opacity("satellite", v))
-        ltg = m.addMenu("Lightning")
+        self.sat_opacity_acts = self._radio(op, [(v, f"{round(v * 100)}%") for v in self.SAT_OPACITY],
+                                            round(float(s["satellite_opacity"] or 0.85), 2),
+                                            lambda v: self._set_opacity("satellite", v), optional=True)
+        ltg = self._submenu(m, "Lightning", "bolt")
         self._overlay_act(ltg, "lightning", "Lightning flashes (GOES GLM)")
         self._overlay_act(ltg, "lightning_density", "Lightning density map (NLDN, via MRMS)")
         ltg.addSeparator()
         win = ltg.addMenu("Flashes: show the last")
-        self._radio(win, [(v, f"{v} minutes") for v in (5, 10, 15, 30)], int(s["lightning_minutes"] or 10),
-                    self.set_lightning_minutes)
-        mr = m.addMenu("MRMS swaths")
+        self.ltg_minutes_acts = self._radio(win, [(v, f"{v} minutes") for v in self.LTG_MINUTES],
+                                            int(s["lightning_minutes"] or 10), self.set_lightning_minutes)
+        mr = self._submenu(m, "MRMS swaths", "chart")
         self._overlay_act(mr, "mrms", "Show MRMS swath")
         mr.addSeparator()
         kinds = (("rot", "Rotation tracks"), ("mesh", "Hail size (MESH)"), ("qpe", "Rainfall"))
         cur = s["mrms_product"]
         grp = QActionGroup(self)
+        self.mrms_acts = {}
         for kind, title in kinds:
             sub = mr.addMenu(title)
             for key, (label, _p, k, _mins, _cad) in mrms.PRODUCTS.items():
                 if k != kind:
                     continue
                 a = QAction(label.split(" – ")[-1], self, checkable=True)
+                a.setData(key)
                 a.setChecked(key == cur)
                 a.triggered.connect(lambda _=False, key=key: self.set_mrms_product(key))
                 grp.addAction(a)
                 sub.addAction(a)
+                self.mrms_acts[key] = a
         op = mr.addMenu("Opacity")
-        self._radio(op, [(v, f"{round(v * 100)}%") for v in (0.5, 0.65, 0.8, 1.0)],
-                    round(float(s["mrms_opacity"] or 0.8), 2), lambda v: self._set_opacity("mrms", v))
-        cam = m.addMenu("Street cameras")
+        self.mrms_opacity_acts = self._radio(op, [(v, f"{round(v * 100)}%") for v in self.MRMS_OPACITY],
+                                             round(float(s["mrms_opacity"] or 0.8), 2),
+                                             lambda v: self._set_opacity("mrms", v), optional=True)
+        ob = self._submenu(m, "Surface observations", "target")
+        self._overlay_act(ob, "surface_obs", "Station plots: temperature, dew point, wind (live)")
+        self._act(ob, "Refresh now", lambda: self.obs.refresh(force=True), None, icon="refresh")
+        cam = self._submenu(m, "Street cameras", "camera")
         self._overlay_act(cam, "cameras", "Show street cameras (when zoomed in)")
         self._act(cam, "Camera sources && keys…", self.open_camera_sources, None)
-        self._act(cam, "Refresh camera list", lambda: self.cameras.refresh(force=True), None)
-        ob = m.addMenu("Surface observations")
-        self._overlay_act(ob, "surface_obs", "Station plots: temperature, dew point, wind (live)")
-        self._act(ob, "Refresh now", lambda: self.obs.refresh(force=True), None)
+        self._act(cam, "Refresh camera list", lambda: self.cameras.refresh(force=True), None, icon="refresh")
 
     def _menu_spc_days(self, spc):
         spc.addSeparator()
@@ -174,38 +171,23 @@ class DataLayersMixin:
                                               (3, "Outlook: day 3")], self.spc.day(), self.set_spc_day)
 
     def _menu_storm_tools(self, m):
-        m.addSeparator()
-        self._overlay_act(m, "storm_flags", "Automatic storm flags (rotation, debris, hail)")
-        self.follow_act = self._act(m, "Follow storm", self._toggle_follow, None, checkable=True, checked=False)
-        self.follow_act.setToolTip("Right-click a storm → Follow this storm. The map stays on it as frames change.")
-        self._act(m, "Rotation history at the map centre…", lambda: self.open_rotation_history(), None)
-        self._act(m, "Model sounding at the map centre…", lambda: self.open_sounding(), None)
+        self._overlay_act(m, "storm_flags", "Automatic storm flags (rotation, debris, hail)", icon="flag")
+        self.follow_act = self._act(m, "Follow storm", self._toggle_follow, None, checkable=True, checked=False,
+                                    tip="Right-click a storm → Follow this storm. The map stays on it as frames change.")
+        self._iconize(self.follow_act, "target")
+        self._act(m, "Rotation history at the map centre…", lambda: self.open_rotation_history(), None, icon="chart")
+        self._act(m, "Model sounding at the map centre…", lambda: self.open_sounding(), None, icon="sounding")
 
     def _menu_help_extras(self, m):
-        self._act(m, "Radar && dual-pol guide", lambda: GuideDialog(self).show(), None)
+        self._act(m, "Radar && dual-pol guide", lambda: GuideDialog(self).show(), None, icon="book")
         self.learn_act = self._act(m, "Learn mode (explain values in the Inspector)", self._toggle_learn, None,
                                    checkable=True, checked=bool(self.settings["learn_mode"]))
-        m.addSeparator()
-
-    def _map_menu_extras(self, menu, lat, lon, x, y):
-        a = menu.addAction("Model sounding here…")
-        a.triggered.connect(lambda: self.open_sounding(lat, lon))
-        if self.data.frames:
-            a = menu.addAction("Rotation history for this storm…")
-            a.triggered.connect(lambda: self.open_rotation_history(x, y))
-            if self._follow is None:
-                a = menu.addAction("Follow this storm")
-                a.triggered.connect(lambda: self.start_follow(x, y))
-        if self._follow is not None:
-            a = menu.addAction("Stop following the storm")
-            a.triggered.connect(self.stop_follow)
-        a = menu.addAction("Save this location…")
-        a.triggered.connect(lambda: self.save_location_here(lat, lon))
 
     # ---------------------------------------------------------------- settings changes
     def set_satellite_channel(self, k):
         self.settings["satellite_channel"] = k
         self.settings.save()
+        self._sync_radio(self.sat_channel_acts, k)
         self.satellite.refresh(force=True)
 
     def _toggle_sat_enhance(self, on):
@@ -214,27 +196,38 @@ class DataLayersMixin:
         self.satellite.refresh(force=True)
 
     def _set_opacity(self, which, v):
+        v = round(float(v), 2)
         self.settings[f"{which}_opacity"] = v
         self.settings.save()
+        self._sync_radio(self.sat_opacity_acts if which == "satellite" else self.mrms_opacity_acts, v)
+        if hasattr(self, "quick_panel"):
+            self.quick_panel.sync_opacity()
         self.view.update()
 
     def set_lightning_minutes(self, v):
         self.settings["lightning_minutes"] = v
         self.settings.save()
+        self._sync_radio(self.ltg_minutes_acts, v)
         self.lightning.refresh(force=True)
         self.view.update()
 
     def set_mrms_product(self, key):
         self.settings["mrms_product"] = key
         self.settings.save()
+        for k, a in self.mrms_acts.items():
+            if a.isChecked() != (k == key):
+                a.blockSignals(True)
+                a.setChecked(k == key)
+                a.blockSignals(False)
+        if hasattr(self, "quick_panel"):
+            self.quick_panel.sync_mrms()
         if not self.settings["overlays"].get("mrms"):
             self.overlay_acts["mrms"].setChecked(True)        # picking a product shows it
         self.mrms.refresh(force=True)
 
     def set_spc_day(self, day):
         self.spc.set_day(day)
-        for a, d in zip(getattr(self, "spc_day_acts", []), (1, 2, 3)):
-            a.setChecked(d == day)
+        self._sync_radio(getattr(self, "spc_day_acts", []), day)
         if not self.settings["overlays"].get("spc_outlook"):
             self.overlay_acts["spc_outlook"].setChecked(True)
 

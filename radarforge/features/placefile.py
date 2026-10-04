@@ -15,6 +15,7 @@ from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImage, QPainterPath, QPen, QPolygonF, QTransform
 
 from ..config import PLACEFILE_CACHE
+from ..data.aws import friendly_error
 from ..products.geometry import aeqd_forward
 
 NM = 1.852
@@ -388,7 +389,7 @@ class PlacefileManager(QObject):
                     old.error = str(exc)
                 else:
                     self.files[url] = Placefile(url=url, error=str(exc), loaded_at=time.time())
-                self.status.emit(f"Placefile error: {url}: {exc}")
+                self.status.emit(f"Placefile {url}: {friendly_error(exc)}")
             finally:
                 self._busy.discard(url)
                 self.changed.emit()

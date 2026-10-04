@@ -228,25 +228,25 @@ class LightningOverlay(BackgroundLayer):
         if not sel.any():
             return
         span = self.minutes() * 60.0
-        age = np.clip((end - times[sel]) / span, 0, 1)
-        sx, sy = vt.to_screen(x[sel], y[sel])
+        idx = np.nonzero(sel)[0]
+        if len(idx) > 8000:                                   # a huge outbreak: the newest 8000 are plenty
+            idx = idx[np.argsort(times[idx])[-8000:]]
+        age = np.clip((end - times[idx]) / span, 0, 1)
+        sx, sy = vt.to_screen(x[idx], y[idx])
         r = 3.5 if vt.scale > 1.5 else 2.5
-        order = np.argsort(-age)                       # newest drawn last (on top)
-        buckets = {}
-        for i in order.tolist():
-            buckets.setdefault(age_color(float(age[i])), []).append(i)
-        for rgb in [c for _l, c in reversed(AGE_COLORS)]:
-            idx = buckets.get(rgb)
-            if not idx:
+        limits = [lim for lim, _rgb in AGE_COLORS]
+        bucket = np.searchsorted(limits, age, side="left").clip(0, len(AGE_COLORS) - 1)
+        halo = QPen(QColor(0, 0, 0, 170), 3.0)
+        for b in range(len(AGE_COLORS) - 1, -1, -1):         # oldest first, newest on top
+            k = np.nonzero(bucket == b)[0]
+            if not len(k):
                 continue
-            lines = []
-            for i in idx:
-                cx, cy = float(sx[i]), float(sy[i])
-                lines.append(QLineF(cx - r, cy, cx + r, cy))
-                lines.append(QLineF(cx, cy - r, cx, cy + r))
-            painter.setPen(QPen(QColor(0, 0, 0, 170), 3.0))
+            xs, ys = sx[k].tolist(), sy[k].tolist()
+            lines = [QLineF(a - r, c, a + r, c) for a, c in zip(xs, ys)]
+            lines += [QLineF(a, c - r, a, c + r) for a, c in zip(xs, ys)]
+            painter.setPen(halo)
             painter.drawLines(lines)
-            painter.setPen(QPen(QColor(*rgb), 1.4))
+            painter.setPen(QPen(QColor(*AGE_COLORS[b][1]), 1.4))
             painter.drawLines(lines)
 
     def caption(self):

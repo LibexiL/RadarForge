@@ -47,6 +47,33 @@ def session() -> requests.Session:
     return s
 
 
+def friendly_error(exc) -> str:
+    """A short, readable reason for a failed request (for the status bar), instead of urllib3's essay."""
+    host = ""
+    url = (getattr(getattr(exc, "request", None), "url", None) or
+           getattr(getattr(exc, "response", None), "url", None) or "")
+    m = re.search(r"host='([^']+)'", str(exc)) or re.match(r"https?://([^/:]+)", url)
+    if m:
+        host = m.group(1)
+    where = host or "the server"
+    if isinstance(exc, requests.Timeout):
+        return f"{where} didn't answer in time"
+    if isinstance(exc, requests.ConnectionError):
+        text = str(exc)
+        if "NameResolution" in text or "getaddrinfo" in text or "Name or service not known" in text:
+            return f"can't look up {where} – check the internet connection"
+        if "SSL" in text or "CERTIFICATE" in text.upper():
+            return f"secure connection to {where} failed"
+        return f"no connection to {where}"
+    if isinstance(exc, requests.HTTPError):
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        return f"{where} answered {code}" if code else f"{where} refused the request"
+    if isinstance(exc, ValueError) and "JSON" in str(exc):
+        return f"{where} sent something unreadable"
+    text = str(exc) or type(exc).__name__
+    return text if len(text) <= 140 else text[:137] + "…"
+
+
 def bucket_url(bucket: str) -> str:
     return f"https://{bucket}.s3.amazonaws.com"
 
@@ -97,13 +124,15 @@ def fetch(bucket: str, key: str, cache: bool = True, timeout: float = 60) -> byt
     r.raise_for_status()
     data = r.content
     if cache:
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
-            tmp.write_bytes(data)
-            os.replace(tmp, path)
-        except OSError:
-            pass
+        for _attempt in range(2):          # the folder may vanish under us (cache tidy-up): make it again once
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
+                tmp.write_bytes(data)
+                os.replace(tmp, path)
+                break
+            except OSError:
+                continue
     return data
 
 
@@ -155,10 +184,12 @@ def prune_cache(max_bytes: float = 3e9, max_age_days: float = 10.0) -> int:
             removed += 1
         except OSError:
             pass
-    for dirpath, dirs, names in os.walk(root, topdown=False):      # tidy empty folders
+    day_ago = time.time() - 86400
+    for dirpath, dirs, names in os.walk(root, topdown=False):      # tidy empty folders (not fresh ones)
         if not dirs and not names and Path(dirpath) != root:
             try:
-                os.rmdir(dirpath)
+                if os.stat(dirpath).st_mtime < day_ago:
+                    os.rmdir(dirpath)
             except OSError:
                 pass
     return removed

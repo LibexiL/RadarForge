@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from PySide6.QtCore import QObject, QTimer, Signal
 
 from ..data import aws
-from ..data.frames import VOLUMES, Frame
+from ..data.frames import VOLUMES, Frame, volume_capacity
 from ..data.level2 import read_level2
 from ..data.level3 import read_level3_isolated as read_level3
 from ..data.live import ChunkTracker
@@ -54,7 +54,7 @@ class DataManager(QObject):
         self._live_timer = QTimer(self)
         self._live_timer.timeout.connect(self._live_tick)
         self._pollSoon.connect(lambda: QTimer.singleShot(4000, self._poll_live_now))
-        VOLUMES.capacity = int(settings["volume_cache"])
+        VOLUMES.capacity = volume_capacity(settings)
         # keep the download cache from filling the disk (old files first, then down to 3 GB)
         threading.Thread(target=aws.prune_cache, daemon=True, name="rf-prune").start()
 
@@ -265,7 +265,7 @@ class DataManager(QObject):
         try:
             files = aws.latest_level2(self.site_id, n)
         except Exception as exc:
-            self.status.emit(f"Live: couldn't list earlier volumes ({exc}) – retrying shortly")
+            self.status.emit(f"Live: couldn't list earlier volumes ({aws.friendly_error(exc)}) – retrying shortly")
             self._last_sync = 0.0
             return
         if gen != self._gen:
@@ -297,8 +297,15 @@ class DataManager(QObject):
         self.progress.emit(0, total)
 
         def one(f):
-            aws.fetch(aws.L2_BUCKET, f.key)
-            return f, aws.cached_path(aws.L2_BUCKET, f.key)
+            data = aws.fetch(aws.L2_BUCKET, f.key)
+            path = aws.cached_path(aws.L2_BUCKET, f.key)
+            if not path.exists():                  # couldn't cache it (disk full?): keep a private copy
+                import tempfile
+                fd, tmp = tempfile.mkstemp(prefix="rf_", suffix="_" + f.name)
+                with os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                path = tmp
+            return f, path
         futures = [self._dl_pool.submit(one, f) for f in files]
         failed = 0
         for fut in futures:
@@ -306,7 +313,7 @@ class DataManager(QObject):
                 f, path = fut.result()
             except Exception as exc:
                 failed += 1
-                self.status.emit(f"Download failed: {exc}")
+                self.status.emit(f"Download failed – {aws.friendly_error(exc)}")
                 done += 1
                 continue
             if gen != self._gen:
@@ -361,7 +368,7 @@ class DataManager(QObject):
                 self._pollSoon.emit()       # mid-volume (or waiting on a late chunk): check again soon
         except Exception as exc:
             if gen == self._gen:
-                self.status.emit(f"Live update failed ({type(exc).__name__}: {exc}) – retrying")
+                self.status.emit(f"Live update failed ({aws.friendly_error(exc)}) – retrying")
         finally:
             tr.busy = False
 
@@ -427,6 +434,8 @@ class DataManager(QObject):
                 if gen != self._gen:
                     return
                 path = str(aws.cached_path(aws.L2_BUCKET, lf.key))
+                if not os.path.exists(path):
+                    continue
                 with self._lock:
                     if f is None:
                         if self._find_frame(lf.time, 60) is not None:
@@ -523,7 +532,7 @@ class DataManager(QObject):
                             code = self._l3_alt[want] = alt
                             break
             except Exception as exc:
-                self.status.emit(f"Level III {code} listing failed: {exc}")
+                self.status.emit(f"Level III {code} listing failed – {aws.friendly_error(exc)}")
                 continue
             if not files:
                 self.status.emit(f"No Level III {want} for {site.id} in this period")

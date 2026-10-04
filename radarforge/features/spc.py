@@ -10,6 +10,7 @@ import requests
 from PySide6.QtCore import QObject, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPolygonF
 
+from ..data.aws import friendly_error
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
 from . import feeds
@@ -107,7 +108,7 @@ class SpcOverlay(QObject):
                     self._next[name] = time.time() + period
                 except Exception as exc:
                     self._next[name] = time.time() + 60
-                    self.status.emit(f"SPC {'outlook' if name == 'outlook' else 'discussions'} unavailable: {exc}")
+                    self.status.emit(f"SPC {'outlook' if name == 'outlook' else 'discussions'} unavailable – {friendly_error(exc)}")
                 finally:
                     self._busy.discard(name)
                     self.changed.emit()

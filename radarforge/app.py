@@ -91,8 +91,8 @@ class _Tee:
                 pass
 
 
-def self_check() -> int:
-    """Prints whether each optional component works (used to test the installers). Exit code 1 on failure."""
+def check_components() -> list:
+    """[(name, ok, message)] for each optional component (lightning files, MRMS decoding, sounds, MP4, soundings)."""
     results = []
 
     def check(name, fn):
@@ -141,9 +141,15 @@ def self_check() -> int:
         import metpy.calc
         return f"MetPy ({len(dir(metpy.calc))} functions)"
 
-    for name, fn in (("lightning files (GLM)", glm), ("MRMS decoding", grib), ("alert sounds", sound),
-                     ("MP4 export", mp4), ("soundings", metpy)):
+    for name, fn in (("Lightning files (GLM)", glm), ("MRMS decoding", grib), ("Alert sounds", sound),
+                     ("MP4 export", mp4), ("Model soundings", metpy)):
         check(name, fn)
+    return results
+
+
+def self_check() -> int:
+    """Prints whether each optional component works (used to test the installers). Exit code 1 on failure."""
+    results = check_components()
     for name, ok, msg in results:
         print(f"{'OK  ' if ok else 'FAIL'} {name}: {msg}", flush=True)
     return 0 if all(ok for _n, ok, _m in results) else 1
@@ -332,6 +338,17 @@ def main(argv=None):
         QTimer.singleShot(200, win.start_live)
     rc = app.exec()
     faulthandler.cancel_dump_traceback_later()
+    # settings are saved by now; a download still running (up to a minute's timeout) must not keep the
+    # program alive after its window has closed
+    import threading
+    busy = [t for t in threading.enumerate() if t is not threading.main_thread() and t.is_alive() and not t.daemon]
+    if busy:
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        os._exit(rc)
     return rc
 
 

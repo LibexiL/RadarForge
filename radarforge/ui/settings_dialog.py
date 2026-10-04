@@ -85,8 +85,8 @@ def theme_preview_icon(t, w=72, h=40):
 
 
 class SettingsDialog(QDialog):
-    PAGES = ["General", "Display", "Loop & live", "Environment", "Colour tables", "Warnings", "Themes", "Map style",
-             "Performance"]
+    PAGES = ["General", "Display", "Loop & live", "Data layers", "Alerts", "Environment", "Colour tables", "Warnings",
+             "Themes", "Map style", "Performance"]
 
     def __init__(self, settings, parent=None, page=None):
         super().__init__(parent)
@@ -102,12 +102,13 @@ class SettingsDialog(QDialog):
         self.pages = QStackedWidget()
         nav_icons = {"General": "settings", "Display": "layers", "Loop & live": "play", "Environment": "radar",
                      "Colour tables": "palette", "Warnings": "warning", "Themes": "theme", "Map style": "layers",
-                     "Performance": "box3d"}
+                     "Performance": "box3d", "Data layers": "satellite", "Alerts": "pin"}
         for name in self.PAGES:
             it = QListWidgetItem(icons.icon(nav_icons.get(name, "settings")), name)
             it.setSizeHint(QSize(0, 34))
             self.nav.addItem(it)
-            page_fn = {"Loop & live": "loop", "Colour tables": "colour", "Map style": "map_style"}.get(name, name.lower())
+            page_fn = {"Loop & live": "loop", "Colour tables": "colour", "Map style": "map_style",
+                       "Data layers": "data_layers"}.get(name, name.lower())
             self.pages.addWidget(getattr(self, "_page_" + page_fn)())
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         body = QHBoxLayout()
@@ -129,7 +130,7 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------------ pages
     def _page_general(self):
-        w, lay = _page("General")
+        w, lay = _page("General", "Units, start-up and the mouse.")
         f = _form()
         s = self.s
         self.units = QComboBox()
@@ -164,15 +165,98 @@ class SettingsDialog(QDialog):
         self.vfilter.setCurrentIndex(int(s["velocity_filter"]))
         f.addRow("Velocity noise filter", self.vfilter)
         f.addRow("", _hint("Removes noisy velocity in weak echo. Strong storms and couplets are never filtered."))
+        self.dealias = QCheckBox("Dealias velocity (unfold aliased velocities)")
+        self.dealias.setChecked(bool(s["dealias_velocity"]))
+        f.addRow("Velocity", self.dealias)
+        self.trail = QCheckBox("Σ Max value trail (most extreme value over the loop)")
+        self.trail.setChecked(bool(s["trail_mode"]))
+        f.addRow("Trail", self.trail)
         self.legend = QCheckBox("Show colour bars")
         self.legend.setChecked(bool(s["show_legend"]))
         f.addRow("Panels", self.legend)
+        f.addRow("", _hint("These are also on the toolbar and in the Quick panel (F8)."))
+        lay.addLayout(f)
+        lay.addStretch(1)
+        return w
+
+    def _page_data_layers(self):
+        from ..features import mrms, satellite
+        w, lay = _page("Data layers", "Satellite, lightning, MRMS and camera options. Switch the layers themselves "
+                                      "on and off from the Layers menu or the Quick panel (F8).")
+        f = _form()
+        s = self.s
+        self.sat_channel = QComboBox()
+        for k, (_n, label) in satellite.CHANNELS.items():
+            self.sat_channel.addItem(label, k)
+        self.sat_channel.setCurrentIndex(max(0, self.sat_channel.findData(s["satellite_channel"])))
+        f.addRow("Satellite channel", self.sat_channel)
+        self.sat_enhance = QCheckBox("Colour-enhanced infrared / water vapour")
+        self.sat_enhance.setChecked(bool(s["satellite_enhance"]))
+        f.addRow("", self.sat_enhance)
+        self.sat_opacity = QSpinBox()
+        self.sat_opacity.setRange(20, 100)
+        self.sat_opacity.setSuffix(" %")
+        self.sat_opacity.setValue(int(round(float(s["satellite_opacity"] or 0.85) * 100)))
+        f.addRow("Satellite opacity", self.sat_opacity)
+        self.ltg_minutes = QComboBox()
+        for v in (5, 10, 15, 30):
+            self.ltg_minutes.addItem(f"Last {v} minutes", v)
+        self.ltg_minutes.setCurrentIndex(max(0, self.ltg_minutes.findData(int(s["lightning_minutes"] or 10))))
+        f.addRow("Lightning flashes", self.ltg_minutes)
+        self.mrms_product = QComboBox()
+        for k, v in mrms.PRODUCTS.items():
+            self.mrms_product.addItem(v[0], k)
+        self.mrms_product.setCurrentIndex(max(0, self.mrms_product.findData(s["mrms_product"])))
+        f.addRow("MRMS swath", self.mrms_product)
+        self.mrms_opacity = QSpinBox()
+        self.mrms_opacity.setRange(20, 100)
+        self.mrms_opacity.setSuffix(" %")
+        self.mrms_opacity.setValue(int(round(float(s["mrms_opacity"] or 0.8) * 100)))
+        f.addRow("MRMS opacity", self.mrms_opacity)
+        cams = QPushButton("Camera sources && keys…")
+        cams.clicked.connect(lambda: self.main.open_camera_sources() if self.main is not None else None)
+        f.addRow("Street cameras", cams)
+        lay.addLayout(f)
+        lay.addStretch(1)
+        return w
+
+    def _page_alerts(self):
+        from ..features import alerts
+        w, lay = _page("Alerts", "Sounds and notifications for your saved locations (live data, while RadarForge is "
+                                 "open). Each place's rules are set in Location → Saved locations & alerts.")
+        f = _form()
+        s = self.s
+        self.alert_sound = QComboBox()
+        for k, label in alerts.SOUNDS.items():
+            self.alert_sound.addItem(label, k)
+        self.alert_sound.setCurrentIndex(max(0, self.alert_sound.findData(s["alert_sound"] or "chime")))
+        f.addRow("Alert sound", self.alert_sound)
+        self.alert_volume = QSpinBox()
+        self.alert_volume.setRange(0, 100)
+        self.alert_volume.setSuffix(" %")
+        self.alert_volume.setValue(int(round(float(s["alert_volume"] or 0.8) * 100)))
+        f.addRow("Volume", self.alert_volume)
+        test = QPushButton("Play it")
+
+        def play():
+            if self.main is not None:
+                s["alert_volume"] = self.alert_volume.value() / 100.0
+                self.main.notifier.play(self.alert_sound.currentData())
+        test.clicked.connect(play)
+        f.addRow("", test)
+        self.warn_loc = QCheckBox("Alert me when a warning covers my location")
+        self.warn_loc.setChecked(bool(s["warn_at_location"]))
+        f.addRow("My location", self.warn_loc)
+        places = QPushButton("Saved locations && alerts…")
+        places.clicked.connect(lambda: self.main.open_locations() if self.main is not None else None)
+        f.addRow("Places", places)
         lay.addLayout(f)
         lay.addStretch(1)
         return w
 
     def _page_loop(self):
-        w, lay = _page("Loop & live")
+        w, lay = _page("Loop & live", "How many frames to keep and how fast they play. The fps and frames buttons beside "
+                                       "the timeline change the same settings.")
         f = _form()
         s = self.s
         self.frames = QSpinBox()
@@ -350,24 +434,25 @@ class SettingsDialog(QDialog):
         self.map_style_note = _hint("")
         row.addWidget(self.map_style_note, 1)
         reset = QPushButton("Undo my changes")
-        reset.clicked.connect(self._map_style_reset)
+        reset.clicked.connect(lambda: self._map_style_reset())
         row.addWidget(reset)
         lay.addLayout(row)
         self._map_style_dirty = False
-        self._map_style_reset()
+        self._map_style_reset(preview=False)          # opening Settings must not re-style the whole app
         return w
 
     def _map_style_base(self):
         t = self._current_theme() if hasattr(self, "theme_list") else None
         return themes.normalize(t or themes.find(self.s["theme"]))
 
-    def _map_style_reset(self):
+    def _map_style_reset(self, preview=True):
         base = self._map_style_base()
         self.map_style.load(base)
-        self._map_style_dirty = False
+        was_dirty, self._map_style_dirty = self._map_style_dirty, False
         self.map_style_note.setText(f"Editing the map part of “{base['name']}”.")
-        if self.main is not None:
+        if preview and was_dirty and self.main is not None:
             self.main.preview_theme(base)
+            self._previewed = True
 
     def _map_style_changed(self):
         self._map_style_dirty = True
@@ -379,6 +464,7 @@ class SettingsDialog(QDialog):
                                                                     " – saved when you click OK."))
         if self.main is not None:
             self.main.preview_theme(t)
+            self._previewed = True
 
     def _save_map_style(self):
         """OK: keep the map style edits (a built-in theme becomes a user copy). Returns the theme name to use."""
@@ -393,13 +479,15 @@ class SettingsDialog(QDialog):
         return t["name"]
 
     def _page_performance(self):
-        w, lay = _page("Performance")
+        w, lay = _page("Performance", "Memory and drawing. The defaults suit most computers.")
         f = _form()
         s = self.s
         self.vcache = QSpinBox()
         self.vcache.setRange(1, 30)
         self.vcache.setValue(int(s["volume_cache"]))
         f.addRow("Decoded volumes kept in RAM", self.vcache)
+        f.addRow("", _hint("The minimum. When the computer has the memory, RadarForge keeps the whole loop "
+                           "decoded so it plays without stutter."))
         self.icache = QSpinBox()
         self.icache.setRange(100, 8000)
         self.icache.setSuffix(" MB")
@@ -519,8 +607,9 @@ class SettingsDialog(QDialog):
         self._update_theme_buttons()
         if t is not None and self.main is not None:
             self.main.apply_theme(t["name"], save=False)
+            self._previewed = True
         if hasattr(self, "map_style"):
-            self._map_style_reset()
+            self._map_style_reset(preview=False)          # apply_theme above already shows the theme
 
     def _theme_new(self):
         base = self._current_theme() or themes.find(None)
@@ -607,7 +696,8 @@ class SettingsDialog(QDialog):
 
     def reject(self):
         if self.main is not None:
-            self.main.apply_theme(self._theme_start, save=False)      # undo any theme preview
+            if getattr(self, "_previewed", False):
+                self.main.apply_theme(self._theme_start, save=False)      # undo any theme preview
         super().reject()
 
     def _ok(self):
@@ -620,6 +710,17 @@ class SettingsDialog(QDialog):
         s["gpu_smooth"] = self.smooth.isChecked()
         s["velocity_filter"] = self.vfilter.currentIndex()
         s["show_legend"] = self.legend.isChecked()
+        s["dealias_velocity"] = self.dealias.isChecked()
+        s["trail_mode"] = self.trail.isChecked()
+        s["satellite_channel"] = self.sat_channel.currentData()
+        s["satellite_enhance"] = self.sat_enhance.isChecked()
+        s["satellite_opacity"] = self.sat_opacity.value() / 100.0
+        s["lightning_minutes"] = self.ltg_minutes.currentData()
+        s["mrms_product"] = self.mrms_product.currentData()
+        s["mrms_opacity"] = self.mrms_opacity.value() / 100.0
+        s["alert_sound"] = self.alert_sound.currentData()
+        s["alert_volume"] = self.alert_volume.value() / 100.0
+        s["warn_at_location"] = self.warn_loc.isChecked()
         s["loop_frames"] = self.frames.value()
         s["loop_fps"] = self.fps.value()
         s["loop_dwell"] = self.dwell.value()
@@ -642,7 +743,8 @@ class SettingsDialog(QDialog):
         name = t["name"] if t is not None else None
         if getattr(self, "_map_style_dirty", False):
             name = self._save_map_style()
-        if name is not None and self.main is not None:
+        if name is not None and self.main is not None and (getattr(self, "_previewed", False)
+                                                           or name != self._theme_start):
             self.main.apply_theme(name, save=False)
         s.save()
         self.accept()

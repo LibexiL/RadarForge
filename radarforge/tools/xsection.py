@@ -215,13 +215,13 @@ class CrossSectionWindow(QWidget):
         top_km = self.top.value() / 3.28084
         smooth = self.smooth.isChecked()
         (p0, p1) = self.line
-        vol_h = (frame.level2().height_m or 0.0) / 1000.0
         self._running = True
         self.canvas.message = "Computing…"
         self.canvas.update()
         self._pid = pid
         QThreadPool.globalInstance().start(
-            _Job(lambda: compute_xsection(engine, frame, pid, p0, p1, top_km, smooth=smooth, radar_h_km=vol_h),
+            _Job(lambda: compute_xsection(engine, frame, pid, p0, p1, top_km, smooth=smooth,
+                                          radar_h_km=(frame.level2().height_m or 0.0) / 1000.0),   # decode off the UI thread
                  self._relay))
 
     def _done(self, res):

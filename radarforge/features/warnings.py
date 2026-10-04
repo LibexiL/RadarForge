@@ -10,6 +10,7 @@ import requests
 from PySide6.QtCore import QObject, QPointF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPen, QPolygonF
 
+from ..data.aws import friendly_error
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
 from . import feeds
@@ -397,7 +398,7 @@ class WarningsOverlay(QObject):
                 self.status.emit(f"Warnings: {len(self.alerts)} active" + (f", {len(self.reports)} reports"
                                                                           if want_r else ""))
             except Exception as exc:
-                self.status.emit(f"Warnings unavailable: {exc}")
+                self.status.emit(f"Warnings unavailable – {friendly_error(exc)} (retrying)")
             finally:
                 self._busy = False
                 self.changed.emit()
