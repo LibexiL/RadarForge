@@ -44,11 +44,10 @@ DEFAULTS = {
     "placefiles": [],               # [{url, enabled, title}]
     "map_layers": {"states": True, "counties": True, "roads": True, "cities": True,
                    "lakes": True, "countries": True, "range_rings": False},
-    "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "meso": True,
-                 "tvs": True, "hail": False, "melting_layer": False, "reports": False,
+    "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "hail": False, "melting_layer": False, "reports": False,
                  "chasers": False, "spc_outlook": False, "spc_mcd": False,
                  "satellite": False, "mrms": False, "lightning": False, "lightning_density": False,
-                 "surface_obs": False, "storm_flags": False},
+                 "surface_obs": False, "storm_flags": False, "cameras": False},
     "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
@@ -75,6 +74,11 @@ DEFAULTS = {
     "alert_sound": "chime",        # chime | siren | beep | none
     "alert_volume": 0.8,
     "learn_mode": False,           # plain-language explanations in the Inspector
+    "dealias_velocity": False,     # (1.9.1) base velocity panels show dealiased velocity (toolbar button)
+    "trail_mode": False,           # (1.9.1) Σ: panels show the max (CC: min) of the loop up to the frame shown
+    "warnings_in_view": False,     # Warnings panel: list only warnings in the area you're looking at
+    "camera_caltrans": True,       # street cameras: California DOT (open data, no key)
+    "camera_keys": {},             # street cameras: state code (NY, GA...) or "windy" -> free API key
     "loop_frames": 12,
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
@@ -95,7 +99,7 @@ DEFAULTS = {
     "invert_scroll": False,
     "cursor_link": True,
     "hover_text": True,
-    "l3_poll_products": ["NST", "NMD", "NTV", "NHI"],
+    "l3_poll_products": ["NST", "NHI"],
     "xsection_top_kft": 60.0,
     "volume3d_levels": [30.0, 50.0, 65.0],
     "gl_platform": None,          # remembered working OpenGL platform (see gl_setup.py)

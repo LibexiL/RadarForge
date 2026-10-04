@@ -10,7 +10,9 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -33,7 +35,12 @@ def session() -> requests.Session:
     if s is None:
         s = requests.Session()
         s.headers["User-Agent"] = USER_AGENT
-        adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=16, max_retries=2)
+        # retry dropped connections and S3's occasional 500/503 ("slow down") with a short back-off
+        from urllib3.util.retry import Retry
+        retry = Retry(total=4, connect=3, read=2, status=3, backoff_factor=0.4,
+                      status_forcelist=(500, 502, 503, 504), allowed_methods=frozenset(["GET", "HEAD"]),
+                      raise_on_status=False)
+        adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=16, max_retries=retry)
         s.mount("https://", adapter)
         s.mount("http://", adapter)
         _local.session = s
@@ -92,7 +99,7 @@ def fetch(bucket: str, key: str, cache: bool = True, timeout: float = 60) -> byt
     if cache:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(path.suffix + ".part")
+            tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
             tmp.write_bytes(data)
             os.replace(tmp, path)
         except OSError:
@@ -102,6 +109,59 @@ def fetch(bucket: str, key: str, cache: bool = True, timeout: float = 60) -> byt
 
 def cached_path(bucket: str, key: str) -> Path:
     return CACHE_DIR / "s3" / bucket / key
+
+
+_chunk_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="rf-chunks")   # live chunks only
+
+
+def fetch_many(bucket: str, keys: list, cache: bool = False, timeout: float = 30, cancelled=None) -> list:
+    """Download several objects in parallel. Returns [(key, bytes or Exception)] in the order given.
+    `cancelled()` (optional) is checked before each download starts."""
+    def one(k):
+        if cancelled is not None and cancelled():
+            return k, RuntimeError("cancelled")
+        try:
+            return k, fetch(bucket, k, cache=cache, timeout=timeout)
+        except Exception as exc:          # noqa: BLE001 - handed back to the caller
+            return k, exc
+    return list(_chunk_pool.map(one, keys))
+
+
+def prune_cache(max_bytes: float = 3e9, max_age_days: float = 10.0) -> int:
+    """Delete downloaded radar files older than max_age_days, then the oldest until the cache is under
+    max_bytes. Returns the number of files removed. Safe to run in the background."""
+    root = CACHE_DIR / "s3"
+    if not root.exists():
+        return 0
+    files = []
+    for dirpath, _dirs, names in os.walk(root):
+        for n in names:
+            p = Path(dirpath) / n
+            try:
+                st = p.stat()
+            except OSError:
+                continue
+            files.append((st.st_mtime, st.st_size, p))
+    files.sort()
+    total = sum(f[1] for f in files)
+    cutoff = time.time() - max_age_days * 86400
+    removed = 0
+    for mtime, size, p in files:
+        if mtime >= cutoff and total <= max_bytes:
+            break
+        try:
+            p.unlink()
+            total -= size
+            removed += 1
+        except OSError:
+            pass
+    for dirpath, dirs, names in os.walk(root, topdown=False):      # tidy empty folders
+        if not dirs and not names and Path(dirpath) != root:
+            try:
+                os.rmdir(dirpath)
+            except OSError:
+                pass
+    return removed
 
 
 # --------------------------------------------------------------------------- #

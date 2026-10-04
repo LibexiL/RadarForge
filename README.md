@@ -35,8 +35,9 @@ keep the extracted files together – everything else is the program itself, sha
 
 ## Features
 
-* **Live data** straight from NOAA's NEXRAD feed on AWS – the newest volume draws in tilt by tilt
-  while the radar is still scanning – plus Level III products.
+* **Live data** straight from NOAA's NEXRAD feed on AWS – the newest volume shows first and draws in
+  tilt by tilt while the radar is still scanning; late or missing chunks are skipped and repaired from
+  the archive automatically – plus Level III products.
 * **Archive data** for any date back to 1991, or open files from your computer (drag & drop works).
 * **1–6 linked panels**: pan, zoom and cursor move together; every panel shows its own product.
 * **All the products**: reflectivity, velocity, spectrum width, dual-pol (ZDR, CC, PHI, KDP),
@@ -58,6 +59,8 @@ keep the extracted files together – everything else is the program itself, sha
   lightning-density map.
 * **MRMS swaths**: rotation tracks, hail size (MESH) and rainfall totals from NOAA's Multi-Radar
   Multi-Sensor system – for the time shown, so they work with archive cases too.
+* **Street cameras**: traffic cameras on the map when zoomed in – click one for its picture (California
+  built in; other states' 511 systems and Windy webcams with a free key).
 * **Surface observations**: ASOS station plots (temperature, dew point, sky, wind barb); hover for the METAR.
 * **Model soundings**: right-click anywhere → Skew-T, hodograph, CAPE, shear, helicity and storm motion
   from the RAP, HRRR, NAM or GFS. One click makes the Bunkers right-mover your storm motion.
@@ -201,7 +204,8 @@ whether to delete your settings and downloaded data too.
 | Warning details | hover a warning's outline (or open the **Warnings** side panel) |
 | Change a panel's product or colour table | right-click the panel, or use **Products** in the side panel |
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |
-| Live / archive / files | **Live**, **Archive** and **Open** on the toolbar |
+| Live / archive / files | **Live**, **Archive** and **Open** on the toolbar. **F5** (Radar → Reload live data) restarts the live feed |
+| Smoothing / dealiasing / Σ trail | toolbar switches (also View menu): **S** smoothing, **D** dealiased velocity, **Ctrl+T** max value trail – each panel shows the highest value over the loop up to the frame shown (CC: the lowest), for hail swaths and rotation tracks |
 | Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom |
 | Tilts | **↑ / ↓** or the tilt box |
 | Number of panels | toolbar layout buttons, or **Alt+1 … Alt+6** |
@@ -210,6 +214,8 @@ whether to delete your settings and downloaded data too.
 | Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
 | Storm reports / chasers / SPC | **Layers** menu (or side panel → **Layers**): **Warnings & reports**, **Storm chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook there) |
 | Satellite / lightning / MRMS / surface obs | **Layers → Satellite** (IR, visible, water vapour, opacity), **Lightning** (GLM flashes, last 5–30 min; NLDN density), **MRMS swaths** (rotation tracks, hail size, rainfall; 30 min – 24 h), **Surface observations**. Hover any of them for values |
+| Street cameras | **Layers → Street cameras**: icons appear when zoomed in to about 250 miles across; click one for its live picture. **Camera sources & keys…** adds states' free 511 keys or a Windy key (California needs none) |
+| Map colours & fonts | **Settings → Map style**: roads, borders, radar sites, cities, line widths and the city / site / title fonts |
 | Model sounding | right-click the map → **Model sounding here…** (or **Tools → Model sounding at the map centre**). Pick the model and forecast hour; **Use right-mover as storm motion** sets SRV |
 | My location | right-click the map → **Set my location here**; **Ctrl+L** goes back to it |
 | Saved locations & alerts | **Location → Saved locations & alerts** (**Ctrl+Shift+L**), or right-click the map → **Save this location…**. Per place: tornado / severe / flash flood / other warnings, watches, storm reports within N mi, lightning within N mi; sound, desktop notification, pop-up. Live data only |
@@ -300,16 +306,21 @@ Colour tables, Warnings (a line for each warning type and threat level), Themes 
 | Volume | Composite Reflectivity, Echo Tops 18/30/50 dBZ, VIL, VIL Density, MESH, POSH |
 | Level III, per tilt | Super-res Reflectivity, Velocity, Storm-Relative Velocity, CC, ZDR, KDP, Hydrometeor Class |
 | Level III | Digital VIL, Enhanced Echo Tops, Hybrid Hydroclass, Precip Rate, 1-h / 3-h / Storm-Total precip |
-| Level III overlays | Storm tracks, Mesocyclones, TVS, Hail, Melting layer |
+| Level III overlays | Storm tracks, Hail, Melting layer |
 
 SAILS / MESO-SAILS repeats of the 0.5° cut are grouped under that tilt (shown as "0.5° ×2").
 
 ### How live mode works
 
-The last few complete volumes come from the Level II archive; the volume being scanned right now is
-fetched in chunks as the radar produces them (every 15 s by default), so the newest tilts appear
-within seconds. Tilts the new volume hasn't reached yet show the previous volume ("prev vol" in the
-panel title). Level III products are checked once a minute.
+The volume being scanned right now is fetched first, in chunks as the radar produces them, so the newest
+tilts appear within seconds; the rest of the loop then comes from the Level II archive, newest first.
+Tilts the new volume hasn't reached yet show the previous volume ("prev vol" in the panel title).
+Level III products are checked once a minute.
+
+The live feed sometimes drops a chunk or a volume's end. RadarForge waits 30 seconds for a late chunk,
+then carries on without it, and swaps in the complete archive file when NOAA publishes it a few minutes
+later. A volume that never finishes is left after about 90 seconds for the newest one. If live data ever
+looks stuck, **F5** (Radar → Reload live data) starts the feed again.
 
 ---
 

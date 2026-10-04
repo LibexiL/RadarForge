@@ -119,6 +119,30 @@ class MenusMixin:
         self._tb_button(tb, self.sm_act)
         self._icon_targets.append((self.sm_act, "motion"))
         self._update_sm_label()
+        tb.addSeparator()
+
+        # display switches (GR2Analyst-style): smoothing, velocity dealiasing, max-value trail
+        self.smooth_act = QAction("Smoothing", self, checkable=True)
+        self.smooth_act.setChecked(bool(self.settings["gpu_smooth"]))
+        self.smooth_act.setShortcut(QKeySequence("S"))
+        self.smooth_act.setToolTip("Smoothing on / off (S)")
+        self.smooth_act.toggled.connect(self._toggle_smooth)
+        self.dealias_act = QAction("Dealias velocity", self, checkable=True)
+        self.dealias_act.setChecked(bool(self.settings["dealias_velocity"]))
+        self.dealias_act.setShortcut(QKeySequence("D"))
+        self.dealias_act.setToolTip("Dealias velocity (D): unfold aliased velocities in the base velocity and "
+                                    "storm-relative panels")
+        self.dealias_act.toggled.connect(self._toggle_dealias)
+        self.trail_act = QAction("Max value trail", self, checkable=True)
+        self.trail_act.setChecked(bool(self.settings["trail_mode"]))
+        self.trail_act.setShortcut(QKeySequence("Ctrl+T"))
+        self.trail_act.setToolTip("Σ Max value trail (Ctrl+T): every panel shows the highest value seen at each "
+                                  "spot over the loop up to the frame shown – hail swaths, rotation tracks, "
+                                  "strongest winds (CC shows its lowest: debris trails)")
+        self.trail_act.toggled.connect(self._toggle_trail)
+        for a, ic in ((self.smooth_act, "smooth"), (self.dealias_act, "dealias"), (self.trail_act, "trail")):
+            self._tb_button(tb, a, text_beside=False)
+            self._icon_targets.append((a, ic))
 
         # the side-panel switch lives in the menu bar's free right-hand corner, so it's never
         # pushed off a narrow window
@@ -134,6 +158,44 @@ class MenusMixin:
         self.side_btn.setIconSize(QSize(16, 16))
         self.menuBar().setCornerWidget(self.side_btn, Qt.TopRightCorner)
         self._icon_targets.append((self.side_act, "side"))
+
+    def _fit_toolbar(self):
+        """Narrow windows: first drop the words beside the toolbar icons, then shorten the radar and storm
+        motion buttons (tooltips still say what everything is), so every button stays visible instead of
+        disappearing into the overflow arrow."""
+        tb = getattr(self, "main_tb", None)
+        if tb is None:
+            return
+        acts = [self.live_act, self.archive_act, self.open_act] + list(self.tool_group.actions())
+        wids = [w for w in (tb.widgetForAction(a) for a in acts) if isinstance(w, QToolButton)]
+        sm = tb.widgetForAction(self.sm_act)
+        labels = getattr(self, "_site_label", (self.site_btn.text(), self.site_btn.text()))
+
+        def apply(level):
+            for w in wids:
+                w.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 1 else Qt.ToolButtonTextBesideIcon)
+            if isinstance(sm, QToolButton):
+                sm.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 2 else Qt.ToolButtonTextBesideIcon)
+            self.site_btn.setText(labels[0] if level >= 2 else labels[1])
+
+        def need():
+            items = [w for w in (tb.widgetForAction(a) for a in tb.actions()) if w is not None]
+            return sum(w.sizeHint().width() for w in items) + 6 * len(items) + 30
+
+        level = 2
+        for lv in (0, 1, 2):
+            apply(lv)
+            if need() <= tb.width():
+                level = lv
+                break
+        if level != getattr(self, "_tb_level", None):
+            self._tb_level = level
+            tb.layout().invalidate()
+            tb.updateGeometry()
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._fit_toolbar()
 
     def _build_timeline(self):
         """Frame / loop controls along the bottom, above the status bar."""
@@ -222,8 +284,9 @@ class MenusMixin:
         for a in self.layout_group.actions():
             lay.addAction(a)
         m.addSeparator()
-        self.smooth_act = self._act(m, "Smoothing", self._toggle_smooth, "S", checkable=True,
-                                    checked=bool(self.settings["gpu_smooth"]))
+        m.addAction(self.smooth_act)
+        m.addAction(self.dealias_act)
+        m.addAction(self.trail_act)
         vf = m.addMenu("Velocity noise filter")
         self.vf_group = QActionGroup(self)
         for lvl, label in ((0, "Off (raw data)"), (1, "Normal"), (2, "Aggressive")):
@@ -252,6 +315,7 @@ class MenusMixin:
         self._act(m, "Add / remove this radar as a favourite", self.toggle_favorite, "Ctrl+D")
         m.addSeparator()
         m.addAction(self.live_act)
+        self._act(m, "Reload live data", self.reload_live, "F5")
         m.addAction(self.archive_act)
         m.addSeparator()
         self._act(m, "Previous frame", lambda: self.step_frame(-1), None)
@@ -315,8 +379,8 @@ class MenusMixin:
         m.addSeparator()
         # Level III
         l3 = m.addMenu("Level III overlays")
-        for key, label in (("storm_tracks", "Storm tracks (NST)"), ("meso", "Mesocyclones (NMD)"),
-                           ("tvs", "TVS (NTV)"), ("hail", "Hail index (NHI)"), ("melting_layer", "Melting layer (N0M)")):
+        for key, label in (("storm_tracks", "Storm tracks (NST)"), ("hail", "Hail index (NHI)"),
+                           ("melting_layer", "Melting layer (N0M)")):
             self._overlay_act(l3, key, label)
         # base map
         mp = m.addMenu("Map")
@@ -438,9 +502,10 @@ class MenusMixin:
                              ("B", "3-D (drag a box around a storm)"), ("Esc", "back to pan; again: clear measure / track"),
                              ("Shift+drag", "quick measure")]),
             ("Map", [("wheel / drag", "zoom / pan"), ("double-click", "centre here"), ("Home", "reset view"),
-                     ("right-click", "product, colour table, nearest radar"), ("S", "smoothing on/off")]),
+                     ("right-click", "product, colour table, nearest radar"), ("S", "smoothing on/off"),
+                     ("D", "dealias velocity on/off"), ("Ctrl+T", "Σ max value trail on/off")]),
             ("Window", [("F9", "show / hide the side panel"), ("F11", "full screen"), ("F1", "this list")]),
-            ("Files & data", [("Ctrl+O", "open files"), ("Ctrl+A", "archive"), ("Ctrl+R", "choose radar"),
+            ("Files & data", [("F5", "reload live data"), ("Ctrl+O", "open files"), ("Ctrl+A", "archive"), ("Ctrl+R", "choose radar"),
                               ("Ctrl+D", "add / remove favourite radar"), ("Ctrl+L", "go to my location"),
                               ("Ctrl+Shift+L", "saved locations & alerts"),
                               ("Ctrl+P", "placefiles"), ("Ctrl+S", "save image"), ("Ctrl+Shift+C", "copy image"),

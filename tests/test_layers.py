@@ -286,3 +286,74 @@ def test_learn_mode_text():
     assert "hail is possible" in joined and "debris" in joined and "classic hail signature" in joined
     assert "58 kt toward" in joined and "strong rotation" in joined and "12,500 ft" in joined
     assert st.explain({"REF": float("nan")}) == []
+
+
+# --------------------------------------------------------------------------- Σ max value trail
+def test_trail_combine():
+    from radarforge.products import trail
+    assert trail.rule_for("REF") == "max" and trail.rule_for("CC") == "min" and trail.rule_for("SRV") == "absmax"
+    assert trail.rule_for("L3H") is None
+    new = _sweep("REF", np.nan, [(45, 50, 40, 3)])
+    old = _sweep("REF", np.nan, [(45, 50, 55, 1.5), (90, 30, 30, 2)])
+    # an older frame on a coarser grid (360 radials, 1 km gates) must line up with the new one
+    from radarforge.products.engine import SweepImage
+    az = np.arange(360) + 0.5
+    v = np.full((360, 150), np.nan, np.float32)
+    v[44:46, 49:51] = 65.0
+    coarse = SweepImage(key=("c",), product="REF", values=v, az=az, az_lo=az - 0.5, az_hi=az + 0.5, first_gate=0.5,
+                        gate_spacing=1.0, elevation=0.5, ground_range=False, time=None)
+    out = trail.combine(new, [old, coarse], "max")
+    assert out.extra["trail"] == 3 and "_gpu" not in out.extra
+    o = out.values.astype(np.float32)
+    def at(a, s_km):
+        return float(st.sample_at(out, [a], [s_km])[0])
+    assert at(45, 50) == 65 and at(46, 51.5) == 40 and at(90, 30) == 30 and np.isnan(at(200, 50))
+    assert o.shape == new.values.shape
+    vel_new = _sweep("VEL", np.nan, [(10, 20, -20.0, 2)])
+    vel_old = _sweep("VEL", np.nan, [(10, 20, 30.0, 1), (10, 25, -40.0, 1)])
+    ov = trail.combine(vel_new, [vel_old], "absmax")
+    assert float(st.sample_at(ov, [10], [20])[0]) == 30 and float(st.sample_at(ov, [10], [25])[0]) == -40
+    assert float(st.sample_at(ov, [10], [21.5])[0]) == -20
+    cc_new = _sweep("CC", 0.98, [])
+    cc_old = _sweep("CC", 0.98, [(30, 40, 0.6, 1)])
+    assert float(st.sample_at(trail.combine(cc_new, [cc_old], "min"), [30], [40])[0]) == pytest.approx(0.6, abs=1e-3)
+
+
+# --------------------------------------------------------------------------- street cameras
+def test_camera_parsers_and_declutter():
+    from radarforge.features import cameras as cam
+    ct = {"data": [
+        {"cctv": {"index": "7", "inService": "true",
+                  "location": {"latitude": "34.05", "longitude": "-118.25", "locationName": "Main St", "route": "I-5"},
+                  "imageData": {"static": {"currentImageURL": "https://cwwp2.dot.ca.gov/x.jpg"}}}},
+        {"cctv": {"index": "8", "inService": "false", "location": {"latitude": "34", "longitude": "-118"},
+                  "imageData": {"static": {"currentImageURL": "https://x"}}}},
+        {"cctv": {"index": "9", "location": {"latitude": "", "longitude": "-118"}}}]}
+    c = cam.parse_caltrans(ct, 7)
+    assert len(c) == 1 and c[0].name == "I-5 – Main St" and c[0].views[0][1].endswith("x.jpg")
+    ibi = [{"Id": 5, "Latitude": 40.7, "Longitude": -74.0, "Roadway": "I-87", "Location": "Exit 4",
+            "Views": [{"Url": "https://511ny.org/map/Cctv/5", "Status": "Enabled", "Description": "North"},
+                      {"Url": "https://511ny.org/map/Cctv/6", "Status": "Disabled"}]},
+           {"Id": 6, "Latitude": None, "Longitude": -74.0, "Views": [{"Url": "u"}]}]
+    c = cam.parse_ibi(ibi, "NY")
+    assert len(c) == 1 and c[0].views == [("North", "https://511ny.org/map/Cctv/5")] and c[0].source == "511 New York"
+    w = cam.parse_windy({"webcams": [{"webcamId": 11, "title": "Bridge", "status": "active",
+                                      "location": {"latitude": 41.0, "longitude": -75.0},
+                                      "images": {"current": {"preview": "https://img/p.jpg"}}},
+                                     {"webcamId": 12, "status": "inactive", "location": {"latitude": 1, "longitude": 1},
+                                      "images": {"current": {"preview": "x"}}}]}, 1000.0)
+    assert len(w) == 1 and w[0].expires == 1000 + 540 and "windy.com/webcams/11" in w[0].page
+    assert cam.box_near(cam.CA_BOX, 33.0, -117.0, 10) and not cam.box_near(cam.CA_BOX, 40.0, -90.0, 300)
+    sx = np.array([5.0, 10.0, 50.0, 52.0, 200.0])
+    sy = np.array([5.0, 12.0, 50.0, 51.0, 5.0])
+    idx, counts = cam.declutter(sx, sy, 30.0)
+    assert sorted(counts) == [1, 2, 2] and len(idx) == 3
+
+
+def test_theme_fonts_roundtrip():
+    from radarforge import themes
+    t = themes.normalize({"name": "X", "fonts": {"city": {"family": "DejaVu Sans", "size": 30, "bold": True},
+                                                  "bogus": {}}})
+    assert t["fonts"]["city"] == {"family": "DejaVu Sans", "size": 24, "bold": True}
+    assert t["fonts"]["site"]["size"] == 8 and "bogus" not in t["fonts"]
+    assert themes.clean(t)["fonts"]["city"]["bold"]

@@ -127,7 +127,8 @@ class StormToolsMixin:
 
     def _update_sm_label(self):
         self.sm_act.setText(f"SM {self.settings['storm_motion_dir']:03.0f}°/{self.settings['storm_motion_kts']:.0f}kt")
-        self.sm_act.setToolTip("Storm motion used for SRV (click to edit)")
+        self.sm_act.setToolTip(f"Storm motion used for SRV: from {self.settings['storm_motion_dir']:03.0f}° at "
+                               f"{self.settings['storm_motion_kts']:.0f} kt (click to edit)")
 
     def show_storm_table(self):
         f = self.current_frame()

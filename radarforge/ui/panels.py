@@ -279,9 +279,11 @@ class WarningsPanel(QWidget):
         wl.addLayout(frow)
         row2 = QHBoxLayout()
         self.in_view = QCheckBox("Only in view")
-        self.in_view.setChecked(True)
+        self.in_view.setChecked(bool(main.settings["warnings_in_view"]))
         self.in_view.setToolTip("Only list warnings that overlap the area you're looking at")
         self.in_view.toggled.connect(self.refresh)
+        self.in_view.toggled.connect(lambda on: (main.settings.__setitem__("warnings_in_view", on),
+                                                 main.settings.save()))
         row2.addWidget(self.in_view)
         row2.addStretch(1)
         self.count = QLabel()
@@ -705,7 +707,7 @@ class LayersPanel(QWidget):
         group("Overlays", [(main.overlay_acts[k], t) for k, t in (
             ("warnings", "Warnings"), ("watches", "Watches"), ("reports", "Storm reports"),
             ("chasers", "Storm chasers"), ("spc_outlook", "SPC outlook"), ("spc_mcd", "SPC discussions"),
-            ("storm_tracks", "Storm tracks"), ("meso", "Mesocyclones"), ("tvs", "TVS"), ("hail", "Hail"),
+            ("storm_tracks", "Storm tracks"), ("hail", "Hail"),
             ("melting_layer", "Melting layer"), ("storm_flags", "Storm flags"))])
         group("Weather data", [(main.overlay_acts[k], t) for k, t in (
             ("satellite", "Satellite"), ("lightning", "Lightning"), ("lightning_density", "Lightning density"),

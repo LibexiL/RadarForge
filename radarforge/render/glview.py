@@ -113,6 +113,7 @@ class RadarView(QOpenGLWindow):
     lineDrawn = Signal(str, float, float, float, float)   # tool, x0, y0, x1, y1 (km)
     boxDrawn = Signal(float, float, float, float)         # x0, y0, x1, y1 (km)
     siteClicked = Signal(str)
+    mapClicked = Signal(float, float)    # a plain left click (no drag) on the map, world km
     viewChanged = Signal()
     panelActivated = Signal(int)
     trackChanged = Signal()                               # storm track placed / moved / cleared
@@ -176,6 +177,8 @@ class RadarView(QOpenGLWindow):
         self.colors = {k: QColor(*v) for k, v in DEFAULT_COLORS.items()}
         self.layer_style = dict(LAYER_STYLE)
         self.font_small = ui_font(8)
+        self.font_city = ui_font(9)          # city labels (themes can change these three)
+        self.font_site = ui_font(8)          # radar site labels
         self.font_label = ui_font(9)
         self.font_header = ui_font(9, True)
         # rendering caches: the finished scene (so hover only redraws the cursor), text sprites,
@@ -214,6 +217,18 @@ class RadarView(QOpenGLWindow):
     @property
     def bg(self):
         return self.colors["map_bg"]
+
+    def set_fonts(self, fonts: dict):
+        """Theme fonts: {"city": QFont, "site": QFont, "title": QFont}."""
+        if fonts.get("city") is not None:
+            self.font_city = fonts["city"]
+        if fonts.get("site") is not None:
+            self.font_site = fonts["site"]
+        if fonts.get("title") is not None:
+            self.font_header = fonts["title"]
+        self._sprites.clear()
+        self._city_cache.clear()
+        self.update()
 
     def set_colors(self, colors: dict, layer_style: dict | None = None):
         """Apply theme colours (role -> QColor) and optional map layer styles."""
@@ -866,7 +881,7 @@ class RadarView(QOpenGLWindow):
             self._halo_text(painter, lx + 3, ly - 3, f"{k * step_u} {self.distance_units}", label)
 
     def _site_label_rects(self, vt):
-        fm = QFontMetricsF(self.font_small)
+        fm = QFontMetricsF(self.font_site)
         out = []
         for sid, x, y, _k in self._visible_sites(vt):
             sx, sy = vt.to_screen(x, y)
@@ -885,7 +900,7 @@ class RadarView(QOpenGLWindow):
         """Label placement for the current view; shared by all panels of the same size."""
         r = vt.rect
         key = (round(r.width()), round(r.height()), self.cx, self.cy, self.scale, self.show_sites,
-               self.show_tdwr, self.show_legend, round(self._header_w), self.font_label.key())
+               self.show_tdwr, self.show_legend, round(self._header_w), self.font_city.key(), self.font_site.key())
         hit = self._city_cache.get(key)
         if hit is not None:
             return hit
@@ -899,7 +914,7 @@ class RadarView(QOpenGLWindow):
             minpop = 2_000_000 if km_across > 3000 else 500_000 if km_across > 1500 else 100_000 if km_across > 700 \
                 else 25_000 if km_across > 350 else 5_000 if km_across > 150 else 0
             inside = inside[self.maps.city_pop[inside] >= minpop][:400]
-            fm = QFontMetricsF(self.font_label)
+            fm = QFontMetricsF(self.font_city)
             sites = self._site_label_rects(vt) if self.show_sites else []
             chrome = self._chrome_rects(r)
             occupied = sites + chrome
@@ -938,18 +953,18 @@ class RadarView(QOpenGLWindow):
         if not layout:
             return
         ox, oy = vt.rect.left(), vt.rect.top()
-        painter.setFont(self.font_label)
+        painter.setFont(self.font_city)
         painter.setPen(Qt.NoPen)
         painter.setBrush(self.colors["city_dot"])
         for dx, dy, _tx, _ty, _n in layout:
             painter.drawEllipse(QPointF(ox + dx, oy + dy), 2.0, 2.0)
         col = self.colors["city_text"]
         for _dx, _dy, tx, ty, name in layout:
-            self._halo_text(painter, ox + tx, oy + ty, name, col)
+            self._halo_text(painter, ox + tx, oy + ty, name, col, self.font_city)
 
     def _paint_sites(self, painter, vt):
-        painter.setFont(self.font_small)
-        fm = QFontMetricsF(self.font_small)
+        painter.setFont(self.font_site)
+        fm = QFontMetricsF(self.font_site)
         c = self.colors
         for sid, x, y, kind in self._visible_sites(vt):
             sx, sy = vt.to_screen(x, y)
@@ -966,7 +981,7 @@ class RadarView(QOpenGLWindow):
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(r)
             col = c["site_current"].lighter(115) if cur else QColor(150, 220, 255) if hov else c["site_text"]
-            self._halo_text(painter, sx - fm.horizontalAdvance(sid) / 2, sy - size / 2 - 3, sid, col)
+            self._halo_text(painter, sx - fm.horizontalAdvance(sid) / 2, sy - size / 2 - 3, sid, col, self.font_site)
 
     def set_box(self, box):
         self.box3d = box
@@ -1376,6 +1391,10 @@ class RadarView(QOpenGLWindow):
                 sid = self.site_at(ev.position())
                 if sid:
                     self.siteClicked.emit(sid)
+                else:
+                    wx, wy, _p = self.world_at(ev.position())
+                    if wx is not None:
+                        self.mapClicked.emit(float(wx), float(wy))
             return
         if self._line is not None:
             tool, x0, y0, x1, y1 = self._line

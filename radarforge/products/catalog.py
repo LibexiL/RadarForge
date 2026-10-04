@@ -109,13 +109,18 @@ BY_ID = {p.id: p for p in PRODUCTS}
 # Level III graphic overlays (drawn on every panel when enabled)
 L3_OVERLAYS = {
     "storm_tracks": ("NST", "Storm tracks (SCIT)"),
-    "meso": ("NMD", "Mesocyclones (MDA)"),
-    "tvs": ("NTV", "Tornado vortex signatures"),
     "hail": ("NHI", "Hail index"),
     "melting_layer": ("N0M", "Melting layer"),
 }
 
 CATEGORIES = ["Base", "Dual-Pol", "Derived", "Volume", "Level III"]
+
+
+def l3_fallbacks(code: str) -> list:
+    """Older codes carrying the same data, tried when a radar/date has no `code` (N0B -> N0Q, N0R)."""
+    if code and len(code) == 3 and code[0] == "N" and code[2] in _LEGACY:
+        return [code[:2] + alt for alt in _LEGACY[code[2]]]
+    return []
 
 
 def get(pid: str) -> ProductDef:

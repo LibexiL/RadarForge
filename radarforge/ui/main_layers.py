@@ -12,6 +12,33 @@ class LayersMixin:
         self.view.smooth = on
         self.view.update()
 
+    def _toggle_dealias(self, on):
+        self.settings["dealias_velocity"] = on
+        self.settings.save()
+        self._panel_req.clear()
+        self._show_frame()
+        self._prefetch()
+        self._status_msg("Velocity dealiasing " + ("on: base velocity and SRV are unfolded" if on else "off"))
+
+    def _toggle_trail(self, on):
+        self.settings["trail_mode"] = on
+        self.settings.save()
+        self._trails.clear()
+        self._panel_req.clear()
+        self._show_frame()
+        if on:
+            self._status_msg("Σ Max value trail: each panel shows the most extreme value over the loop up to this "
+                             "frame (step back to shorten it)")
+
+    def reload_live(self):
+        if self.data.mode != "live":
+            self.start_live()
+            return
+        self.engine.clear()
+        self._panel_req.clear()
+        self.data.reload_live()
+        self._status_msg(f"Reloading live data for {self.data.site_id}…")
+
     def _toggle_legend(self, on):
         self.settings["show_legend"] = on
         self.view.show_legend = on

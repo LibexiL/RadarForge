@@ -127,51 +127,13 @@ class Level3Overlay:
                     view._halo_text(painter, cur.x() + 6, cur.y() - 5, g["id"],
                                     view.colors.get("label_text", QColor(255, 255, 255)))
 
-        if ov.get("meso") and "NMD" in prods:
-            prod = prods["NMD"]
-            for g in prod.graphics:
-                if g["kind"] != "meso" or not near(prod, g):
-                    continue
-                p = S(prod, g["x"], g["y"])
-                rank = g.get("rank") or 0
-                col = QColor(255, 255, 0) if rank < 5 else QColor(255, 140, 0) if rank < 7 else QColor(255, 30, 30)
-                rad = max(7.0, (g.get("radius") or 2) * vt.scale)
-                style = Qt.DashLine if g.get("elevated") else Qt.SolidLine
-                painter.setBrush(Qt.NoBrush)
-                painter.setPen(QPen(QColor(0, 0, 0), 4))
-                painter.drawEllipse(p, rad, rad)
-                painter.setPen(QPen(col, 2.2, style))
-                painter.drawEllipse(p, rad, rad)
-                if rank >= 5:
-                    for k in range(4):
-                        a = math.radians(45 + 90 * k)
-                        painter.drawLine(QPointF(p.x() + math.cos(a) * rad, p.y() + math.sin(a) * rad),
-                                         QPointF(p.x() + math.cos(a) * (rad + 5), p.y() + math.sin(a) * (rad + 5)))
-                if g.get("rank"):
-                    view._halo_text(painter, p.x() + rad + 3, p.y() + 4, f"SR{g['rank']}", col)
-
-        if ov.get("tvs") and "NTV" in prods:
-            prod = prods["NTV"]
-            for g in prod.graphics:
-                if g["kind"] != "tvs" or not near(prod, g):
-                    continue
-                p = S(prod, g["x"], g["y"])
-                tri = QPolygonF([QPointF(p.x(), p.y() + 12), QPointF(p.x() - 10, p.y() - 8), QPointF(p.x() + 10, p.y() - 8)])
-                painter.setPen(QPen(QColor(0, 0, 0), 3))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawPolygon(tri)
-                painter.setPen(QPen(QColor(255, 0, 0), 2))
-                painter.setBrush(QColor(255, 0, 0, 90) if g.get("elevated") else QColor(255, 0, 0, 220))
-                painter.drawPolygon(tri)
-
     def hover(self, x, y, tol):
         prods = self._products()
         if not prods:
             return None
         ov = self.settings["overlays"]
         cands = []
-        for code, kind, key in (("NTV", "tvs", "tvs"), ("NMD", "meso", "meso"), ("NHI", "hail", "hail"),
-                                ("NST", "storm", "storm_tracks")):
+        for code, kind, key in (("NHI", "hail", "hail"), ("NST", "storm", "storm_tracks")):
             if not ov.get(key) or code not in prods:
                 continue
             prod = prods[code]
@@ -184,14 +146,7 @@ class Level3Overlay:
                     continue
                 d = math.hypot(g["x"] + ox - x, g["y"] + oy - y)
                 if d < tol * 1.5:
-                    if kind == "tvs":
-                        txt = "TVS" + (" (elevated)" if g.get("elevated") else "")
-                    elif kind == "meso":
-                        txt = f"Mesocyclone {g.get('circ_id') or ''}: strength rank {g.get('rank') or '?'}" + \
-                              (f", low-level rot. vel. {g['llrv']} kt" if g.get("llrv") else "") + \
-                              (f", storm {g['storm']}" if g.get("storm") else "") + \
-                              (" (elevated)" if g.get("elevated") else "")
-                    elif kind == "hail":
+                    if kind == "hail":
                         txt = f"Hail: POSH {g.get('posh')}%  POH {g.get('poh')}%  max {g.get('size')}\""
                     else:
                         txt = f"Storm {g.get('id') or ''}"

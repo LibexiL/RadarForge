@@ -7,7 +7,8 @@ A theme is a small JSON file (``.rftheme``)::
       "name": "My theme", "dark": true,
       "ui":  {"window": "#26272d", "accent": "#3c6ec8", ...},
       "map": {"map_bg": "#08080c", "states": "#e1e1e1", "counties": "#69696980", ...},
-      "widths": {"states": 1.8, "counties": 1.0}
+      "widths": {"states": 1.8, "counties": 1.0},
+      "fonts": {"city": {"family": "", "size": 9, "bold": false}, "site": {...}, "title": {...}}
     }
 
 Colours are ``#rrggbb`` or ``#rrggbbaa``. Anything a file leaves out falls back to
@@ -43,6 +44,7 @@ MAP_ROLES = [
     ("label_text", "Panel title and colour bar text"), ("halo", "Text outline"), ("panel_border", "Panel borders"),
     ("active_border", "Active panel border"), ("cursor", "Linked cursor"),
 ]
+FONT_ROLES = [("city", "City labels"), ("site", "Radar site labels"), ("title", "Panel titles")]
 WIDTH_ROLES = [("states", "State lines"), ("countries", "Country lines"), ("counties", "County lines"),
                ("roads", "Interstates"), ("roads2", "Highways"), ("lakes", "Lakes")]
 
@@ -57,6 +59,9 @@ DEFAULT = {
             "label_text": "#f0f0f5", "halo": "#000000dc", "panel_border": "#464650", "active_border": "#5a8cdc",
             "cursor": "#ffffffe6"},
     "widths": {"states": 1.8, "countries": 1.8, "counties": 1.0, "roads": 1.4, "roads2": 1.0, "lakes": 1.0},
+    # family "" = the interface font
+    "fonts": {"city": {"family": "", "size": 9, "bold": False}, "site": {"family": "", "size": 8, "bold": False},
+              "title": {"family": "", "size": 9, "bold": True}},
 }
 
 _BUILTIN = [
@@ -154,6 +159,15 @@ def normalize(theme: dict) -> dict:
     for k, v in (theme.get("widths") or {}).items():
         if k in out["widths"]:
             out["widths"][k] = max(0.3, min(6.0, float(v)))
+    for k, v in (theme.get("fonts") or {}).items():
+        if k in out["fonts"] and isinstance(v, dict):
+            f = out["fonts"][k]
+            f["family"] = str(v.get("family") or "")[:80]
+            try:
+                f["size"] = max(6, min(24, int(round(float(v.get("size", f["size"]))))))
+            except (TypeError, ValueError):
+                pass
+            f["bold"] = bool(v.get("bold", f["bold"]))
     if theme.get("author"):
         out["author"] = str(theme["author"])[:80]
     return out
@@ -242,7 +256,7 @@ def clean(theme: dict) -> dict:
     t = normalize(theme)
     return {"format": FORMAT, "version": 1, "name": t["name"], "dark": t["dark"],
             **({"author": t["author"]} if t.get("author") else {}),
-            "ui": t["ui"], "map": t["map"], "widths": t["widths"]}
+            "ui": t["ui"], "map": t["map"], "widths": t["widths"], "fonts": t["fonts"]}
 
 
 def save_theme(theme: dict, path=None) -> str:
@@ -290,6 +304,19 @@ def map_style(theme: dict):
         c = t["map"].get(name)
         layers[name] = (label, parse_color(c) if c else rgba, float(t["widths"].get(name, width)), min_scale)
     return colors, layers
+
+
+def map_fonts(theme: dict) -> dict:
+    """role -> QFont for RadarView.set_fonts()."""
+    from .render.fonts import ui_font
+    t = normalize(theme)
+    out = {}
+    for role, f in t["fonts"].items():
+        q = ui_font(f["size"], f["bold"])
+        if f["family"]:
+            q.setFamily(f["family"])
+        out[role] = q
+    return out
 
 
 def apply_ui(app, theme: dict):

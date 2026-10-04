@@ -281,6 +281,47 @@ def _warning(p, col, pen):
     p.setBrush(Qt.NoBrush)
 
 
+def _smooth(p, col, pen):
+    """Smoothing: a block shading smoothly from white to grey (GR style; not tinted)."""
+    from PySide6.QtGui import QLinearGradient
+    g = QLinearGradient(0, 4, 0, 20)
+    g.setColorAt(0, QColor(255, 255, 255, col.alpha()))
+    g.setColorAt(1, QColor(150, 150, 150, col.alpha()))
+    p.setPen(Qt.NoPen)
+    p.setBrush(g)
+    p.drawRect(QRectF(7, 4, 10, 16))
+
+
+def _dealias(p, col, pen):
+    """Velocity dealiasing: a folded bar (red band) joined to an unfolded one (not tinted)."""
+    a = col.alpha()
+    dark, bright, red = QColor(0, 130, 0, a), QColor(0, 235, 0, a), QColor(235, 0, 0, a)
+    p.setPen(Qt.NoPen)
+    for x in (3.5, 15.0):
+        p.setBrush(dark)
+        p.drawRect(QRectF(x, 4, 5.5, 16))
+        p.setBrush(bright)
+        p.drawRect(QRectF(x, 7, 5.5, 10))
+    p.setBrush(red)
+    p.drawRect(QRectF(3.5, 10.5, 5.5, 3))
+    p.setPen(QPen(col, 1.6))
+    p.drawLine(QPointF(9, 12), QPointF(15, 12))
+    p.drawLine(QPointF(12, 10.5), QPointF(12, 13.5))
+
+
+def _sigma(p, col, pen):
+    path = QPainterPath()
+    path.moveTo(18, 6.5)
+    path.lineTo(18, 4)
+    path.lineTo(6, 4)
+    path.lineTo(12.5, 12)
+    path.lineTo(6, 20)
+    path.lineTo(18, 20)
+    path.lineTo(18, 17.5)
+    p.setPen(QPen(col, 2.2, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin))
+    p.drawPath(path)
+
+
 _DRAW = {
     "live": _live, "archive": _archive, "open": _open,
     "up": _tri("up"), "down": _tri("down"), "play": _play, "pause": _pause,
@@ -288,6 +329,7 @@ _DRAW = {
     "pan": _pan, "xsection": _xsection, "measure": _measure, "track": _track, "box3d": _cube, "motion": _motion,
     "side": _side, "settings": _gear, "radar": _radar, "save": _save, "theme": _theme, "layers": _layers,
     "lock": _lock, "palette": _palette, "warning": _warning,
+    "smooth": _smooth, "dealias": _dealias, "trail": _sigma,
 }
 for _n in range(1, 7):
     _DRAW[f"layout{_n}"] = _layout(_n)

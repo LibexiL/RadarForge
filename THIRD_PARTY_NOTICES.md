@@ -24,4 +24,6 @@ Pillow (HPND), imageio / imageio-ffmpeg (BSD-2; ffmpeg itself is LGPL/GPL), h5py
 Data services used at runtime: NOAA NEXRAD on AWS (Unidata-managed buckets), NOAA MRMS (noaa-mrms-pds) and
 GOES-19 / GOES-18 GLM (noaa-goes19, noaa-goes18) on AWS through the NOAA Open Data Dissemination program, the
 NWS API (api.weather.gov), the Iowa Environmental Mesonet (historical warnings, storm reports, SPC products,
-GOES satellite images, current surface observations and BUFKIT model soundings) and Spotter Network.
+GOES satellite images, current surface observations and BUFKIT model soundings), Spotter Network, and for street
+cameras Caltrans CWWP2 open data, state 511 developer APIs and Windy Webcams (with the user's own keys; pictures
+remain the property of their providers).

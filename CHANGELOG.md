@@ -1,5 +1,63 @@
 # Changelog
 
+## 1.9.3 – 2026-10-04
+
+* Removed the automatic Level III **mesocyclone circles** (NMD, "strength rank") and **TVS triangles** (NTV)
+  from the map, with their switches in Layers → Level III overlays and the Layers panel. They're no longer
+  downloaded for the map. The Storm cells table still lists mesocyclone rank and TVS while it's open.
+
+## 1.9.2 – 2026-10-04
+
+* **Street cameras** (Layers → Street cameras): traffic camera icons on the map. Click one to see its
+  picture, which refreshes every minute; if several cameras share a spot you can pick between them.
+  * To keep the radar readable, cameras only show when you're zoomed in (about 250 miles across or
+    less), as small icons, one per patch of screen.
+  * California's cameras (Caltrans) work out of the box.
+  * New York, Georgia, Idaho, Alaska, Louisiana, Utah, Wisconsin, Arizona, Nevada, Connecticut and
+    Florida (their 511 systems), plus Windy Webcams worldwide, need a free developer key. Add keys in
+    **Layers → Street cameras → Camera sources & keys**.
+* **Map style** (Settings → Map style): colours for interstates, highways, state, county and country
+  lines, radar site markers and labels, and city labels and dots, plus line widths. Fonts (family,
+  size, bold) for city labels, radar site labels and panel titles. Changes preview live. Editing a
+  built-in theme saves your version as "<theme> – my map". The theme editor has the fonts too.
+* **Archive Level III fixed**: cases from before the super-res Level III products (N0B / N0G) existed
+  now fall back to N0Q / N0U (and N0R / N0V), so L3 reflectivity and velocity load for older dates.
+* **Archive frames fixed**: Level III products that finished downloading before the Level II volumes no
+  longer turn into extra frames without radar data. They now wait and attach to the volume they
+  belong to, so the loop has one frame per volume with base reflectivity and velocity in each.
+* **Dealias velocity** now also works on Level III velocity (L3 super-res velocity and L3 SRV). The panel
+  title says "dealiased" when it's on. On most scans only gates that were actually aliased change, so
+  the difference shows in strong-wind areas such as hurricanes, intense couplets and strong jets.
+
+## 1.9.1 – 2026-10-04
+
+* **Steadier, quicker live data**:
+  * The newest volume now appears first, within a second or two, and the rest of the loop fills in
+    behind it newest first. Before, every earlier volume had to download before live data showed.
+  * A chunk that never arrives no longer stalls the live feed: after 30 seconds it's skipped and
+    the rest of the volume keeps coming. When the complete archive file is published a few minutes
+    later, it replaces the gappy volume automatically (no more switching radars to fix it).
+  * If a volume never finishes, or the radar restarts its numbering, RadarForge notices within about
+    90 seconds and moves to the newest volume (it used to wait 15 minutes).
+  * Holes in the loop are filled from the archive every 90 seconds, including the volume the archive
+    is still behind on (loaded from its live chunks).
+  * Chunks download in parallel and on their own thread, so loading the loop or Level III can't hold
+    up live updates. While a volume is scanning RadarForge checks again every few seconds.
+  * Failed downloads and S3 "slow down" replies are retried automatically, and switching radars stops
+    the old radar's downloads straight away.
+  * **Radar → Reload live data (F5)** restarts the feed for the current radar if anything looks wrong.
+  * The download cache is kept under 3 GB (files older than 10 days are removed).
+* **Toolbar switches** (also in the View menu):
+  * **Smoothing (S).**
+  * **Dealias velocity (D)**: base velocity and storm-relative velocity panels show unfolded
+    velocities. The panel title says "dealiased".
+  * **Σ Max value trail (Ctrl+T)**: every panel shows the most extreme value at each spot over the
+    loop up to the frame shown. Reflectivity or MESH gives hail swaths, azimuthal shear gives rotation
+    tracks, and velocity gives the strongest winds. CC shows its lowest value, which traces debris.
+    Step back through the frames to shorten the trail.
+* The toolbar fits narrow windows: the words beside the icons are dropped first, so every button stays visible.
+* Warnings panel: **Only in view** is now off by default, and RadarForge remembers your choice.
+
 ## 1.9.0 – 2026-10-03
 
 * **Satellite** (Layers → Satellite): GOES-East / West infrared, visible or water vapour under the radar,

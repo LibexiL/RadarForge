@@ -85,7 +85,8 @@ def theme_preview_icon(t, w=72, h=40):
 
 
 class SettingsDialog(QDialog):
-    PAGES = ["General", "Display", "Loop & live", "Environment", "Colour tables", "Warnings", "Themes", "Performance"]
+    PAGES = ["General", "Display", "Loop & live", "Environment", "Colour tables", "Warnings", "Themes", "Map style",
+             "Performance"]
 
     def __init__(self, settings, parent=None, page=None):
         super().__init__(parent)
@@ -100,12 +101,14 @@ class SettingsDialog(QDialog):
         self.nav.setIconSize(QSize(18, 18))
         self.pages = QStackedWidget()
         nav_icons = {"General": "settings", "Display": "layers", "Loop & live": "play", "Environment": "radar",
-                     "Colour tables": "palette", "Warnings": "warning", "Themes": "theme", "Performance": "box3d"}
+                     "Colour tables": "palette", "Warnings": "warning", "Themes": "theme", "Map style": "layers",
+                     "Performance": "box3d"}
         for name in self.PAGES:
             it = QListWidgetItem(icons.icon(nav_icons.get(name, "settings")), name)
             it.setSizeHint(QSize(0, 34))
             self.nav.addItem(it)
-            self.pages.addWidget(getattr(self, "_page_" + name.split()[0].lower())())
+            page_fn = {"Loop & live": "loop", "Colour tables": "colour", "Map style": "map_style"}.get(name, name.lower())
+            self.pages.addWidget(getattr(self, "_page_" + page_fn)())
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
@@ -333,6 +336,62 @@ class SettingsDialog(QDialog):
         self._fill_themes(self.s["theme"])
         return w
 
+    def _page_map_style(self):
+        w, lay = _page("Map style", "Colours and fonts for roads, borders, radar sites and city names. They belong to "
+                                    "the theme chosen on the Themes page; changing a built-in theme saves your "
+                                    "version as a new theme (\"… – my map\").")
+        self.map_style = MapStyleEditor(self._map_style_changed)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setWidget(self.map_style)
+        lay.addWidget(sa, 1)
+        row = QHBoxLayout()
+        self.map_style_note = _hint("")
+        row.addWidget(self.map_style_note, 1)
+        reset = QPushButton("Undo my changes")
+        reset.clicked.connect(self._map_style_reset)
+        row.addWidget(reset)
+        lay.addLayout(row)
+        self._map_style_dirty = False
+        self._map_style_reset()
+        return w
+
+    def _map_style_base(self):
+        t = self._current_theme() if hasattr(self, "theme_list") else None
+        return themes.normalize(t or themes.find(self.s["theme"]))
+
+    def _map_style_reset(self):
+        base = self._map_style_base()
+        self.map_style.load(base)
+        self._map_style_dirty = False
+        self.map_style_note.setText(f"Editing the map part of “{base['name']}”.")
+        if self.main is not None:
+            self.main.preview_theme(base)
+
+    def _map_style_changed(self):
+        self._map_style_dirty = True
+        base = self._map_style_base()
+        t = self.map_style.apply_to(base)
+        builtin = any(x["name"] == base["name"] for x in themes.builtin_themes())
+        self.map_style_note.setText(f"Editing “{base['name']}”" + (" – saved as “" + base["name"] + " – my map” when "
+                                                                    "you click OK." if builtin else
+                                                                    " – saved when you click OK."))
+        if self.main is not None:
+            self.main.preview_theme(t)
+
+    def _save_map_style(self):
+        """OK: keep the map style edits (a built-in theme becomes a user copy). Returns the theme name to use."""
+        base = self._map_style_base()
+        t = self.map_style.apply_to(base)
+        src = self._current_theme() or {}
+        if src.get("_builtin") or any(x["name"] == base["name"] for x in themes.builtin_themes()):
+            t["name"] = f"{base['name']} – my map"
+            themes.save_theme(t)
+        else:
+            themes.save_theme(t, src.get("_path"))
+        return t["name"]
+
     def _page_performance(self):
         w, lay = _page("Performance")
         f = _form()
@@ -460,6 +519,8 @@ class SettingsDialog(QDialog):
         self._update_theme_buttons()
         if t is not None and self.main is not None:
             self.main.apply_theme(t["name"], save=False)
+        if hasattr(self, "map_style"):
+            self._map_style_reset()
 
     def _theme_new(self):
         base = self._current_theme() or themes.find(None)
@@ -578,8 +639,11 @@ class SettingsDialog(QDialog):
         s["image_cache_mb"] = self.icache.value()
         s["scene_cache"] = self.scene_cache.isChecked()
         t = self._current_theme()
-        if t is not None and self.main is not None:
-            self.main.apply_theme(t["name"], save=False)
+        name = t["name"] if t is not None else None
+        if getattr(self, "_map_style_dirty", False):
+            name = self._save_map_style()
+        if name is not None and self.main is not None:
+            self.main.apply_theme(name, save=False)
         s.save()
         self.accept()
 
@@ -616,6 +680,124 @@ class _ColorButton(QToolButton):
         c = QColorDialog.getColor(themes.qcolor(self.hex), self, "Choose colour", opts)
         if c.isValid():
             self.set_hex(themes.to_hex((c.red(), c.green(), c.blue(), c.alpha() if self.alpha else 255)))
+            self.on_change()
+
+
+class FontRow(QWidget):
+    """Font family (blank = the interface font), size and bold."""
+
+    def __init__(self, font: dict, on_change):
+        super().__init__()
+        from PySide6.QtWidgets import QFontComboBox
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.family = QFontComboBox()
+        self.family.setEditable(False)
+        self.family.setMaximumWidth(200)
+        self.default = QCheckBox("Interface font")
+        self.size = QSpinBox()
+        self.size.setRange(6, 24)
+        self.size.setSuffix(" pt")
+        self.bold = QCheckBox("Bold")
+        lay.addWidget(self.default)
+        lay.addWidget(self.family, 1)
+        lay.addWidget(self.size)
+        lay.addWidget(self.bold)
+        self.set_font(font)
+        self.default.toggled.connect(lambda on: self.family.setEnabled(not on))
+        for sig in (self.family.currentFontChanged, self.size.valueChanged, self.bold.toggled, self.default.toggled):
+            sig.connect(lambda *_: on_change())
+
+    def set_font(self, font: dict):
+        from PySide6.QtGui import QFont, QGuiApplication
+        for w in (self.family, self.size, self.bold, self.default):
+            w.blockSignals(True)
+        fam = font.get("family") or ""
+        self.default.setChecked(not fam)
+        self.family.setEnabled(bool(fam))
+        self.family.setCurrentFont(QFont(fam) if fam else QGuiApplication.font())
+        self.size.setValue(int(font.get("size", 9)))
+        self.bold.setChecked(bool(font.get("bold")))
+        for w in (self.family, self.size, self.bold, self.default):
+            w.blockSignals(False)
+
+    def value(self) -> dict:
+        return {"family": "" if self.default.isChecked() else self.family.currentFont().family(),
+                "size": self.size.value(), "bold": self.bold.isChecked()}
+
+
+class MapStyleEditor(QWidget):
+    """The map part of a theme people change most: roads, borders, radar sites, cities and their fonts."""
+    COLORS = [("Roads", [("roads", "Interstates"), ("roads2", "Highways")]),
+              ("Borders", [("states", "State / province lines"), ("counties", "County lines"),
+                           ("countries", "Country and coast lines")]),
+              ("Radar sites", [("site_88d", "WSR-88D markers"), ("site_tdwr", "TDWR markers"),
+                               ("site_current", "Current radar"), ("site_text", "Site labels")]),
+              ("Cities", [("city_text", "City labels"), ("city_dot", "City dots")])]
+    WIDTHS = {"roads": "Interstates", "roads2": "Highways", "states": "State lines", "counties": "County lines"}
+
+    def __init__(self, on_change):
+        super().__init__()
+        self.on_change = on_change
+        self._loading = False
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(2, 2, 2, 2)
+        self.buttons, self.widths, self.fonts = {}, {}, {}
+        form = _form()                  # one form so every row lines up
+        lay.addLayout(form)
+
+        def heading(text):
+            lab = QLabel(text)
+            lab.setProperty("role", "section")
+            form.addRow(lab)
+        for title, roles in self.COLORS:
+            heading(title)
+            for key, label in roles:
+                row = QHBoxLayout()
+                b = _ColorButton("#ffffff", self._changed)
+                self.buttons[key] = b
+                row.addWidget(b)
+                if key in self.WIDTHS:
+                    sp = QDoubleSpinBox()
+                    sp.setRange(0.3, 6.0)
+                    sp.setSingleStep(0.1)
+                    sp.setDecimals(1)
+                    sp.setSuffix(" px wide")
+                    sp.valueChanged.connect(self._changed)
+                    self.widths[key] = sp
+                    row.addWidget(sp)
+                row.addStretch(1)
+                form.addRow(label, row)
+        heading("Fonts")
+        for key, label in themes.FONT_ROLES:
+            fr = FontRow(themes.DEFAULT["fonts"][key], self._changed)
+            self.fonts[key] = fr
+            form.addRow(label, fr)
+        lay.addStretch(1)
+
+    def load(self, theme):
+        t = themes.normalize(theme)
+        self._loading = True
+        for key, b in self.buttons.items():
+            b.set_hex(t["map"][key])
+        for key, sp in self.widths.items():
+            sp.setValue(float(t["widths"][key]))
+        for key, fr in self.fonts.items():
+            fr.set_font(t["fonts"][key])
+        self._loading = False
+
+    def apply_to(self, theme):
+        t = copy.deepcopy(themes.normalize(theme))
+        for key, b in self.buttons.items():
+            t["map"][key] = b.hex
+        for key, sp in self.widths.items():
+            t["widths"][key] = sp.value()
+        for key, fr in self.fonts.items():
+            t["fonts"][key] = fr.value()
+        return t
+
+    def _changed(self, *_):
+        if not self._loading:
             self.on_change()
 
 
@@ -757,6 +939,16 @@ class ThemeEditor(QDialog):
             self.widths[key] = sp
             form.addRow(label, sp)
         grid.addLayout(form)
+        lab = QLabel("Map fonts")
+        lab.setProperty("role", "section")
+        grid.addWidget(lab)
+        form = _form()
+        self.font_rows = {}
+        for key, label in themes.FONT_ROLES:
+            fr = FontRow(self.theme["fonts"][key], self._changed)
+            self.font_rows[key] = fr
+            form.addRow(label, fr)
+        grid.addLayout(form)
         sa = QScrollArea()
         sa.setWidgetResizable(True)
         sa.setWidget(inner)
@@ -776,10 +968,12 @@ class ThemeEditor(QDialog):
             t[part][key] = b.hex
         for key, sp in self.widths.items():
             t["widths"][key] = sp.value()
+        for key, fr in getattr(self, "font_rows", {}).items():
+            t["fonts"][key] = fr.value()
         return t
 
     def _changed(self, *_):
-        if self.main is not None:
+        if self.main is not None and hasattr(self, "font_rows"):
             self.main.preview_theme(self._collect())
 
     def _save(self):

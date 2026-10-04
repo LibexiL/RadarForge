@@ -211,8 +211,11 @@ class ProductEngine:
     def _sig(self, pid):
         s = self.settings
         if pid == "SRV":
-            return (s["storm_motion_dir"], s["storm_motion_kts"], s["srv_use_dealiased"], s["velocity_filter"])
-        if pid in ("VEL", "SW", "DVEL", "AZSH", "DIV"):
+            return (s["storm_motion_dir"], s["storm_motion_kts"], s["srv_use_dealiased"], s["velocity_filter"],
+                    bool(s["dealias_velocity"]))
+        if pid == "VEL":
+            return (s["velocity_filter"], bool(s["dealias_velocity"]))
+        if pid in ("SW", "DVEL", "AZSH", "DIV"):
             return (s["velocity_filter"],)
         if pid in ("MESH", "POSH"):
             return (s["freezing_level_ft"], s["minus20_level_ft"])
@@ -222,8 +225,9 @@ class ProductEngine:
         p = catalog.get(pid)
         if p.kind in ("l3", "l3tilt"):
             prod = self.l3_product(frame, p, tilt_index)
-            return ("L3", prod.uid, pid) if prod is not None else ("L3none", frame.uid, frame.revision, pid,
-                                                                    tilt_index)
+            dl = bool(self.settings["dealias_velocity"]) and pid in ("L3G", "L3S")
+            return ("L3", prod.uid, pid, dl) if prod is not None else ("L3none", frame.uid, frame.revision, pid,
+                                                                        tilt_index)
         ti = tilt_index if p.tilted else -1
         return (frame.uid, frame.l2_rev, pid, ti, self._sig(pid))
 
@@ -335,6 +339,9 @@ class ProductEngine:
             if sw is None:
                 return None
             m = sw.moments[p.moment]
+            if pid == "VEL" and self.settings["dealias_velocity"]:
+                return self._make(key, pid, sw, self.dealiased(sw), m.first_gate, m.gate_spacing, label,
+                                  dealiased=True)
             return self._make(key, pid, sw, self.moment_values(sw, p.moment), m.first_gate,
                               m.gate_spacing, label)
         if pid in ("SRV", "DVEL", "AZSH", "DIV"):
@@ -343,7 +350,8 @@ class ProductEngine:
                 return None
             m = sw.moments["VEL"]
             order, az, _lo, _hi = self._sorted_sweep(sw)
-            use_d = pid in ("DVEL", "AZSH", "DIV") or (pid == "SRV" and self.settings["srv_use_dealiased"])
+            use_d = pid in ("DVEL", "AZSH", "DIV") or (pid == "SRV" and (self.settings["srv_use_dealiased"] or
+                                                                        self.settings["dealias_velocity"]))
             v = self.dealiased(sw) if use_d else self.moment_values(sw, "VEL")
             rf = np.isinf(v)
             vf = np.where(rf, np.nan, v)
@@ -467,10 +475,21 @@ class ProductEngine:
         lo = (az - w / 2.0).astype(np.float32)
         hi = (az + w / 2.0).astype(np.float32)
         vals = r.values[order]
+        dealiased = False
+        if p.id in ("L3G", "L3S") and self.settings["dealias_velocity"]:
+            v = vals.astype(np.float32)
+            rf = np.isinf(v)
+            w = np.where(rf, np.nan, v)
+            nyq = float(np.nanmax(np.abs(w))) if np.isfinite(w).any() else 0.0   # L3 velocity tops out at Nyquist
+            if nyq > 10.0:
+                d = dealias_region(w, nyq)
+                d[rf] = np.inf
+                vals, dealiased = d, True
         el = r.elevation if not r.ground_range else 0.0
         label = f"{code} {el:.1f}°" if not r.ground_range else code
         return SweepImage(key, p.id, vals.astype(np.float16), az, lo, hi, r.first_gate, r.gate_spacing,
-                          float(el), bool(r.ground_range), prod.time, label, None, "L3")
+                          float(el), bool(r.ground_range), prod.time, label, None, "L3",
+                          {"dealiased": True} if dealiased else {})
 
     # ---------------------------------------------------------------- sampling
     def tilt_sweeps(self, frame, pid):

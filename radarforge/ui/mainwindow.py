@@ -18,6 +18,7 @@ from ..features.placefile import PlacefileManager
 from ..features.spc import SpcOverlay
 from ..features.warnings import WarningsOverlay
 from ..products import catalog, colortable
+from ..products import trail as trail_mod
 from ..products.engine import ProductEngine
 from ..products.geometry import aeqd_forward, beam_height, slant_range
 from ..render.glview import RadarView
@@ -137,6 +138,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.relay.imageReady.connect(self._image_ready)
         self.xs_win = None
         self.v3d_host = None
+        self._trails = trail_mod.TrailCache()
 
         # overlays
         self.warnings = WarningsOverlay(settings, self.view.maps.county_polygons, self)
@@ -305,6 +307,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         themes.apply_ui(app, theme)
         colors, layers = themes.map_style(theme)
         self.view.set_colors(colors, layers)
+        self.view.set_fonts(themes.map_fonts(theme))
         icons.clear_cache()
         for target, ic in self._icon_targets:
             target.setIcon(icons.icon(ic))
@@ -355,7 +358,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         if s is None:
             return
         self.view.set_projection(s.lat, s.lon, s.id)
-        self.site_btn.setText(f"{s.id}  {s.place}")
+        self._site_label = (s.id, f"{s.id}  {s.place}")
+        self.site_btn.setText(self._site_label[0] if getattr(self, "_tb_level", 0) >= 2 else self._site_label[1])
+        self._fit_toolbar()
         self.site_btn.setToolTip(f"{s.id} – {s.place}, {s.state}\nClick to choose another radar (Ctrl+R), "
                                  f"or click a radar square on the map")
         self.warnings.center = (s.lat, s.lon)
@@ -804,12 +809,18 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             p.header = f"{self.data.site_id}  {pd.name}"
             p.message = "Waiting for data…" if self.data.mode == "live" else "No data loaded"
             return
-        req = (frame.uid, frame.revision, pid, round(self.tilt_elev, 2), self.engine._sig(pid), id(p.palette))
+        frames = list(self.data.frames)
+        rule = trail_mod.rule_for(pid) if self.settings["trail_mode"] else None
+        window = ()
+        if rule is not None and frame in frames:
+            window = tuple(frames[:frames.index(frame) + 1])      # Σ: every loaded frame up to this one
+        req = (frame.uid, frame.revision, pid, round(self.tilt_elev, 2), self.engine._sig(pid), id(p.palette),
+               tuple((f.uid, f.revision) for f in window))
         if self._panel_req.get(p.index) == req and p.image is not None:
             return
         self._panel_req[p.index] = req
         engine = self.engine
-        frames = list(self.data.frames)
+        trails = self._trails
 
         def job():
             ti = self._tilt_index(frame) if pd.tilted else 0
@@ -822,6 +833,21 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                     prev = frames[idx - 1]
                     img = engine.image(prev, pid, self._tilt_index(prev))
                     src_frame = prev
+            if img is not None and len(window) > 1:
+                tkey = (pid, round(self.tilt_elev, 2), engine._sig(pid), req[-1])
+                cached = trails.get(tkey)
+                if cached is None:
+                    older = []
+                    for f in window[:-1]:
+                        try:
+                            o = engine.image(f, pid, self._tilt_index(f) if pd.tilted else 0)
+                        except Exception:
+                            o = None
+                        if o is not None:
+                            older.append(o)
+                    cached = trail_mod.combine(img, older, rule)
+                    trails.put(tkey, cached)
+                img = cached
             if img is not None:
                 img.gpu_values()            # texture prep off the UI thread
             tilts = engine.tilts(frame) if frame.has_level2() else []
@@ -850,7 +876,12 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             t = img.time or frame.time
             tl = img.label if img.source == "L3" else (res["tilt_label"] if pd.tilted else "")
             stale = "  (prev vol)" if frame is not self.current_frame() else ""
-            p.header = f"{site}  {pd.name}  {tl}  {t:%H:%M:%S}Z{stale}"
+            tags = ""
+            if img.extra.get("dealiased") and p.product in ("VEL", "L3G", "L3S"):
+                tags += "  dealiased"
+            if img.extra.get("trail"):
+                tags += f"  Σ {'min' if trail_mod.rule_for(p.product) == 'min' else 'max'} of {img.extra['trail']} frames"
+            p.header = f"{site}  {pd.name}  {tl}  {t:%H:%M:%S}Z{stale}{tags}"
             p.message = ""
         else:
             p.header = f"{site}  {pd.name}"

@@ -10,6 +10,7 @@ from PySide6.QtGui import QAction, QActionGroup
 
 from ..features import alerts, mrms, satellite
 from ..features import stormtools as st
+from ..features.cameras import CamerasOverlay
 from ..features.captions import LayerCaptions
 from ..features.lightning import LightningOverlay
 from ..features.mrms import MrmsOverlay
@@ -40,8 +41,9 @@ class DataLayersMixin:
         self.lightning = LightningOverlay(s, self.view, self._layer_time, self._lightning_needed, self)
         self.obs = SurfaceObsOverlay(s, self.view, is_live, self)
         self.storm_flags = StormFlagsOverlay(s)
+        self.cameras = CamerasOverlay(s, self.view, self)
         self.captions = LayerCaptions([self.satellite, self.mrms, self.ltg_density, self.lightning,
-                                       self.storm_flags])
+                                       self.storm_flags, self.cameras])
         self.notifier = Notifier(s, self)
         self.notifier.clicked.connect(self._go_to_event)
         if alerts.migrate(s):
@@ -53,13 +55,19 @@ class DataLayersMixin:
         self._follow = None                    # {"x", "y", "t", "dx", "dy"} km, km/min
         self._follow_gen = 0
         self.view.overlays = [self.mrms, self.ltg_density, self.spc, self.warnings, self.placefiles, self.l3ov,
-                              self.obs, self.lightning, self.chasers, self.storm_flags, self.my_location,
-                              self.captions]
+                              self.obs, self.cameras, self.lightning, self.chasers, self.storm_flags,
+                              self.my_location, self.captions]
         self.view.underlays = [self.satellite, self.placefiles]
-        self.view.hover_providers = [self.l3ov, self.storm_flags, self.chasers, self.placefiles, self.warnings,
-                                     self.my_location, self.obs, self.lightning, self.spc, self.mrms,
+        self.view.hover_providers = [self.l3ov, self.storm_flags, self.chasers, self.cameras, self.placefiles,
+                                     self.warnings, self.my_location, self.obs, self.lightning, self.spc, self.mrms,
                                      self.ltg_density]
-        for ov in (self.satellite, self.mrms, self.ltg_density, self.lightning, self.obs):
+        self.view.mapClicked.connect(self._map_clicked)
+        self._cam_timer = QTimer(self)
+        self._cam_timer.setSingleShot(True)
+        self._cam_timer.setInterval(1500)
+        self._cam_timer.timeout.connect(lambda: self.cameras.refresh())
+        self.view.viewChanged.connect(lambda: self._cam_timer.start() if self.cameras.enabled() else None)
+        for ov in (self.satellite, self.mrms, self.ltg_density, self.lightning, self.obs, self.cameras):
             ov.changed.connect(self.view.update)
             ov.status.connect(self._status_msg)
         self.lightning.changed.connect(self._check_location_alerts)
@@ -94,6 +102,11 @@ class DataLayersMixin:
                 self._update_storm_flags(self.current_frame(), force=True)
         elif key in ("satellite", "mrms", "lightning", "lightning_density", "surface_obs") and on:
             self._refresh_data_layers(force=True)
+        elif key == "cameras" and on:
+            self.cameras.refresh(force=True)
+            if not self.cameras.all_cameras():
+                self._status_msg("Street cameras: California works out of the box; other states need a free key – "
+                                 "Layers → Street cameras → Camera sources")
 
     # ---------------------------------------------------------------- menus
     def _radio(self, menu, items, current, fn):
@@ -147,6 +160,10 @@ class DataLayersMixin:
         op = mr.addMenu("Opacity")
         self._radio(op, [(v, f"{round(v * 100)}%") for v in (0.5, 0.65, 0.8, 1.0)],
                     round(float(s["mrms_opacity"] or 0.8), 2), lambda v: self._set_opacity("mrms", v))
+        cam = m.addMenu("Street cameras")
+        self._overlay_act(cam, "cameras", "Show street cameras (when zoomed in)")
+        self._act(cam, "Camera sources && keys…", self.open_camera_sources, None)
+        self._act(cam, "Refresh camera list", lambda: self.cameras.refresh(force=True), None)
         ob = m.addMenu("Surface observations")
         self._overlay_act(ob, "surface_obs", "Station plots: temperature, dew point, wind (live)")
         self._act(ob, "Refresh now", lambda: self.obs.refresh(force=True), None)
@@ -327,6 +344,25 @@ class DataLayersMixin:
             fo.update(x=x, y=y, t=t)
         self.storm_flags.follow_xy = (x, y)
         self.view.set_view(x, y, self.view.scale)
+
+    # ---------------------------------------------------------------- cameras
+    def _map_clicked(self, x, y):
+        if self.view.tool != "pan" or not self.cameras.enabled():
+            return
+        group = self.cameras.near(x, y, 8.0 / self.view.scale)
+        if group:
+            from .camera_viewer import CameraViewer
+            CameraViewer(self, group).show()
+
+    def open_camera_sources(self):
+        from .camera_sources import CameraSourcesDialog
+        if CameraSourcesDialog(self).exec():
+            self.cameras.cams.clear()
+            self.cameras._xy = None
+            self.cameras.invalidate()
+            if not self.settings["overlays"].get("cameras"):
+                self.overlay_acts["cameras"].setChecked(True)
+            self.cameras.refresh(force=True)
 
     # ---------------------------------------------------------------- windows
     def open_sounding(self, lat=None, lon=None):

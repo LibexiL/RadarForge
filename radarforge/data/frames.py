@@ -73,6 +73,7 @@ class Frame:
         self.l3 = l3 or {}
         self.live = live
         self.label = label
+        self.gaps = 0          # live volume with chunks that never arrived (replaced by the archive file later)
 
     @property
     def key(self):
@@ -98,6 +99,19 @@ class Frame:
         self._l2 = vol
         self.revision += 1
         self.l2_rev += 1
+
+    def replace_with_file(self, path: str):
+        """Swap a volume built from live chunks for the complete archive file."""
+        self.l2_path = path
+        self._l2 = None
+        self.gaps = 0
+        self.live = False
+        self.revision += 1
+        self.l2_rev += 1
+
+    @property
+    def from_chunks(self) -> bool:
+        return self._l2 is not None and self.l2_path is None
 
     def pin_level2(self):
         """Keep the decoded volume in memory (used for live frames)."""
