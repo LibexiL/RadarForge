@@ -6,6 +6,7 @@ rem
 rem  * creates a private Python environment in %LOCALAPPDATA%\RadarForge\venv
 rem  * adds RadarForge to the Start Menu and the Desktop
 rem  * running it again updates an existing install (settings are kept)
+rem  * RadarForge can also update itself: Help -> Check for updates...
 rem ---------------------------------------------------------------------------
 setlocal EnableExtensions
 title RadarForge installer
@@ -60,7 +61,8 @@ echo ==^> Done!
 echo     Start RadarForge from the Start Menu or the "RadarForge" icon on your desktop.
 echo     To see its messages in a console window, run:  "%APPDIR%\radarforge.bat"
 echo.
-pause
+rem RF_UPDATE: started by RadarForge's updater, which starts RadarForge again itself
+if not defined RF_UPDATE pause
 exit /b 0
 
 :notextracted

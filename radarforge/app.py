@@ -174,6 +174,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.check:
         return self_check()
+    from . import updater
+    updater.remember_environment()           # before the OpenGL set-up changes it (updates restart with this)
 
     from . import gl_setup
     from .config import LOG_FILE, Settings, ensure_dirs
@@ -337,6 +339,12 @@ def main(argv=None):
     elif not args.no_live and settings["start_live"]:
         QTimer.singleShot(200, win.start_live)
     rc = app.exec()
+    failed = updater.start_pending()  # an update's installer or the restarted program, once the window has closed
+    if failed:
+        QMessageBox.critical(None, "RadarForge update", "The update could not be started:\n\n" + "\n".join(
+            f"{cmd if isinstance(cmd, str) else cmd[0]}\n{err}" for cmd, err in failed) +
+            "\n\nStart RadarForge again and use Help → Check for updates…, or download the new version from "
+            + updater.RELEASES_PAGE)
     faulthandler.cancel_dump_traceback_later()
     # settings are saved by now; a download still running (up to a minute's timeout) must not keep the
     # program alive after its window has closed

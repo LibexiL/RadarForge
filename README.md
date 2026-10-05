@@ -181,9 +181,25 @@ Add these after `radarforge` (Linux), `radarforge.bat` or `run.bat` (Windows):
 
 ## Updating & uninstalling
 
-**Update:** download the new version and run the installer again – `Windows\install.bat`, or
-`bash install.sh` in the `Linux` folder (git users: `git pull` first). Your settings, themes and layout
-are kept.
+**Update:** RadarForge checks GitHub for a new version about once a day (switch it off in
+**Settings → General**). When there is one, an **Update to …** button appears at the bottom right; it
+shows what changed and installs the update the same way RadarForge was installed. **Help → Check for
+updates…** looks right away. Your settings, themes and layout are always kept.
+
+| Installed with | What **Install** does |
+|---|---|
+| `RadarForge-Setup-<version>.exe` (Windows) | downloads the new setup; RadarForge closes, the update installs with only a progress window, and RadarForge starts again |
+| the AppImage (Linux) | downloads the new AppImage and puts it in place of the old file (same name and place, so shortcuts keep working); then **Restart now** |
+| `install.sh` (Linux) | downloads the new version and runs its `install.sh` inside RadarForge, with the output shown; then **Restart now** |
+| `install.bat` (Windows) | downloads the new version; RadarForge closes, a window shows `install.bat` updating it, and RadarForge starts again |
+| `run.sh` / `run.bat`, or a git checkout | saves the new ZIP to your Downloads folder (git: shows the notes – update with `git pull`) |
+
+Downloads are checked against the size and SHA-256 checksum GitHub lists for each file. Right after a
+release the Windows setup and the AppImage take GitHub a few minutes to build; until they're there,
+the update waits. **Skip this version** hides that version until a newer one comes out.
+
+By hand, as before: download the new version and run the installer again – `Windows\install.bat`, or
+`bash install.sh` in the `Linux` folder (git users: `git pull` first).
 
 **Uninstall:** run `Windows\uninstall.bat`, or `bash uninstall.sh` in the `Linux` folder. It asks
 whether to delete your settings and downloaded data too.
@@ -214,7 +230,7 @@ whether to delete your settings and downloaded data too.
 | Smoothing / dealiasing / Σ trail | toolbar switches (also View menu): **S** smoothing, **D** dealiased velocity, **Ctrl+T** max value trail – each panel shows the highest value over the loop up to the frame shown (CC: the lowest), for hail swaths and rotation tracks |
 | Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom. The **fps** and **frames** buttons at its right set the loop speed and length |
 | Tilts | **↑ / ↓** or the tilt box |
-| Number of panels | the layout button on the toolbar (**View → Panel layout**), or **Alt+1 … Alt+6** |
+| Number of panels | **1 … 6** (number row or number pad; **Alt+1 … Alt+6** also work), or the layout button on the toolbar (**View → Panel layout**) |
 | Cross section | **X**, then drag a line across a storm |
 | Distance / bearing | **M**, then drag (or Shift-drag at any time). The line stays until the next one or **Esc** |
 | Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
@@ -264,7 +280,7 @@ Every feature has one home:
 | **Tools** | mouse tools (pan, cross section, measure, track, 3-D) and storm analysis (flags, follow, rotation history, sounding, cell tables) |
 | **Location** | my location, saved places and their alerts |
 | **Panels** | show or hide each side and tool panel, lock or reset the layout |
-| **Help** | shortcuts (**F1**), the radar guide, learn mode, the optional-components check, about |
+| **Help** | shortcuts (**F1**), the radar guide, learn mode, the optional-components check, check for updates, about |
 
 Right-click a radar panel for its product and colour table, and for things to do *at that spot*: a
 sounding, rotation history, following the storm, reading an SPC discussion, the nearest radar, or saving
@@ -316,7 +332,7 @@ A complete example is [docs/example.rftheme](docs/example.rftheme).
 
 ### Settings
 
-**File → Settings** (**Ctrl+,**) has: General (units, start-up, mouse), Display (smoothing, dealiasing,
+**File → Settings** (**Ctrl+,**) has: General (units, start-up, mouse, automatic update check), Display (smoothing, dealiasing,
 Σ trail, velocity noise filter, colour bars), Loop & live, Data layers (satellite channel and opacity,
 lightning time window, MRMS product and opacity, street camera keys), Alerts (sound, volume, my-location
 alerts, saved places), Environment (0 °C / −20 °C heights for MESH/POSH), Colour tables, Warnings (a line
@@ -400,6 +416,7 @@ RadarForge/
 │   ├── config.py         settings and per-OS folders
 │   ├── themes.py         themes and theme files
 │   ├── gl_setup.py       OpenGL setups to try
+│   ├── updater.py        update check and installer (GitHub releases; setup, AppImage, install.sh/.bat)
 │   ├── data/             Level II decoder, Level III (MetPy), AWS access, live chunks, radar sites
 │   ├── products/         product catalog, colour tables, dealiasing, derived & volume products
 │   ├── render/           OpenGL radar view, shaders, basemap
@@ -413,7 +430,7 @@ RadarForge/
 │   │   ├── main_storm.py     mouse tools, storm track       main_location.py  favourites, my location, alerts
 │   │   ├── main_export.py    + export.py: pictures, loops, briefing view
 │   │   ├── main_data.py      satellite, lightning, MRMS, obs, storm flags, following, learn mode
-│   │   ├── sounding_dialog.py · storm_tools_ui.py · locations_dialog.py · notify.py
+│   │   ├── sounding_dialog.py · storm_tools_ui.py · locations_dialog.py · notify.py · updates.py
 │   │   └── panels.py · workspace.py · dialogs.py · settings_dialog.py · icons.py
 │   └── assets/           basemap, icons
 ├── packaging/            Windows installer (PyInstaller + Inno Setup) and Linux AppImage recipes

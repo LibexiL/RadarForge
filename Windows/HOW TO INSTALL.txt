@@ -22,6 +22,7 @@ INSTALL (one time)
 FILES IN THIS FOLDER
 --------------------
   install.bat     installs RadarForge (run it again later to update - your settings are kept)
+                  Once installed, RadarForge also updates itself: Help -> Check for updates
   run.bat         tries RadarForge without installing it (first start takes a few minutes)
   uninstall.bat   removes RadarForge (it asks whether to delete your settings too)
   helpers\        used by the scripts above - you don't need to open it

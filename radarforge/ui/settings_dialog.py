@@ -149,6 +149,10 @@ class SettingsDialog(QDialog):
         self.link = QCheckBox("Linked cursor across panels")
         self.link.setChecked(bool(s["cursor_link"]))
         f.addRow("", self.link)
+        self.upd_check = QCheckBox("Check for updates automatically (about once a day)")
+        self.upd_check.setChecked(bool(s["update_check"]))
+        f.addRow("Updates", self.upd_check)
+        f.addRow("", _hint("Help → Check for updates… looks right away."))
         lay.addLayout(f)
         lay.addStretch(1)
         return w
@@ -707,6 +711,7 @@ class SettingsDialog(QDialog):
         s["invert_scroll"] = self.invert.isChecked()
         s["hover_text"] = self.hover.isChecked()
         s["cursor_link"] = self.link.isChecked()
+        s["update_check"] = self.upd_check.isChecked()
         s["gpu_smooth"] = self.smooth.isChecked()
         s["velocity_filter"] = self.vfilter.currentIndex()
         s["show_legend"] = self.legend.isChecked()

@@ -107,6 +107,10 @@ DEFAULTS = {
     "gl_platform": None,          # remembered working OpenGL platform (see gl_setup.py)
     "gl_format": None,
     "scene_cache": True,          # reuse the drawn map while only the cursor moves
+    "update_check": True,         # (1.11) look for a newer release on GitHub about once a day
+    "update_last_check": 0,       # epoch s of the last automatic check
+    "update_latest": "",          # newest release that check found ("" = none newer)
+    "update_skip": "",            # a release the user chose to skip
 }
 
 

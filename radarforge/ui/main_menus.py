@@ -12,7 +12,7 @@ Where things live (one home per topic):
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QKeyCombination, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QProgressBar, QSizePolicy,
                                QSlider, QToolBar, QToolButton, QWidget)
@@ -179,8 +179,9 @@ class MenusMixin:
         cur = int(self.settings["layout"])
         layout_menu = QMenu(self)
         for n in range(1, 7):
-            act = QAction(LAYOUT_NAMES[n], self, checkable=True)
-            act.setToolTip(f"{LAYOUT_NAMES[n]} (Alt+{n})")
+            # "\t1" shows the key in menus; the keys themselves are window shortcuts (see _shortcuts)
+            act = QAction(f"{LAYOUT_NAMES[n]}\t{n}", self, checkable=True)
+            act.setToolTip(f"{LAYOUT_NAMES[n]} ({n})")
             act.setData(n)
             act.setChecked(n == cur)
             act.triggered.connect(lambda _=False, n=n: self.set_layout(n))
@@ -190,7 +191,7 @@ class MenusMixin:
         self.layout_btn = QToolButton()
         self.layout_btn.setMenu(layout_menu)
         self.layout_btn.setPopupMode(QToolButton.InstantPopup)
-        self.layout_btn.setToolTip("Panel layout (Alt+1 … Alt+6)")
+        self.layout_btn.setToolTip("Panel layout (keys 1 … 6)")
         tb.addWidget(self.layout_btn)
         self._update_layout_btn()
         tb.addSeparator()
@@ -287,7 +288,7 @@ class MenusMixin:
         n = int(self.settings["layout"])
         if getattr(self, "layout_btn", None) is not None:
             self.layout_btn.setIcon(icons.icon(f"layout{n}"))
-            self.layout_btn.setToolTip(f"Panel layout: {LAYOUT_NAMES.get(n, n)} (Alt+1 … Alt+6)")
+            self.layout_btn.setToolTip(f"Panel layout: {LAYOUT_NAMES.get(n, n)} (keys 1 … 6)")
 
     def _fit_toolbar(self):
         """Narrow windows: first drop the words beside the toolbar icons, then shorten the radar and storm
@@ -611,6 +612,8 @@ class MenusMixin:
         self._act(m, "Check optional components…", self.show_component_check, None,
                   tip="Lightning files, MRMS decoding, alert sounds, MP4 export and soundings")
         m.addSeparator()
+        self._act(m, "Check for updates…", lambda: self.show_update_dialog(check=True), None, icon="refresh",
+                  tip="See whether a newer RadarForge is out, and install it")
         self._act(m, "About RadarForge", self.show_about, None, icon="info")
 
     def _fill_theme_menu(self):
@@ -670,14 +673,17 @@ class MenusMixin:
         sc("B", lambda: self.set_tool("box3d"))
         sc("T", lambda: self.set_tool("track"))
         sc(Qt.Key_Escape, self._escape)
+        # 1 … 6 panels: the number keys, the number pad, and Alt+number as before
         for n in range(1, 7):
-            sc(f"Alt+{n}", lambda n=n: self.set_layout(n))
+            keypad = QKeySequence(QKeyCombination(Qt.KeypadModifier, Qt.Key(Qt.Key_0 + n)))
+            for key in (QKeySequence(str(n)), keypad, QKeySequence(f"Alt+{n}")):
+                sc(key, lambda n=n: self.set_layout(n))
 
     def show_shortcuts(self):
         rows = [
             ("Frames", [("← / →", "previous / next frame"), ("Space", "play / pause the loop"),
                         ("End", "latest frame")]),
-            ("Tilts & layout", [("↑ / ↓", "tilt up / down"), ("Alt+1 … Alt+6", "1–6 panels")]),
+            ("Tilts & layout", [("↑ / ↓", "tilt up / down"), ("1 … 6", "1–6 panels (also on the number pad, or Alt+1 … Alt+6)")]),
             ("Mouse tools", [("P", "pan / zoom"), ("X", "cross section (drag a line)"), ("M", "measure"),
                              ("T", "storm track (click a storm, drag the arrowhead)"),
                              ("B", "3-D (drag a box around a storm)"), ("Esc", "back to pan; again: clear measure / track"),

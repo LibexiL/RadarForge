@@ -404,6 +404,9 @@ QToolButton { border-radius: 5px; }
 QToolButton[role="chip"] { background: %(button)s; border: 1px solid %(border)s; padding: 4px 4px; }
 QToolButton[role="chip"]:hover { border-color: %(accent)s; }
 QToolButton[role="chip"]:checked { background: %(accent)s; color: %(accent_text)s; border-color: %(accent)s; }
+QToolButton[role="update"] { background: %(accent)s; color: %(accent_text)s; border: none; border-radius: 4px;
+    padding: 1px 9px; margin: 1px 4px; font-weight: bold; }
+QToolButton[role="update"]:hover { background: %(acc_soft)s; color: %(text)s; }
 QPushButton[role="qsection"] { color: %(dim)s; font-weight: bold; text-align: left; padding: 6px 2px 3px 2px;
     background: transparent; border: none; border-bottom: 1px solid %(border)s; border-radius: 0; }
 QPushButton[role="qsection"]:hover { color: %(text)s; border-bottom-color: %(accent)s; }

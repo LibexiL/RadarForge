@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.11.0 – 2026-10-05
+
+RadarForge now keeps itself up to date, and the panel layouts are one key away.
+
+> Updating to 1.11.0 itself is still done by hand (1.10.0 has no updater). From 1.11.0 on, new versions
+> install from inside RadarForge.
+
+### New
+- **Automatic updates.** About once a day RadarForge asks GitHub whether a newer version is out. If
+  there is one, an **Update to …** button appears at the bottom right. It opens the release notes of
+  every version since yours and installs the update the way RadarForge was installed:
+  - **Windows installer:** downloads the new setup. RadarForge closes, the update installs with only a
+    progress window, and RadarForge starts again.
+  - **AppImage:** downloads the new AppImage and puts it in place of the old file. The name and place
+    stay the same, so shortcuts and menu entries keep working. Then **Restart now**.
+  - **install.sh (Linux):** runs the new version's installer and shows its output. It finishes even if
+    RadarForge is closed meanwhile. Then **Restart now**.
+  - **install.bat (Windows):** RadarForge closes, a window shows the installer updating it, and
+    RadarForge starts again.
+  - **run.sh / run.bat:** saves the new ZIP to Downloads. A git checkout shows the notes only.
+- **Help → Check for updates…** looks right away. **Skip this version** hides an update until a newer
+  one comes out.
+- **Settings → General → Updates** switches the daily check off.
+- Every download is checked against the size and SHA-256 checksum GitHub lists for it. Only files
+  from RadarForge's own GitHub releases are accepted, and only files carrying the new version number.
+- Right after a release, GitHub needs a few minutes to build the Windows setup and the AppImage.
+  RadarForge waits for them and checks again an hour later.
+- **Number keys 1 … 6 set the number of panels**, on the number row or the number pad. Alt+1 … Alt+6
+  still work. View → Panel layout shows each key. Typing numbers into a text box is unaffected.
+
+### Installers
+- The Windows setup removes the previous version's program libraries before copying the new ones, so
+  nothing left over from an older version can clash.
+- Started by the updater, the setup first waits for RadarForge to finish closing, closes anything
+  still using its files, and starts RadarForge again when it's done.
+- `install.bat` doesn't wait for a key press at the end when the updater runs it. It still waits when
+  something went wrong.
+
 ## 1.10.0 – 2026-10-04
 
 A tidy-up of the whole program: everything has one obvious home, the common switches are one click away,

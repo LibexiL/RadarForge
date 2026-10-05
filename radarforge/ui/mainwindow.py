@@ -39,6 +39,7 @@ from .main_layers import LayersMixin
 from .main_location import LocationMixin
 from .main_menus import MenusMixin
 from .main_storm import StormToolsMixin
+from .updates import UpdatesMixin
 
 L3_TILT_ELEVS = [0.5, 0.9, 1.3, 1.8]
 UNIT_F = {"nm": 1.852, "km": 1.0, "mi": 1.609344}
@@ -98,7 +99,8 @@ class _Lazy3D(QWidget):
         super().showEvent(ev)
 
 
-class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, ExportMixin, DataLayersMixin, QMainWindow):
+class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, ExportMixin, DataLayersMixin, UpdatesMixin,
+                 QMainWindow):
     stateChanged = Signal()          # frame / panel / tilt / product changed (side panels refresh)
     cursorInfo = Signal(object)      # dict for the cursor inspector
 
@@ -168,6 +170,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._build_timeline()
         self._build_menus()
         self._build_status()
+        self._init_updates()             # after the status bar: the "Update to …" button lives there
         self._build_panels()
         self._shortcuts()
         self._show_menu_checks()
@@ -1222,6 +1225,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             print("restart cleanup:", exc)
 
     def closeEvent(self, ev):
+        if self._update_blocks_close():          # install.sh still running: the user chose to stay
+            ev.ignore()
+            return
         self._save_state()
         for f in list(self.ws.floats):          # floating panels go away with the main window
             f._closing = True
