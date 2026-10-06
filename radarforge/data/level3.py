@@ -270,7 +270,7 @@ def read_level3_isolated(data: bytes | str, awips_hint: str = "", site_hint: str
     """read_level3 in a decoder process (MetPy is slow to import and parse; keep it off the UI's GIL)."""
     from .level2 import run_isolated
     try:
-        prod = run_isolated(read_level3, data, awips_hint, site_hint, timeout=90)
+        prod = run_isolated(read_level3, data, awips_hint, site_hint, timeout=90, level3=True)
     except Exception:
         prod = read_level3(data, awips_hint, site_hint)
     prod.uid = next(_uids)          # ids from the worker process aren't unique here

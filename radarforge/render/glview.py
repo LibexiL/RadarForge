@@ -449,6 +449,7 @@ class RadarView(QOpenGLWindow):
         GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
         GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_R16F, ng, nrad, 0, GL.GL_RED, GL.GL_HALF_FLOAT,
                         np.ascontiguousarray(vals))
+        img.extra.pop("_gpu", None)          # the graphics card has it now; made again if this texture is dropped
         for p, v in ((GL.GL_TEXTURE_MIN_FILTER, GL.GL_NEAREST), (GL.GL_TEXTURE_MAG_FILTER, GL.GL_NEAREST),
                      (GL.GL_TEXTURE_WRAP_S, GL.GL_CLAMP_TO_EDGE), (GL.GL_TEXTURE_WRAP_T, GL.GL_CLAMP_TO_EDGE)):
             GL.glTexParameteri(GL.GL_TEXTURE_2D, p, v)

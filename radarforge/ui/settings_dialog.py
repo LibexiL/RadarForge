@@ -490,13 +490,18 @@ class SettingsDialog(QDialog):
         self.vcache.setRange(1, 30)
         self.vcache.setValue(int(s["volume_cache"]))
         f.addRow("Decoded volumes kept in RAM", self.vcache)
-        f.addRow("", _hint("The minimum. When the computer has the memory, RadarForge keeps the whole loop "
-                           "decoded so it plays without stutter."))
+        f.addRow("", _hint("The minimum. RadarForge keeps the whole loop decoded (compressed, about 10 MB a "
+                           "volume) so it plays without stutter."))
         self.icache = QSpinBox()
         self.icache.setRange(100, 8000)
         self.icache.setSuffix(" MB")
         self.icache.setValue(int(s["image_cache_mb"]))
         f.addRow("Rendered image cache", self.icache)
+        f.addRow("", _hint("Never less than the loop on screen needs (frames × panels)."))
+        from ..memory import describe
+        used = describe()
+        if used:
+            f.addRow("Memory in use", QLabel(used))
         self.scene_cache = QCheckBox("Reuse the drawn map while only the mouse moves (much faster hover)")
         self.scene_cache.setChecked(bool(s["scene_cache"]))
         f.addRow("Drawing", self.scene_cache)

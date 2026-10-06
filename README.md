@@ -337,7 +337,7 @@ A complete example is [docs/example.rftheme](docs/example.rftheme).
 lightning time window, MRMS product and opacity, street camera keys), Alerts (sound, volume, my-location
 alerts, saved places), Environment (0 °C / −20 °C heights for MESH/POSH), Colour tables, Warnings (a line
 for each warning type and threat level), Themes, Map style (roads, borders, radar sites, cities and
-fonts) and Performance (memory, graphics info, log file).
+fonts) and Performance (memory caches and how much memory is in use, graphics info, log file).
 
 ### Products
 
@@ -373,6 +373,7 @@ looks stuck, **F5** (Radar → Reload live data) starts the feed again.
 |---|---|
 | **"Python was not found"** during install (Windows) | Install Python from python.org and tick **"Add python.exe to PATH"**, then double-click `Windows\install.bat` again. |
 | **Black map, frozen window or garbled picture** | Update the graphics driver. RadarForge tests several OpenGL setups by itself and remembers the one that works; `--gl-reset` makes it test again, `--safe-graphics` uses the plainest setup. |
+| **Uses a lot of memory** | **Settings → Performance** shows how much RadarForge is using. A 12-frame loop with 6 panels needs about 1–1.5 GB (more with longer loops). Lower **Rendered image cache** there, or the loop length (**frames** beside the timeline), to use less. |
 | **Everything is slow** | **Settings → Performance** shows the OpenGL renderer. *llvmpipe* or *Software* means the GPU driver isn't being used – update it, then start once with `--gl-reset`. |
 | **A panel is gone / messy layout** | **Panels** menu to show it again, or **Panels → Reset panel layout**. |
 | **Dashed coloured circles that look like range rings** | That's the Level III melting layer (**Map → Melting layer**). Real range rings are grey and labelled. |
@@ -413,6 +414,7 @@ RadarForge/
 │   └── install.sh · run.sh · uninstall.sh · HOW TO INSTALL.txt
 ├── radarforge/           the application itself (Python package, shared by both)
 │   ├── app.py            start-up, OpenGL detection, logging
+│   ├── memory.py         memory in use (Settings → Performance)
 │   ├── config.py         settings and per-OS folders
 │   ├── themes.py         themes and theme files
 │   ├── gl_setup.py       OpenGL setups to try

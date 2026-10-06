@@ -88,7 +88,7 @@ DEFAULTS = {
     "distance_units": "nm",       # nm | km | mi
     "height_units": "kft",        # kft | km
     "volume_cache": 4,            # decoded Level II volumes held in RAM
-    "image_cache_mb": 600,
+    "image_cache_mb": 300,        # (1.11.1: 600 -> 300, now counting everything an image holds)
     "window_geometry": None,
     "workspace": None,            # panel layout (see ui/workspace.py)
     "theme": "RadarForge Dark",
@@ -97,7 +97,7 @@ DEFAULTS = {
     "view": None,                 # {cx, cy, scale}
     "gpu_smooth": True,
     "velocity_filter": 1,          # 0 off, 1 normal, 2 aggressive
-    "settings_version": 2,
+    "settings_version": 3,
     "invert_scroll": False,
     "cursor_link": True,
     "hover_text": True,
@@ -121,7 +121,7 @@ class Settings:
         self.load()
 
     def load(self):
-        user_version = 2           # fresh installs start on the current defaults
+        user_version = DEFAULTS["settings_version"]      # fresh installs start on the current defaults
         try:
             with open(self.path, encoding="utf-8") as fh:
                 user = json.load(fh)
@@ -139,6 +139,11 @@ class Settings:
             # v2: smoothing on by default (matches GR2Analyst's look)
             self.data["gpu_smooth"] = True
             self.data["settings_version"] = 2
+        if user_version < 3:
+            # v3 (1.11.1): the image cache now counts all the memory it uses; the old default becomes 300 MB
+            if int(self.data.get("image_cache_mb") or 600) == 600:
+                self.data["image_cache_mb"] = 300
+            self.data["settings_version"] = 3
 
     def save(self):
         try:

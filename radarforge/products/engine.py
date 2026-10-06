@@ -41,14 +41,20 @@ class SweepImage:
 
     @property
     def nbytes(self):
-        return self.values.nbytes + self.az.nbytes * 3
+        """Memory this image holds (the texture copy made for the graphics card is short-lived and not counted)."""
+        n = self.values.nbytes + self.az.nbytes * 3
+        for k, v in self.extra.items():
+            if k != "_gpu" and isinstance(v, np.ndarray):
+                n += v.nbytes
+        return n
 
     @property
     def max_range(self):
         return self.first_gate + self.gate_spacing * (self.values.shape[1] - 0.5)
 
     def gpu_values(self):
-        """float16 texture data with sentinels (NaN -> -60000, RF -> 60000); cached."""
+        """float16 texture data with sentinels (NaN -> -60000, RF -> 60000). Made off the UI thread and kept
+        until the texture is on the graphics card (the map then drops it, see RadarView._gpu_image)."""
         g = self.extra.get("_gpu")
         if g is None:
             v = self.values.astype(np.float32)
@@ -152,6 +158,7 @@ class ProductEngine:
     def __init__(self, settings):
         self.settings = settings
         self._cache: OrderedDict = OrderedDict()
+        self._sizes: dict = {}
         self._bytes = 0
         self._lock = threading.RLock()
         self._tilt_cache: OrderedDict = OrderedDict()
@@ -169,22 +176,39 @@ class ProductEngine:
     def _put(self, key, img):
         if img is None:
             return
-        budget = float(self.settings["image_cache_mb"]) * 1e6
+        # the setting, but never less than the loop on screen needs (frames x panels, ~3 MB an image)
+        s = self.settings
+        budget = max(float(s["image_cache_mb"]), int(s["loop_frames"] or 12) * int(s["layout"] or 1) * 3.2) * 1e6
+        n = img.nbytes
         with self._lock:
-            old = self._cache.pop(key, None)
-            if old is not None:
-                self._bytes -= old.nbytes
+            old = self._sizes.pop(key, None)
+            if self._cache.pop(key, None) is not None and old is not None:
+                self._bytes -= old
             self._cache[key] = img
-            self._bytes += img.nbytes
+            self._sizes[key] = n                # what was counted in, so exactly that is counted out
+            self._bytes += n
             while self._bytes > budget and len(self._cache) > 8:
-                _, ev = self._cache.popitem(last=False)
-                self._bytes -= ev.nbytes
+                k, _ev = self._cache.popitem(last=False)
+                self._bytes -= self._sizes.pop(k, 0)
 
     def clear(self):
         with self._lock:
             self._cache.clear()
+            self._sizes.clear()
             self._bytes = 0
             self._grid_cache.clear()
+
+    def forget_frames(self, frames):
+        """Drops cached images and tilt lists of frames that are gone (left the loop, another radar) and of
+        earlier revisions of the ones still here (a live volume that has grown since)."""
+        cur = {f.uid: f.l2_rev for f in frames}
+        with self._lock:
+            for k in [k for k in self._cache if isinstance(k, tuple) and len(k) > 1 and isinstance(k[0], int)
+                      and cur.get(k[0]) != k[1]]:
+                self._cache.pop(k, None)
+                self._bytes -= self._sizes.pop(k, 0)
+            for k in [k for k in self._tilt_cache if cur.get(k[0]) != k[1]]:
+                self._tilt_cache.pop(k, None)
 
     def cached(self, frame, pid, tilt_index):
         return self._get(self._key(frame, pid, tilt_index))
@@ -199,8 +223,12 @@ class ProductEngine:
         vol = frame.level2()
         t = build_tilts(vol) if vol is not None else []
         with self._lock:
+            # earlier revisions of this frame (a live volume growing chunk by chunk) are never shown again,
+            # and their tilts would keep those whole volumes alive
+            for old in [o for o in self._tilt_cache if o[0] == frame.uid and o != k]:
+                self._tilt_cache.pop(old, None)
             self._tilt_cache[k] = t
-            while len(self._tilt_cache) > 64:
+            while len(self._tilt_cache) > 40:
                 self._tilt_cache.popitem(last=False)
         return t
 
@@ -328,8 +356,9 @@ class ProductEngine:
             m = sw.moments["VEL"]
             order = self._sorted_sweep(sw)[0]
             dv[m.raw[order] == 1] = RF
+            dv = dv.astype(np.float16)              # kept with the sweep: half the memory, plenty of precision
             sw._rf_dealiased = (level, dv)
-        return dv.copy()
+        return dv.astype(np.float32)
 
     def _tilt_image(self, vol, tilt, p, key):
         pid = p.id

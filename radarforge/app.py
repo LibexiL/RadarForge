@@ -176,6 +176,8 @@ def main(argv=None):
         return self_check()
     from . import updater
     updater.remember_environment()           # before the OpenGL set-up changes it (updates restart with this)
+    from .data.level2 import limit_malloc_arenas
+    limit_malloc_arenas()                    # before any thread starts (Linux: far less memory held by threads)
 
     from . import gl_setup
     from .config import LOG_FILE, Settings, ensure_dirs

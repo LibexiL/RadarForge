@@ -6,15 +6,20 @@ Handles:
   * bzip2-compressed LDM records (normal archive files and S/I/E chunks)
   * uncompressed legacy archives and gzip/bz2 wrapped files
 
-Data is kept as raw uint8/uint16 gate codes with scale/offset so memory stays
-small; values are decoded on demand (value = (raw - offset) / scale, codes 0 and
-1 are "below threshold" and "range folded").
+Data is kept as raw uint8/uint16 gate codes with scale/offset, and those are
+kept zlib-compressed in memory (radar data packs 3-7x), so memory stays small;
+values are decoded on demand (value = (raw - offset) / scale, codes 0 and 1 are
+"below threshold" and "range folded").
 """
 from __future__ import annotations
 
 import bz2
 import gzip
 import struct
+import threading
+import weakref
+import zlib
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -59,19 +64,112 @@ class Radial:
     moments: dict
 
 
-@dataclass
+# Unpacked gate codes of recently used moments stay in memory (up to this much) so working on a sweep
+# doesn't unpack it again and again; everything else stays compressed.
+UNPACKED_BUDGET = 64 << 20
+_unpacked: OrderedDict = OrderedDict()       # id(field) -> (weakref to the field, bytes)
+_unpacked_bytes = 0
+_unpacked_lock = threading.RLock()
+
+
+def _pack(raw: np.ndarray) -> bytes:
+    c = zlib.compressobj(1, zlib.DEFLATED, 15, 9, zlib.Z_RLE)     # run-length: fast, and radar data has long runs
+    return c.compress(raw.reshape(-1).view(np.uint8)) + c.flush()
+
+
+def _forget_unpacked(key, ref):
+    """A field was freed (its volume dropped): its unpacked codes went with it, so stop counting them."""
+    global _unpacked_bytes
+    with _unpacked_lock:
+        e = _unpacked.get(key)
+        if e is not None and e[0] is ref:
+            del _unpacked[key]
+            _unpacked_bytes -= e[1]
+
+
+def _remember_unpacked(mf, nbytes: int):
+    global _unpacked_bytes
+    with _unpacked_lock:
+        key = id(mf)
+        old = _unpacked.pop(key, None)
+        if old is not None:
+            _unpacked_bytes -= old[1]
+        _unpacked[key] = (weakref.ref(mf, lambda r, k=key: _forget_unpacked(k, r)), nbytes)
+        _unpacked_bytes += nbytes
+        while _unpacked_bytes > UNPACKED_BUDGET and len(_unpacked) > 1:
+            _k, (ref, n) = _unpacked.popitem(last=False)
+            _unpacked_bytes -= n
+            f = ref()
+            if f is not None and f is not mf:
+                f._raw = None
+
+
+def _touch_unpacked(mf):
+    with _unpacked_lock:
+        e = _unpacked.get(id(mf))
+        if e is not None and e[0]() is mf:
+            _unpacked.move_to_end(id(mf))
+
+
+def unpacked_bytes() -> int:
+    """Memory held by unpacked gate codes right now (for tests and the memory readout)."""
+    return _unpacked_bytes
+
+
 class MomentField:
-    """One moment for one sweep, stored as raw codes (n_radials x n_gates)."""
-    name: str
-    raw: np.ndarray
-    scale: float
-    offset: float
-    first_gate: float
-    gate_spacing: float
+    """One moment for one sweep: raw codes (n_radials x n_gates), kept compressed. `raw` unpacks them
+    (read-only; recently used ones stay unpacked, see UNPACKED_BUDGET)."""
+    __slots__ = ("name", "scale", "offset", "first_gate", "gate_spacing", "_shape", "_dtype", "_packed", "_raw",
+                 "__weakref__")
+
+    def __init__(self, name: str, raw: np.ndarray, scale: float, offset: float, first_gate: float,
+                 gate_spacing: float):
+        self.name = name
+        self.scale = scale
+        self.offset = offset
+        self.first_gate = first_gate
+        self.gate_spacing = gate_spacing
+        raw = np.ascontiguousarray(raw)
+        self._shape = raw.shape
+        self._dtype = raw.dtype.str
+        self._packed = _pack(raw)
+        self._raw = None
+
+    @property
+    def raw(self) -> np.ndarray:
+        r = self._raw
+        if r is None:
+            r = np.frombuffer(zlib.decompress(self._packed), dtype=self._dtype).reshape(self._shape)
+            self._raw = r
+            _remember_unpacked(self, r.nbytes)
+        else:
+            _touch_unpacked(self)
+        return r
+
+    @property
+    def packed_bytes(self) -> int:
+        return len(self._packed)
+
+    @property
+    def shape(self) -> tuple:
+        return self._shape
+
+    def __getstate__(self):                   # decoder process -> app: only the compressed codes travel
+        return (self.name, self.scale, self.offset, self.first_gate, self.gate_spacing, self._shape, self._dtype,
+                self._packed)
+
+    def __setstate__(self, st):
+        (self.name, self.scale, self.offset, self.first_gate, self.gate_spacing, self._shape, self._dtype,
+         self._packed) = st
+        self._raw = None
+
+    def __repr__(self):
+        return (f"MomentField({self.name}, {self._shape} {np.dtype(self._dtype).name}, "
+                f"{len(self._packed) / 1e6:.2f} MB packed)")
 
     @property
     def ngates(self) -> int:
-        return self.raw.shape[1]
+        return self._shape[1]
 
     @property
     def max_range(self) -> float:
@@ -377,21 +475,22 @@ class SweepBuilder:
         sweeps = []
         first_time = None
         last_gi = len(self._groups) - 1
-        for gi, (en, rads) in enumerate(self._groups):
-            if len(rads) < 10:
-                continue
+        for gi, g in enumerate(self._groups):
+            en, rads = g[0], g[1]
             cached = self._built.get(gi)
-            if cached is not None and cached[0] == len(rads):
+            if cached is not None and (rads is None or cached[0] == len(rads)):
                 sw = cached[1]
                 sw.index = len(sweeps)
             else:
+                if len(rads) < 10:
+                    continue
                 sw = _assemble(len(sweeps), en, rads)
                 if sw is None:
                     continue
                 if gi < last_gi:
                     self._built[gi] = (len(rads), sw)
-            last_status = rads[-1].status
-            sw.complete = last_status in (2, 4) or gi < last_gi
+                    g[1] = None                 # a closed sweep never changes: its radials aren't needed again
+            sw.complete = gi < last_gi or (rads is not None and rads[-1].status in (2, 4))
             if first_time is None:
                 first_time = sw.start_time
             sweeps.append(sw)
@@ -481,20 +580,57 @@ def read_chunks(chunks: list, site_hint: str = "") -> Level2Volume:
 # --------------------------------------------------------------------------- #
 # out-of-process decoding (keeps the UI responsive: parsing is Python-heavy)
 # --------------------------------------------------------------------------- #
-_proc_pool = None
+_proc_pool = None          # Level II decoding (needs only NumPy)
+_l3_pool = None            # Level III decoding (MetPy, which takes ~150 MB per process: only one has it)
 _proc_failed = False
 
 
-def _proc_executor():
-    global _proc_pool
+def _new_pool(n: int):
+    # (no max_tasks_per_child: some Python 3.11/3.12 releases can hang replacing a retired worker; each task
+    # gives its memory back instead, see _call_and_trim)
+    import multiprocessing as mp
+    import os
+    from concurrent.futures import ProcessPoolExecutor
+    return ProcessPoolExecutor(max_workers=n, mp_context=mp.get_context("spawn"), initializer=_worker_init,
+                               initargs=(os.getpid(),))
+
+
+def _proc_executor(level3: bool = False):
+    global _proc_pool, _l3_pool
+    if level3:
+        if _l3_pool is None:
+            _l3_pool = _new_pool(1)
+        return _l3_pool
     if _proc_pool is None:
-        import multiprocessing as mp
         import os
-        from concurrent.futures import ProcessPoolExecutor
-        n = max(2, min(4, (os.cpu_count() or 2) // 2))
-        _proc_pool = ProcessPoolExecutor(max_workers=n, mp_context=mp.get_context("spawn"),
-                                         initializer=_worker_init, initargs=(os.getpid(),))
+        _proc_pool = _new_pool(max(2, min(3, (os.cpu_count() or 2) // 2)))
     return _proc_pool
+
+
+def limit_malloc_arenas():
+    """glibc gives every thread its own heap arena, and memory freed in one rarely goes back to the system:
+    with several decoding threads that alone can hold hundreds of MB. Two arenas are plenty here."""
+    import sys
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        libc.mallopt(-8, 2)                  # M_ARENA_MAX
+    except Exception:
+        pass
+
+
+def release_memory():
+    """Hand freed heap memory back to the system (glibc keeps it otherwise). Cheap; Linux only."""
+    import sys
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 
 def _worker_init(parent_pid: int):
@@ -502,6 +638,7 @@ def _worker_init(parent_pid: int):
     import os
     import threading
     import time
+    limit_malloc_arenas()
 
     def watch():
         while True:
@@ -511,16 +648,25 @@ def _worker_init(parent_pid: int):
     threading.Thread(target=watch, daemon=True).start()
 
 
-def run_isolated(fn, *args, timeout: float = 180):
+def _call_and_trim(fn, *args):
+    """Runs in a decoder process: the decode, then give the memory it used for parsing back."""
+    try:
+        return fn(*args)
+    finally:
+        release_memory()
+
+
+def run_isolated(fn, *args, timeout: float = 180, level3: bool = False):
     """Run fn(*args) in a decoder process when possible, falling back to this thread.
 
     Parsing is Python-heavy; doing it in another process keeps the UI thread from
     fighting worker threads for the GIL (which is what makes the map stutter).
+    [level3]: the Level III decoder process (the only one that loads MetPy).
     """
-    global _proc_failed, _proc_pool
+    global _proc_failed, _proc_pool, _l3_pool
     if not _proc_failed:
         try:
-            return _proc_executor().submit(fn, *args).result(timeout=timeout)
+            return _proc_executor(level3).submit(_call_and_trim, fn, *args).result(timeout=timeout)
         except Exception as exc:
             if isinstance(exc, RuntimeError) and "after shutdown" in str(exc):
                 return fn(*args)        # interpreter exiting
@@ -530,11 +676,12 @@ def run_isolated(fn, *args, timeout: float = 180):
             import sys
             print("radarforge: process decoding unavailable, using threads:", exc, file=sys.stderr)
             _proc_failed = True
-            try:
-                _proc_pool.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
-            _proc_pool = None
+            for pool in (_proc_pool, _l3_pool):
+                try:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    pass
+            _proc_pool = _l3_pool = None
     return fn(*args)
 
 
@@ -565,6 +712,10 @@ def _warm():
     return True
 
 
+def _ready():
+    return True
+
+
 def warm_up():
     """Start the decoder processes early so the first volume doesn't wait for them."""
     if _proc_failed:
@@ -572,24 +723,25 @@ def warm_up():
     try:
         ex = _proc_executor()
         for _ in range(ex._max_workers):
-            ex.submit(_warm)
+            ex.submit(_ready)
+        _proc_executor(level3=True).submit(_warm)       # MetPy is slow to import: only the Level III process
     except Exception:
         pass
 
 
 def shutdown_pool():
     """Stop the decoder processes now (used before the app restarts itself)."""
-    global _proc_pool
-    pool, _proc_pool = _proc_pool, None
-    if pool is None:
-        return
-    procs = list((getattr(pool, "_processes", None) or {}).values())
-    for pr in procs:                      # stop the workers first, even mid-decode …
-        try:
-            pr.terminate()
+    global _proc_pool, _l3_pool
+    pools = [p for p in (_proc_pool, _l3_pool) if p is not None]
+    _proc_pool = _l3_pool = None
+    for pool in pools:
+        procs = list((getattr(pool, "_processes", None) or {}).values())
+        for pr in procs:                      # stop the workers first, even mid-decode …
+            try:
+                pr.terminate()
+            except Exception:
+                pass
+        try:                                  # … so the pool's own shutdown returns at once
+            pool.shutdown(wait=True, cancel_futures=True)
         except Exception:
             pass
-    try:                                  # … so the pool's own shutdown returns at once
-        pool.shutdown(wait=True, cancel_futures=True)
-    except Exception:
-        pass

@@ -62,6 +62,10 @@ class _ImageJob(QRunnable):
             import traceback
             traceback.print_exc()
             res = {"error": str(exc)}
+        finally:
+            # PySide can hold on to a finished runnable for a while: don't let it keep the job's frames (and
+            # with them whole volumes) alive
+            self.fn = None
         self.relay.imageReady.emit(self.panel, res)
 
 
@@ -75,6 +79,8 @@ class _Bg(QRunnable):
             self.fn()
         except Exception:
             pass
+        finally:
+            self.fn = None              # see _ImageJob.run
 
 
 class _Lazy3D(QWidget):
@@ -222,8 +228,11 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.lock_act.setChecked(self.ws.locked)
         self._sync_side_act()
         self.apply_theme(settings["theme"], save=False)
-        from ..data.level2 import warm_up
+        from ..data.level2 import release_memory, warm_up
         QTimer.singleShot(1500, warm_up)          # start decoder processes before they're needed
+        self._trim_timer = QTimer(self)           # hand freed memory back to the system now and then (Linux;
+        self._trim_timer.timeout.connect(lambda: self.playing or release_memory())   # not mid-loop: can take ~50 ms)
+        self._trim_timer.start(60_000)
 
     @property
     def v3d_win(self):
@@ -618,6 +627,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
     def _apply_frames_changed(self):
         frames = self.data.frames
         n = len(frames)
+        self.engine.forget_frames(list(frames))
+        from ..data.frames import VOLUMES
+        VOLUMES.retain(f.l2_path for f in frames if f.l2_path)     # decoded volumes of frames that are gone
         if n and self.data.site_id and get_site(self.data.site_id) and \
                 self.view.site_id != self.data.site_id:
             self._set_site_projection(self.data.site_id)
@@ -639,12 +651,15 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             self._prefetch()
 
     def _frame_updated(self, frame):
+        self.engine.forget_frames(list(self.data.frames))     # the volume's earlier revision isn't shown again
         if frame is self.current_frame() and not self._update_timer.isActive():
             self._update_timer.start()
 
     def _loading_changed(self, busy):
         if not busy:
             self._prefetch()
+            from ..data.level2 import release_memory
+            QTimer.singleShot(3000, release_memory)        # parsing a loop's worth of volumes frees a lot
 
     def _update_time_label(self):
         frame = self.current_frame()
@@ -901,11 +916,16 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             p.message = "Error: " + res["error"][:80]
             self.view.update()
             return
+        img = res["img"]
         if self._panel_req.get(idx) != res["req"]:
+            if img is not None and img is not p.image:
+                img.extra.pop("_gpu", None)          # never shown: don't keep its texture copy in the cache
             return
         self._panel_done[idx] = res["req"]
         pd = catalog.get(p.product)
-        img = res["img"]
+        old = p.image
+        if old is not None and old is not img:
+            old.extra.pop("_gpu", None)              # replaced before it was drawn (fast loop): same
         p.image = img
         frame = res["frame"]
         site = frame.site if frame else self.data.site_id

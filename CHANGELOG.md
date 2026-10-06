@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.11.1 – 2026-10-05
+
+Much less memory. In live mode RadarForge used to keep growing: a 12-frame, 6-panel live loop passed
+4 GB within minutes and kept climbing. It now stays at about 1–1.5 GB.
+
+### Memory
+- **Decoded radar volumes are kept compressed** in memory: 3.5–7× smaller (a volume takes about
+  6–12 MB instead of about 40 MB). Only the sweeps being worked on are unpacked, which takes a few
+  milliseconds.
+- **Live mode no longer piles up old data.** Each live update made new panel images and a new tilt list,
+  and the old ones stayed. Those kept up to 64 earlier volumes alive. Earlier revisions are now let go
+  as soon as a newer one arrives, and so are frames that have left the loop.
+- **The rendered image cache counts everything it holds.** It stored a second copy of each image for
+  the graphics card without counting it, so its 600 MB limit really meant about 1 GB. That copy is now
+  dropped once the image is on the graphics card. The default limit is 300 MB (an unchanged 600 MB
+  setting moves to 300 MB), but never less than the loop on screen needs.
+- **Decoder processes are much smaller:** about 70 MB each instead of about 230 MB. Only one of them
+  loads MetPy, the library the Level III products need, and they give memory back after each volume.
+  There are at most 3 of them for Level II.
+- The live feed no longer keeps every radial of the volume being scanned once its sweeps are complete.
+- Dealiased velocity is kept at half the size.
+- On Linux, freed memory is handed back to the system after loading and every minute while idle. Fewer
+  per-thread memory pools are used.
+- **Settings → Performance** shows how much memory RadarForge and its decoder processes are using.
+
 ## 1.11.0 – 2026-10-05
 
 RadarForge now keeps itself up to date, and the panel layouts are one key away.

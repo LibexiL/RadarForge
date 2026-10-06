@@ -20,6 +20,13 @@ class VolumeCache:
         self._lock = threading.Lock()
         self._loading: dict = {}
 
+    def retain(self, paths):
+        """Drops decoded volumes of files no frame uses any more (another radar, or older than the loop)."""
+        keep = set(paths)
+        with self._lock:
+            for p in [p for p in self._d if p not in keep]:
+                del self._d[p]
+
     def peek(self, path: str):
         """The decoded volume if it's already in memory, else None (never blocks)."""
         with self._lock:
