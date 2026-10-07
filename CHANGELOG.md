@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.12.0 – 2026-10-07
+
+A new 3-D storm view, and Level III velocity (N0G) that shows up in live mode.
+
+### 3-D view, rebuilt
+- **Drawn on the graphics card by ray marching**: every pixel walks through the storm front to back, so
+  see-through layers always blend in the right order. The old view drew its see-through shells in the
+  wrong order, which made the green mush.
+- **Two styles:**
+  - **Surfaces:** lit surfaces at the levels you choose. The innermost is solid and the outer ones are glassy.
+  - **Volume:** a see-through cloud in the colour table's colours, denser where values stand out.
+- **Products:** reflectivity, dealiased velocity, storm-relative velocity, CC, ZDR, KDP, spectrum width
+  and azimuthal shear.
+  - Dual-pol products are hidden where reflectivity is weak, because there they are only noise.
+  - Other products get a faint 30 dBZ reflectivity outline, so you can see where in the storm they are:
+    for example the debris column (low CC) inside the Moore storm.
+- **A better grid underneath:**
+  - Each tilt is sampled smoothly, and points between beams are interpolated in height, the way you'd
+    read a stack of tilts.
+  - Above the highest beam, the radar's cone of silence is left empty instead of being made up.
+  - A 40 km box builds in a fraction of a second.
+- **The scene around it:**
+  - The lowest tilt and the map (states, counties, roads, towns) on the floor.
+  - A height scale in kft or km.
+  - A compass and a colour legend.
+- **Cut plane** (north–south, east–west or at a height): the half facing you is cut away, and the cut face
+  shows the data.
+- **Follow loop**: the 3-D view shows the frame on the map and plays along with the loop. Frames are kept
+  (up to 160 MB), so the second time round the 3-D loop is smooth.
+- Vertical exaggeration, box height, grid detail, preset angles (from above, south, west ...), double-click
+  to centre, **R** to reset, and **Save image…**.
+- On a slow graphics card it draws at a lower resolution while you rotate it, and sharpens when you stop.
+- **Panel layout:**
+  - The 3-D panel opens beside the map at about half its width, instead of as a thin strip under it.
+  - Its controls wrap onto more lines when the panel is narrow, so none are cut off.
+
+### Level III
+- **N0G (and other Level III) no longer goes missing in live mode.**
+  - A new live volume has no N0G for its first minute or two, and RadarForge only checked Level III once a
+    minute. So the newest frame, the one you're usually looking at, was empty for much of every volume.
+  - Now a new frame keeps the previous volume's product until its own arrives. The panel says
+    "(earlier volume)" while it does.
+  - Level III is checked every 20 seconds, and each check lists only files newer than the last one it
+    saw, so it's cheaper than before.
+- A Level III download or decode that fails is tried again (up to 3 times) instead of being skipped for good.
+
 ## 1.11.1 – 2026-10-05
 
 Much less memory. In live mode RadarForge used to keep growing: a 12-frame, 6-panel live loop passed

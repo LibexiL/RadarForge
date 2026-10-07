@@ -260,11 +260,15 @@ class ProductEngine:
         return (frame.uid, frame.l2_rev, pid, ti, self._sig(pid))
 
     # ---------------------------------------------------------------- main
-    def image(self, frame, pid: str, tilt_index: int = 0):
+    def image(self, frame, pid: str, tilt_index: int = 0, cache: bool = True):
+        """The image of one tilt. [cache]=False: made without keeping it (the 3-D view reads every tilt, and
+        would otherwise push the panels' images out of the cache)."""
         key = self._key(frame, pid, tilt_index)
         img = self._get(key)
         if img is not None:
             return img
+        if not cache:
+            return self._compute(frame, pid, tilt_index, key)
         # single-flight so parallel requests don't duplicate heavy work
         with self._lock:
             ev = self._inflight.get(key)
@@ -521,11 +525,11 @@ class ProductEngine:
                           {"dealiased": True} if dealiased else {})
 
     # ---------------------------------------------------------------- sampling
-    def tilt_sweeps(self, frame, pid):
+    def tilt_sweeps(self, frame, pid, cache: bool = True):
         """[(elevation, SweepImage)] for every tilt (for cross sections / 3D)."""
         out = []
         for i, t in enumerate(self.tilts(frame)):
-            img = self.image(frame, pid, i)
+            img = self.image(frame, pid, i, cache=cache)
             if img is not None:
                 out.append((t.elevation, img))
         return out

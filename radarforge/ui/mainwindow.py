@@ -262,7 +262,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         ws.register("xsection", "Cross Section", self.xs_win, "tool")
         # the 3-D view has its own OpenGL widget: only create it when the panel is first opened
         self.v3d_host = _Lazy3D(self)
-        ws.register("3d", "3D Volume", self.v3d_host, "tool")
+        ws.register("3d", "3D Volume", self.v3d_host, "tool", prefer=("right", 0.48))   # beside the map, big
         ws.panelClosed.connect(self._panel_closed)
         ws.sideToggled.connect(lambda _on: self._sync_side_act())
         ws.layoutChanged.connect(self._sync_side_act)
@@ -934,6 +934,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             tl = img.label if img.source == "L3" else (res["tilt_label"] if pd.tilted else "")
             stale = "  (prev vol)" if frame is not self.current_frame() else ""
             tags = ""
+            if img.source == "L3" and frame is not None and img.time is not None and \
+                    (frame.time - img.time).total_seconds() > 150:
+                tags += "  (earlier volume)"          # this volume's own product hasn't come in yet
             if img.extra.get("dealiased") and p.product in ("VEL", "L3G", "L3S"):
                 tags += "  dealiased"
             if img.extra.get("trail"):

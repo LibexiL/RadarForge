@@ -289,6 +289,25 @@ def list_level3_range(site3: str, product: str, start: datetime, end: datetime) 
     return out
 
 
+def level3_after(site3: str, product: str, after_key: str) -> list:
+    """Files newer than [after_key] (a cheap listing: S3 returns only the keys after it)."""
+    now = datetime.now(timezone.utc)
+    days = [now.date()]
+    if now.hour == 0 and now.minute < 20:          # just after midnight: yesterday's last ones can still arrive
+        days.insert(0, (now - timedelta(days=1)).date())
+    out = []
+    for day in days:
+        prefix = f"{site3.upper()}_{product.upper()}_{day:%Y_%m_%d}_"
+        objs, _ = list_objects(L3_BUCKET, prefix, start_after=max(after_key, prefix))
+        for o in objs:
+            m = _L3_RE.match(o.key)
+            if m:
+                t = datetime(*map(int, m.groups()[2:]), tzinfo=timezone.utc)
+                out.append(L3File(o.key, m.group(1), m.group(2), t))
+    out.sort(key=lambda f: f.time)
+    return out
+
+
 def latest_level3(site3: str, product: str, count: int = 1) -> list:
     now = datetime.now(timezone.utc)
     files = list_level3(site3, product, now.date())

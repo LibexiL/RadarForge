@@ -155,3 +155,26 @@ def test_prune_cache(tmp_path, monkeypatch):
         os.utime(p, (t, t))
     assert aws.prune_cache(max_bytes=150, max_age_days=10) == 3
     assert [p.name for p in d.iterdir()] == ["f3"]
+
+
+def test_new_frames_keep_level3_until_their_own_arrives(qtbot=None):
+    """A new live volume starts without its N0G: it shows the previous volume's until its own comes in."""
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from radarforge.data.frames import Frame
+    from radarforge.ui.datamanager import DataManager
+    dm = DataManager.__new__(DataManager)
+    import threading
+    dm._lock = threading.RLock()
+    dm.frames = []
+    t0 = datetime(2026, 10, 7, 20, 0, tzinfo=timezone.utc)
+    f1 = Frame("KTLX", t0, l2_path="a")
+    dm._insert_frame(f1)
+    old = SimpleNamespace(awips="N0G", vol_time=t0, time=t0 + timedelta(seconds=40))
+    f1.l3["N0G"] = old
+    f2 = Frame("KTLX", t0 + timedelta(minutes=5), l2_path="b")
+    dm._insert_frame(f2)
+    assert f2.l3["N0G"] is old                      # carried over
+    f3 = Frame("KTLX", t0 + timedelta(minutes=20), l2_path="c")
+    dm._insert_frame(f3)
+    assert "N0G" not in f3.l3                       # too old to carry (12 minutes)

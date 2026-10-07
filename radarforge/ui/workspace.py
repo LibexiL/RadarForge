@@ -533,13 +533,14 @@ class Workspace(QWidget):
         self.layoutChanged.connect(self._apply_stretch)
 
     # ---------------------------------------------------------------- registry
-    def register(self, key, title, widget, group="side"):
+    def register(self, key, title, widget, group="side", prefer=None):
+        """[prefer]: (where, share) beside the map the first time it opens, e.g. ("right", 0.45)."""
         act = QAction(title, self, checkable=True)
         act.triggered.connect(lambda on, k=key: self.show_panel(k) if on else self.close_panel(k))
         if widget.parentWidget() is None:
             widget.setParent(self)          # keep every panel inside this window, even while closed
         widget.hide()
-        self._panels[key] = {"title": title, "widget": widget, "group": group, "action": act}
+        self._panels[key] = {"title": title, "widget": widget, "group": group, "action": act, "prefer": prefer}
         widget.windowTitleChanged.connect(lambda t, k=key: self._title_changed(k, t))
         self.closed.add(key)
 
@@ -711,8 +712,9 @@ class Workspace(QWidget):
         elif st.floating:
             st.window().setWindowTitle(self.title(st.current()))
 
-    def _insert(self, keys, zone):
-        """Place panels (already taken out of the layout) according to a drop zone."""
+    def _insert(self, keys, zone, share=None):
+        """Place panels (already taken out of the layout) according to a drop zone. [share]: the new panel's
+        part of the space it splits (instead of the usual 30 %)."""
         if zone.kind == "stack" and zone.where == "center":
             for k in keys:
                 zone.target.add(k)
@@ -755,9 +757,10 @@ class Workspace(QWidget):
             return None
         idx = parent.indexOf(target)
         sizes = parent.sizes()
+        part = share if share is not None else (0.5 if zone.kind == "stack" else 0.3)
         if parent.orientation() == orient:
             span = sizes[idx]
-            share = int(span * (0.5 if zone.kind == "stack" else 0.3))
+            share = int(span * part)
             sizes[idx] = span - share
             pos = idx if before else idx + 1
             parent.insertWidget(pos, new)
@@ -768,7 +771,7 @@ class Workspace(QWidget):
             split = Split(orient, self)
             parent.insertWidget(idx, split)
             split.addWidget(target)           # direct move: the map's OpenGL context survives
-            share = int(ext * (0.5 if zone.kind == "stack" else 0.3))
+            share = int(ext * part)
             if before:
                 split.insertWidget(0, new)
                 split.setSizes([share, ext - share])
@@ -930,6 +933,9 @@ class Workspace(QWidget):
                 return self._insert([key], Zone("stack", where, st))
         group = self.group(key)
         docked = self.stacks(docked_only=True)
+        prefer = self._panels[key].get("prefer")
+        if prefer and not home:
+            return self._insert([key], Zone("center", prefer[0], self.center), share=prefer[1])
         if group == "side":
             side = [s for s in docked if s.side_only()]
             if side:

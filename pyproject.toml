@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "radarforge"
-version = "1.11.1"
+version = "1.12.0"
 description = "NEXRAD Level II / Level III weather radar viewer: live and archive data, 1-6 linked panels, derived products, placefiles, cross sections and 3-D"
 readme = "README.md"
 requires-python = ">=3.10"

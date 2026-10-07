@@ -51,6 +51,8 @@ class DataManager(QObject):
         self._l2_expected = False
         self._l3_busy = False
         self._last_l3_poll = 0.0
+        self._l3_last: dict = {}          # code -> newest key listed (live: later polls list only what's newer)
+        self._l3_fail: dict = {}          # key -> failed downloads/decodes (tried again, up to 3 times)
         self._live_timer = QTimer(self)
         self._live_timer.timeout.connect(self._live_tick)
         self._pollSoon.connect(lambda: QTimer.singleShot(4000, self._poll_live_now))
@@ -93,6 +95,24 @@ class DataManager(QObject):
         with self._lock:
             self.frames.append(frame)
             self.frames.sort(key=lambda f: f.time)
+            self._inherit_l3(frame)
+
+    L3_CARRY_S = 12 * 60     # a Level III product stays on later frames for this long (until a newer one comes)
+
+    def _inherit_l3(self, frame):
+        """A new frame starts with the Level III products of the frame before it (up to 12 minutes old) until
+        its own arrive: a new live volume has no N0G / N0B for its first minutes, which left the panel empty
+        for much of every volume."""
+        i = self.frames.index(frame)
+        if i == 0:
+            return
+        prev = self.frames[i - 1]
+        for code, prod in prev.l3.items():
+            if code in frame.l3:
+                continue
+            t = prod.vol_time or prod.time
+            if t is not None and 0 <= (frame.time - t).total_seconds() <= self.L3_CARRY_S:
+                frame.l3[code] = prod
 
     def _trim(self):
         n = int(self.settings["loop_frames"])
@@ -137,7 +157,7 @@ class DataManager(QObject):
             for f in self.frames:
                 if f.time <= (target.time if target else t):
                     continue
-                if (f.time - t).total_seconds() > 12 * 60:
+                if (f.time - t).total_seconds() > self.L3_CARRY_S:
                     break
                 cur = f.l3.get(prod.awips)
                 cur_t = (cur.vol_time or cur.time) if cur is not None else None
@@ -206,6 +226,8 @@ class DataManager(QObject):
             self._l2_expected = False
         self._l3_seen.clear()
         self._l3_alt.clear()
+        self._l3_last.clear()
+        self._l3_fail.clear()
         self._emit_frames()
 
     def set_l3_needed(self, codes: set):
@@ -342,7 +364,7 @@ class DataManager(QObject):
         if tr is not None and not tr.busy:
             self._submit_live(self._live_poll_once)
         now = time.time()
-        if now - self._last_l3_poll > 60:
+        if now - self._last_l3_poll > self.L3_POLL_S:
             self._poll_l3()
         if now - self._last_sync > 90 and not self._sync_busy:
             self._last_sync = now
@@ -453,6 +475,19 @@ class DataManager(QObject):
         finally:
             self._sync_busy = False
 
+    L3_POLL_S = 20           # live: how often Level III is checked (a cheap request: only newer files are listed)
+
+    def _l3_mark(self, key, ok):
+        """Remember a Level III file as done once it decoded; a failed one is tried again (up to 3 times)."""
+        if ok:
+            self._l3_seen.add(key)
+            self._l3_fail.pop(key, None)
+        else:
+            n = self._l3_fail.get(key, 0) + 1
+            self._l3_fail[key] = n
+            if n >= 3:
+                self._l3_seen.add(key)
+
     def _poll_l3(self, force=False):
         if self._l3_busy or not self.l3_needed or self.site is None:
             return
@@ -466,29 +501,46 @@ class DataManager(QObject):
                 for want in sorted(codes):
                     code = self._l3_alt.get(want, want)
                     try:
-                        files = aws.latest_level3(self.site.l3_id, code, count=n if force else 2)
-                        if not files and want not in self._l3_alt:
-                            for alt in l3_fallbacks(want):
-                                files = aws.latest_level3(self.site.l3_id, alt, count=n if force else 2)
-                                if files:
-                                    code = self._l3_alt[want] = alt
-                                    break
+                        last = self._l3_last.get(code)
+                        if force or last is None:
+                            files = aws.latest_level3(self.site.l3_id, code, count=n)
+                            if not files and want not in self._l3_alt:
+                                for alt in l3_fallbacks(want):
+                                    files = aws.latest_level3(self.site.l3_id, alt, count=n)
+                                    if files:
+                                        code = self._l3_alt[want] = alt
+                                        break
+                        else:
+                            files = aws.level3_after(self.site.l3_id, code, last)[-n:]
+                        if files:
+                            self._l3_last[code] = max(self._l3_last.get(code, ""), files[-1].key)
                     except Exception as exc:
-                        self.status.emit(f"Level III {code}: {exc}")
+                        self.status.emit(f"Level III {code}: {aws.friendly_error(exc)}")
                         continue
                     for lf in files:
                         if lf.key in self._l3_seen:
                             continue
-                        self._l3_seen.add(lf.key)
                         try:
                             data = aws.fetch(aws.L3_BUCKET, lf.key)
                             prod = read_level3(data, awips_hint=code, site_hint=self.site_id)
                         except Exception as exc:
-                            self.status.emit(f"Level III {code} decode failed: {exc}")
+                            self._l3_mark(lf.key, False)
+                            self.status.emit(f"Level III {code}: {aws.friendly_error(exc)}")
                             continue
+                        self._l3_mark(lf.key, True)
                         if gen != self._gen:
                             return
                         self.attach_l3(prod)
+                    # failed earlier: try those again
+                    for key in [k for k in self._l3_fail if k.split("_")[1] == code and k not in self._l3_seen]:
+                        try:
+                            prod = read_level3(aws.fetch(aws.L3_BUCKET, key), awips_hint=code, site_hint=self.site_id)
+                        except Exception:
+                            self._l3_mark(key, False)
+                            continue
+                        self._l3_mark(key, True)
+                        if gen == self._gen:
+                            self.attach_l3(prod)
             finally:
                 self._l3_busy = False
         self._submit(work)
@@ -541,13 +593,17 @@ class DataManager(QObject):
             for lf in files:
                 if lf.key in self._l3_seen:
                     continue
-                self._l3_seen.add(lf.key)
-                futs.append(self._dl_pool.submit(lambda k=lf.key: aws.fetch(aws.L3_BUCKET, k)))
-            for fut in futs:
+                futs.append((lf.key, self._dl_pool.submit(lambda k=lf.key: aws.fetch(aws.L3_BUCKET, k))))
+            for key, fut in futs:
                 try:
                     prod = read_level3(fut.result(), awips_hint=code, site_hint=self.site_id)
                 except Exception:
-                    continue
+                    try:                       # once more: a dropped download shouldn't lose the frame's product
+                        prod = read_level3(aws.fetch(aws.L3_BUCKET, key), awips_hint=code, site_hint=self.site_id)
+                    except Exception:
+                        self._l3_mark(key, False)
+                        continue
+                self._l3_mark(key, True)
                 if gen != self._gen:
                     return
                 self.attach_l3(prod)

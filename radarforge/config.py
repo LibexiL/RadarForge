@@ -103,7 +103,8 @@ DEFAULTS = {
     "hover_text": True,
     "l3_poll_products": ["NST", "NHI"],
     "xsection_top_kft": 60.0,
-    "volume3d_levels": [30.0, 50.0, 65.0],
+    "volume3d_levels": [30.0, 50.0, 65.0],   # (before 1.12)
+    "volume3d": {},                # 3-D view: product, style, levels, opacity, height ×, cut ... (tools/volume3d.py)
     "gl_platform": None,          # remembered working OpenGL platform (see gl_setup.py)
     "gl_format": None,
     "scene_cache": True,          # reuse the drawn map while only the cursor moves
