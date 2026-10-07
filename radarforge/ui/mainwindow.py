@@ -1206,6 +1206,8 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             txt, col = "FILES", "#8d909b"
         else:
             txt, col = "", "#8d909b"
+        if mode == "live" and txt and getattr(self.data, "_poller", None) is not None:
+            txt += f"  ({self.data.source_name})"          # from a polling server, not AWS
         if self.data_lbl.text() != txt:
             self.data_lbl.setText(txt)
             self.data_lbl.setStyleSheet(f"color:{col}; font-weight:bold; padding: 0 6px;")

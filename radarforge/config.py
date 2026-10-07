@@ -85,6 +85,9 @@ DEFAULTS = {
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
     "live_poll_seconds": 15,
+    "l2_source": "aws",            # live Level II: "aws" (NOAA's buckets) or a polling server's address
+    "polling_servers": [{"name": "Iowa State (IEM)",
+                         "url": "https://mesonet-nexrad.agron.iastate.edu/level2/raw/"}],
     "distance_units": "nm",       # nm | km | mi
     "height_units": "kft",        # kft | km
     "volume_cache": 4,            # decoded Level II volumes held in RAM

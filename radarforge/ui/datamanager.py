@@ -45,6 +45,8 @@ class DataManager(QObject):
         self._gen = 0                   # bumps when mode/site changes -> stale jobs drop results
         self._lock = threading.RLock()
         self._tracker: ChunkTracker | None = None
+        self._poller = None              # live Level II from a polling server (data/polling.py) instead of AWS
+        self.source_name = "NOAA on AWS"
         self._l3_seen: set = set()
         self._l3_alt: dict = {}          # requested code -> older code this radar actually has (N0B -> N0Q)
         self._pending_l3: list = []       # archive Level III waiting for its Level II volumes to arrive
@@ -247,13 +249,148 @@ class DataManager(QObject):
         self.stop_live()
         self._reset()
         self.mode = "live"
-        self._tracker = ChunkTracker(self.site_id)
         self._last_sync = time.time()
-        self.status.emit(f"Live: loading the newest {self.site_id} volume…")
-        self._submit_live(self._live_first)
-        self._submit(self._live_backfill)
+        src = self.settings["l2_source"] or "aws"
+        if src != "aws":
+            from ..data.polling import PollingClient, server_label
+            self._poller = PollingClient(src, self.site_id)
+            self.source_name = server_label(src, self.settings["polling_servers"])
+            self.status.emit(f"Live: loading {self.site_id} from {self.source_name}…")
+            self._submit_live(self._polled_first)
+        else:
+            self._start_aws_live()
         self._poll_l3(force=True)
         self._live_timer.start(max(5, int(self.settings["live_poll_seconds"])) * 1000)
+
+    def _start_aws_live(self, gen=None):
+        """Live Level II from NOAA's buckets: the newest volume from the chunks, the loop from the archive."""
+        self._poller = None
+        self.source_name = "NOAA on AWS"
+        self._tracker = ChunkTracker(self.site_id)
+        self.status.emit(f"Live: loading the newest {self.site_id} volume…")
+        if gen is None:
+            self._submit_live(self._live_first)
+            self._submit(self._live_backfill)
+        else:                          # (already on the live thread: a polling server failed)
+            self._submit(self._live_backfill)
+            self._live_first(gen)
+
+    # ---- polling server
+    def _polled_first(self, gen):
+        pc = self._poller
+        if pc is None or gen != self._gen:
+            return
+        from ..data.polling import safe_url
+        try:
+            files = pc.list()
+            if not files:
+                raise FileNotFoundError(f"{safe_url(pc.base)} lists no {self.site_id} volumes")
+        except Exception as exc:
+            if gen == self._gen:
+                self.status.emit(f"Polling server: {aws.friendly_error(exc)} – using NOAA on AWS instead")
+                self._start_aws_live(gen)
+            return
+        n = max(1, int(self.settings["loop_frames"]))
+        files = files[-n:]
+        self._polled_apply(gen, files[-1], live=True)          # the newest first, so something shows at once
+        futs = [(pf, self._dl_pool.submit(pc.fetch, pf)) for pf in reversed(files[:-1])]
+        with self._lock:
+            self._loading += 1
+        self.loadingChanged.emit(True)
+        try:
+            for i, (pf, fut) in enumerate(futs):
+                self.progress.emit(i, len(futs))
+                try:
+                    path = fut.result()
+                except Exception as exc:
+                    self.status.emit(f"Polling server: {pf.name} – {aws.friendly_error(exc)}")
+                    continue
+                if gen != self._gen:
+                    return
+                if path:
+                    self._polled_frame(pf, path, live=False)
+            self.progress.emit(len(futs), len(futs))
+        finally:
+            with self._lock:
+                self._loading -= 1
+            self.loadingChanged.emit(False)
+        self._trim()
+        self._emit_frames()
+
+    def _polled_apply(self, gen, pf, live):
+        pc = self._poller
+        try:
+            path = pc.fetch(pf)
+            pc.failures = 0
+        except Exception as exc:
+            pc.failures += 1
+            self.status.emit(f"Live ({self.source_name}): {pf.name} – {aws.friendly_error(exc)} – retrying")
+            return False
+        if path and gen == self._gen:
+            self._polled_frame(pf, path, live)
+        return bool(path)
+
+    def _polled_frame(self, pf, path, live):
+        with self._lock:
+            f = self._find_frame(pf.time, 60)
+            if f is None:
+                f = Frame(self.site_id, pf.time, l2_path=path, live=live, label=pf.name)
+                self._insert_frame(f)
+                new = True
+            else:
+                f.l2_path = path
+                f._l2 = None
+                f.l2_rev += 1
+                f.revision += 1
+                f.live = live
+                new = False
+        self._trim()
+        if new:
+            self._emit_frames()
+        else:
+            self.frameUpdated.emit(f)
+        if live:
+            self.status.emit(f"Live {self.site_id} ({self.source_name}): volume {pf.time:%H:%M:%S}Z "
+                             f"— updated {datetime.now(timezone.utc):%H:%M:%S}Z")
+
+    def _polled_tick(self, gen):
+        pc = self._poller
+        if pc is None or pc.busy or gen != self._gen:
+            return
+        pc.busy = True
+        try:
+            try:
+                files = pc.list()
+                pc.failures = 0
+            except Exception as exc:
+                pc.failures += 1
+                if gen == self._gen:
+                    self.status.emit(f"Live ({self.source_name}): {aws.friendly_error(exc)} – retrying")
+                return
+            if not files:
+                return
+            with self._lock:
+                newest_known = max((f.time for f in self.frames if f.has_level2()), default=None)
+            n = max(1, int(self.settings["loop_frames"]))
+            for pf in files[-n:]:
+                if gen != self._gen or pc.cancelled:
+                    return
+                is_newest = pf is files[-1]
+                had = pc.known_size(pf.name)
+                if had and pf.size is not None and pf.size <= had and not is_newest:
+                    with self._lock:
+                        f = self._find_frame(pf.time, 60)
+                    if f is not None and f.live:            # finished: no longer the volume being scanned
+                        f.live = False
+                        self.frameUpdated.emit(f)
+                    continue
+                if not had and newest_known is not None and pf.time < newest_known and \
+                        self._find_frame(pf.time, 60) is not None:
+                    continue
+                self._polled_apply(gen, pf, live=is_newest)
+            pc.forget_older({pf.name for pf in files[-n:]})
+        finally:
+            pc.busy = False
 
     def reload_live(self):
         """Start the live feed for this radar again from scratch (Radar → Reload live data)."""
@@ -262,6 +399,9 @@ class DataManager(QObject):
 
     def stop_live(self):
         self._live_timer.stop()
+        if self._poller is not None:
+            self._poller.cancelled = True
+        self._poller = None
         if self._tracker is not None:
             self._tracker.cancelled = True          # an in-flight poll for the old radar stops early
         self._tracker = None
@@ -359,6 +499,12 @@ class DataManager(QObject):
 
     def _live_tick(self):
         if self.mode != "live":
+            return
+        if self._poller is not None:
+            if not self._poller.busy:
+                self._submit_live(self._polled_tick)
+            if time.time() - self._last_l3_poll > self.L3_POLL_S:
+                self._poll_l3()
             return
         tr = self._tracker
         if tr is not None and not tr.busy:

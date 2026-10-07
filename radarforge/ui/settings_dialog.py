@@ -6,7 +6,7 @@ import os
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtWidgets import (QApplication, QAbstractItemView, QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
                                QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
                                QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMessageBox, QPushButton, QScrollArea, QSpinBox, QStackedWidget, QTableWidget,
@@ -283,8 +283,120 @@ class SettingsDialog(QDialog):
         self.poll.setValue(int(s["live_poll_seconds"]))
         f.addRow("Check for new data every", self.poll)
         lay.addLayout(f)
+        # ---- where live Level II comes from
+        lay.addWidget(_title("Live Level II source"))
+        lay.addWidget(_hint("NOAA's data on AWS, or a GR2Analyst-style polling server (the address you would put "
+                            "in GR2Analyst under File → Configure Polling). For a subscription server put the "
+                            "user name and password in the address: https://user:password@server/path/ (it is "
+                            "stored in your settings file as written). Archive data always comes from AWS, and "
+                            "Level III too. If the polling server can't be reached, live data comes from AWS."))
+        self.servers = [dict(x) for x in (s["polling_servers"] or []) if isinstance(x, dict) and x.get("url")]
+        f2 = _form()
+        self.source = QComboBox()
+        f2.addRow("Live data from", self.source)
+        lay.addLayout(f2)
+        self.server_list = QListWidget()
+        self.server_list.setMaximumHeight(110)
+        lay.addWidget(self.server_list)
+        row = QHBoxLayout()
+        for text, fn in (("Add…", self._server_add), ("Edit…", self._server_edit), ("Remove", self._server_remove),
+                         ("Test", self._server_test)):
+            b = QPushButton(text)
+            b.clicked.connect(fn)
+            row.addWidget(b)
+        row.addStretch(1)
+        lay.addLayout(row)
+        self.server_status = _hint("")
+        lay.addWidget(self.server_status)
+        self._fill_servers(s["l2_source"] or "aws")
         lay.addStretch(1)
         return w
+
+    # ---- polling servers
+    def _fill_servers(self, current=None):
+        cur = current if current is not None else (self.source.currentData() or "aws")
+        self.source.blockSignals(True)
+        self.source.clear()
+        self.source.addItem("NOAA on AWS (default)", "aws")
+        for x in self.servers:
+            self.source.addItem(f"{x.get('name') or x['url']}  (polling server)", x["url"])
+        i = self.source.findData(cur)
+        self.source.setCurrentIndex(i if i >= 0 else 0)
+        self.source.blockSignals(False)
+        from ..data.polling import safe_url
+        self.server_list.clear()
+        for x in self.servers:
+            self.server_list.addItem(f"{x.get('name') or '(no name)'}  —  {safe_url(x['url'])}")
+
+    def _server_dialog(self, server=None):
+        d = QDialog(self)
+        d.setWindowTitle("Polling server")
+        form = QFormLayout(d)
+        name = QLineEdit((server or {}).get("name", ""))
+        url = QLineEdit((server or {}).get("url", "https://"))
+        url.setMinimumWidth(380)
+        url.setPlaceholderText("https://mesonet-nexrad.agron.iastate.edu/level2/raw/")
+        form.addRow("Name", name)
+        form.addRow("Address", url)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(d.accept)
+        bb.rejected.connect(d.reject)
+        form.addRow(bb)
+        if d.exec() != QDialog.Accepted:
+            return None
+        u = url.text().strip()
+        if not u.lower().startswith(("http://", "https://")) or len(u) < 12:
+            QMessageBox.warning(self, "Polling server", "The address must start with http:// or https://")
+            return None
+        from urllib.parse import urlsplit
+        return {"name": name.text().strip() or (urlsplit(u).hostname or u), "url": u}
+
+    def _server_add(self):
+        x = self._server_dialog()
+        if x:
+            self.servers.append(x)
+            self._fill_servers(x["url"])
+
+    def _server_edit(self):
+        i = self.server_list.currentRow()
+        if i < 0 or i >= len(self.servers):
+            return
+        old = self.servers[i]
+        x = self._server_dialog(old)
+        if x:
+            was = self.source.currentData() == old["url"]
+            self.servers[i] = x
+            self._fill_servers(x["url"] if was else None)
+
+    def _server_remove(self):
+        i = self.server_list.currentRow()
+        if 0 <= i < len(self.servers):
+            gone = self.servers.pop(i)
+            self._fill_servers("aws" if self.source.currentData() == gone["url"] else None)
+
+    def _server_test(self):
+        """Lists the current radar on the selected server (or the one chosen above)."""
+        i = self.server_list.currentRow()
+        url = self.servers[i]["url"] if 0 <= i < len(self.servers) else self.source.currentData()
+        if not url or url == "aws":
+            self.server_status.setText("Pick a polling server in the list to test it.")
+            return
+        from ..data import aws
+        from ..data.polling import PollingClient, safe_url
+        site = self.s["site"] or "KTLX"
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            files = PollingClient(url, site, timeout=10).list()
+            if files:
+                txt = (f"✓ {safe_url(url)}: {len(files)} {site} volumes, the newest from "
+                       f"{files[-1].time:%Y-%m-%d %H:%M}Z.")
+            else:
+                txt = f"✗ {safe_url(url)} answered, but lists no {site} volumes."
+        except Exception as exc:
+            txt = f"✗ {safe_url(url)}: {aws.friendly_error(exc)}"
+        finally:
+            QApplication.restoreOverrideCursor()
+        self.server_status.setText(txt)
 
     def _page_environment(self):
         w, lay = _page("Environment", "Used by MESH and POSH. Take them from a nearby sounding or model analysis.")
@@ -735,6 +847,10 @@ class SettingsDialog(QDialog):
         s["loop_fps"] = self.fps.value()
         s["loop_dwell"] = self.dwell.value()
         s["live_poll_seconds"] = self.poll.value()
+        s["polling_servers"] = self.servers
+        old_source = s["l2_source"] or "aws"
+        s["l2_source"] = self.source.currentData() or "aws"
+        self._source_changed = s["l2_source"] != old_source
         s["freezing_level_ft"] = self.fz.value()
         s["minus20_level_ft"] = self.m20.value()
         s["palette_overrides"] = self.overrides
@@ -758,6 +874,9 @@ class SettingsDialog(QDialog):
             self.main.apply_theme(name, save=False)
         s.save()
         self.accept()
+        if getattr(self, "_source_changed", False) and self.main is not None and \
+                getattr(self.main.data, "mode", "") == "live":
+            self.main.reload_live()
 
 
 # --------------------------------------------------------------------------- #

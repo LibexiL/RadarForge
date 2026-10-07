@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.13.0 – 2026-10-07
+
+### Live data from polling servers
+- **Radar → Live data source** picks where live Level II comes from:
+  - NOAA on AWS, as before and still the default.
+  - Iowa State's free Level II polling server.
+  - Any GR2Analyst-style polling server you add (the address GR2Analyst calls the polling URL).
+- **Settings → Loop & live** lists the servers, with **Add**, **Edit**, **Remove** and **Test**. **Test**
+  lists the current radar's volumes on that server.
+  - A subscription server takes your user name and password in the address
+    (`https://user:password@server/path/`). Lists and messages show it as `***`.
+- **How it fetches:** RadarForge reads the server's `dir.list`, loads the loop from it, and then downloads
+  only the new part of the volume being scanned (a byte-range request, as the servers ask).
+- **Where it says so:** the live badge names the server.
+- **If the server fails:** when it can't be reached or has nothing for the radar, live data comes from AWS
+  instead.
+- Archive data and Level III still come from AWS.
+
 ## 1.12.0 – 2026-10-07
 
 A new 3-D storm view, and Level III velocity (N0G) that shows up in live mode.

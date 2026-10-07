@@ -499,6 +499,8 @@ class MenusMixin:
         self.live_act.setIconText("Live")
         self._act(m, "Reload live data", self.reload_live, "F5", icon="refresh",
                   tip="Start the live feed for this radar again")
+        self.source_menu = self._submenu(m, "Live data source", "live")
+        self.source_menu.aboutToShow.connect(self._fill_source_menu)
         m.addAction(self.archive_act)
         m.addSeparator()
         fr = self._submenu(m, "Frames", "play")
@@ -615,6 +617,34 @@ class MenusMixin:
         self._act(m, "Check for updates…", lambda: self.show_update_dialog(check=True), None, icon="refresh",
                   tip="See whether a newer RadarForge is out, and install it")
         self._act(m, "About RadarForge", self.show_about, None, icon="info")
+
+    def _fill_source_menu(self):
+        """NOAA on AWS or one of the polling servers (Settings → Loop & live)."""
+        m = self.source_menu
+        m.clear()
+        grp = QActionGroup(m)
+        cur = self.settings["l2_source"] or "aws"
+        items = [("NOAA on AWS (default)", "aws")] + [
+            (x.get("name") or x.get("url"), x.get("url")) for x in (self.settings["polling_servers"] or [])
+            if isinstance(x, dict) and x.get("url")]
+        for text, url in items:
+            a = m.addAction(text)
+            a.setCheckable(True)
+            a.setChecked(url == cur)
+            grp.addAction(a)
+            a.triggered.connect(lambda _=False, u=url: self.set_l2_source(u))
+        m.addSeparator()
+        m.addAction("Polling servers…", lambda: self.open_settings("Loop & live"))
+
+    def set_l2_source(self, url):
+        if (self.settings["l2_source"] or "aws") == url:
+            return
+        self.settings["l2_source"] = url
+        self.settings.save()
+        if self.data.mode == "live":
+            self.reload_live()
+        else:
+            self._status_msg("Live data will come from " + ("NOAA on AWS" if url == "aws" else url.split("@")[-1]))
 
     def _fill_theme_menu(self):
         m = self.theme_menu

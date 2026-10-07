@@ -228,6 +228,7 @@ whether to delete your settings and downloaded data too.
 | Change a panel's product or colour table | right-click the panel, or use **Products** in the side panel |
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |
 | Live / archive / files | **Live**, **Archive** and **Open** on the toolbar. **F5** (Radar → Reload live data) restarts the live feed. The badge at the bottom right shows how old the newest live data is |
+| Live data from a polling server | **Radar → Live data source**: NOAA on AWS (the default), Iowa State's Level II polling server, or any GR2Analyst-style polling server you add in **Settings → Loop & live** (subscription servers: `https://user:password@server/path/`). Archive data always comes from AWS |
 | Quick panel | **F8** or **Quick** (top right): every on/off switch in one place – display, warnings & outlooks, Level III overlays, satellite & lightning (with opacity), MRMS, observations & cameras, map layers, storm tools, location alerts. Click a section title to fold it away; it says how many of its switches are on |
 | Smoothing / dealiasing / Σ trail | toolbar switches (also View menu): **S** smoothing, **D** dealiased velocity, **Ctrl+T** max value trail – each panel shows the highest value over the loop up to the frame shown (CC: the lowest), for hail swaths and rotation tracks |
 | Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom. The **fps** and **frames** buttons at its right set the loop speed and length |
