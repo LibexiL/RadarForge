@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.15.0 – 2026-10-09
+
+Click a warning, watch, mesoscale discussion or storm report on the map to open a details panel.
+
+### Details panel
+- **Click inside a warning or watch** to see its details:
+  - When it was issued, when it ends and how long is left.
+  - Its tags: tornado (radar indicated or observed), hail size, wind gusts and damage threat.
+  - Which way the storm is moving and how fast.
+  - The counties it covers, and the full warning text with its safety instructions.
+- **Archive warnings** show the warning text and its later updates, from Iowa State's warning archive.
+- **Click inside a mesoscale discussion, or on its "MD" label,** for the full discussion. **Open on the SPC
+  website** is in the panel.
+- **Click a storm report** for where and when it happened, who reported it and the full remarks.
+- **Overlapping shapes:** when a warning sits inside a watch or a discussion, a list at the top of the panel
+  picks between them. The SPC outlook there is listed too.
+- **Highlight:** the warning shown is outlined on the map while the panel is open.
+- **Buttons:** **Go to it** zooms the map to it, and **Copy text** copies the details.
+- **Other ways in:** right-click the map → **Details: …**, or right-click a warning in the **Warnings** side
+  panel → **Details…**.
+- The panel replaces the old window for reading a mesoscale discussion.
+
+### Hover pop-ups
+- **Easier to catch:** the pop-up for a warning, watch or discussion now appears a little further from its
+  outline, and on a discussion's "MD" label.
+- They now say to click for the details.
+
 ## 1.14.0 – 2026-10-09
 
 Radars load faster and more reliably, and a loop is now 10 frames unless you choose more.

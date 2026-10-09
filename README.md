@@ -58,7 +58,7 @@ keep the extracted files together – everything else is the program itself, sha
   with type filters. Live reports fade as they get older.
 * **Storm chasers**: live Spotter Network positions with the direction they're driving.
 * **SPC**: the day 1, 2 or 3 convective outlook (hover for tornado / wind / hail chances) and
-  mesoscale discussions (right-click to read one).
+  mesoscale discussions (click inside one to read it).
 * **Satellite**: GOES infrared, visible or water vapour under the radar (live), reprojected onto the map.
 * **Lightning**: GOES lightning mapper flashes coloured by age (live and archive), and an NLDN
   lightning-density map.
@@ -224,7 +224,7 @@ whether to delete your settings and downloaded data too.
 | Action | How |
 |---|---|
 | Pan / zoom / centre | drag · mouse wheel · double-click |
-| Warning details | hover a warning's outline (or open the **Warnings** side panel) |
+| Warning details | click inside a warning, watch, mesoscale discussion or storm report for its details panel (full text, hail / wind / tornado tags, storm motion, time left). Hover an outline for a quick summary, or right-click a warning in the **Warnings** side panel → **Details…** |
 | Change a panel's product or colour table | right-click the panel, or use **Products** in the side panel |
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |
 | Live / archive / files | **Live**, **Archive** and **Open** on the toolbar. **F5** (Radar → Reload live data) restarts the live feed. The badge at the bottom right shows how old the newest live data is |

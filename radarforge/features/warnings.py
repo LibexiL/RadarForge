@@ -170,10 +170,10 @@ VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm 
 
 class Alert:
     __slots__ = ("event", "rings", "hover", "issued", "expires", "style", "xy", "_proj", "office", "area",
-                 "tags", "uid", "variant", "key", "action")
+                 "tags", "uid", "variant", "key", "action", "info")
 
     def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid="", variant=None,
-                 key="", action=""):
+                 key="", action="", info=None):
         self.event = event
         self.variant = variant if variant in VARIANT else BASE_CODE.get(event, "SPS")
         self.rings = rings          # list of (lon, lat) arrays
@@ -190,6 +190,9 @@ class Alert:
         self.uid = uid or f"{event}|{office}|{issued}"
         self.key = key or self.uid          # the same for every update of one warning (VTEC)
         self.action = action                # VTEC action: NEW, CON, EXT, CAN, EXP...
+        # for the details panel: {"description", "instruction", "headline", "facts": [(label, value)],
+        # "motion": (from_deg, kt) | None, "iem": {...} (archive: where its text can be downloaded)}
+        self.info = info or {}
 
     @property
     def variant_label(self):
@@ -270,9 +273,40 @@ def fetch_live_alerts(county_polys: dict) -> list:
         office = (p.get("senderName") or "").replace("NWS ", "")
         vt = params.get("VTEC") or []
         action, key = feeds.vtec_key(vt[0] if isinstance(vt, (list, tuple)) and vt else str(vt))
+        info = dict(description=desc.strip(), instruction=(p.get("instruction") or "").strip(),
+                    headline=_first(params, "NWSheadline"),
+                    facts=live_facts(params), motion=storm_motion(_first(params, "eventMotionDescription")))
         out.append(Alert(ev, rings, hover, _t(p.get("sent")), _t(p.get("expires")), office,
-                         p.get("areaDesc") or "", short, p.get("id") or "", variant, key, action))
+                         p.get("areaDesc") or "", short, p.get("id") or "", variant, key, action, info))
     return out
+
+
+# NWS impact tags shown in the details panel: (parameter, label, unit added when the value has none)
+LIVE_FACTS = (("tornadoDetection", "Tornado", ""), ("tornadoDamageThreat", "Tornado damage threat", ""),
+              ("maxHailSize", "Hail", " in"), ("hailThreat", "Hail threat", ""),
+              ("maxWindGust", "Wind gusts", ""), ("windThreat", "Wind threat", ""),
+              ("thunderstormDamageThreat", "Damage threat", ""), ("flashFloodDetection", "Flash flooding", ""),
+              ("flashFloodDamageThreat", "Flood damage threat", ""), ("waterspoutDetection", "Waterspout", ""))
+
+
+def live_facts(params: dict) -> list:
+    out = []
+    for key, label, unit in LIVE_FACTS:
+        v = params.get(key)
+        v = ", ".join(map(str, v)) if isinstance(v, (list, tuple)) else str(v or "")
+        v = v.strip()
+        if v:
+            if unit and v.replace(".", "", 1).isdigit():
+                v += unit
+            out.append((label, v.capitalize() if v.isupper() else v))
+    return out
+
+
+def storm_motion(text: str):
+    """(from_deg, kt) from a VTEC motion line "TIME...MOT...LOC" (e.g. "...STORM...229DEG...35KT..."), or None."""
+    import re
+    m = re.search(r"(\d{1,3})DEG\.\.\.(\d{1,3})KT", text or "", re.I)
+    return (int(m.group(1)) % 360, int(m.group(2))) if m else None
 
 
 def fetch_archive_alerts(ts: datetime) -> list:
@@ -300,10 +334,49 @@ def fetch_archive_alerts(ts: datetime) -> list:
             if p.get(k):
                 hover += f"\n{k}: {p[k]}"
         short = [f"{k[:-3]} {p[k]}" for k in ("tornadotag", "hailtag", "windtag", "damagetag") if p.get(k)]
-        out.append(Alert(ev, rings, hover, _t(p.get("polygon_begin")), _t(p.get("polygon_end")),
+        facts = []
+        for k, label, unit in (("tornadotag", "Tornado", ""), ("hailtag", "Hail", " in"),
+                               ("windtag", "Wind gusts", " mph"), ("damagetag", "Damage threat", "")):
+            v = str(p.get(k) or "").strip()
+            if v:
+                if unit and v.replace(".", "", 1).isdigit():
+                    v += unit
+                facts.append((label, v.capitalize() if v.isupper() else v))
+        begin = _t(p.get("polygon_begin"))
+        issue = _t(p.get("issue")) or begin
+        try:
+            iem = dict(wfo=str(p.get("wfo") or ""), year=issue.year, phenomena=str(p.get("phenomena") or ""),
+                       significance=str(p.get("significance") or ""), etn=int(p.get("eventid")))
+        except (TypeError, ValueError, AttributeError):
+            iem = None
+        out.append(Alert(ev, rings, hover, begin, _t(p.get("polygon_end")),
                          p.get("wfo") or "", f"#{p.get('eventid')}", short,
-                         f"{p.get('wfo')}.{p.get('phenomena')}.{p.get('significance')}.{p.get('eventid')}", variant))
+                         f"{p.get('wfo')}.{p.get('phenomena')}.{p.get('significance')}.{p.get('eventid')}", variant,
+                         info=dict(facts=facts, iem=iem)))
     return out
+
+
+IEM_EVENT = "https://mesonet.agron.iastate.edu/json/vtec_event.py"
+
+
+def fetch_warning_text(iem: dict) -> str:
+    """The warning's text and its updates (severe weather statements), from Iowa State's VTEC archive."""
+    r = requests.get(IEM_EVENT, params=iem, headers={"User-Agent": UA["User-Agent"]}, timeout=20)
+    r.raise_for_status()
+    return warning_text(r.json())
+
+
+def warning_text(js: dict) -> str:
+    parts = []
+    rep = js.get("report") or {}
+    if rep.get("text"):
+        parts.append(rep["text"].strip())
+    for st in js.get("svs") or []:
+        if st.get("text"):
+            parts.append(st["text"].strip())
+    if not parts:
+        raise ValueError("no text for this warning")
+    return ("\n\n" + "─" * 40 + "\n\n").join(parts)
 
 
 def fetch_lsr(start: datetime, end: datetime, lat0=None, lon0=None, radius_deg=5.0) -> list:
@@ -509,22 +582,34 @@ class WarningsOverlay(QObject):
             out.append(r)
         return out
 
-    def hover(self, x, y, tol):
-        ov = self.settings["overlays"]
-        if ov.get("reports", False):
-            for r in self.visible_reports():
-                if "xy" in r and math.hypot(r["xy"][0] - x, r["xy"][1] - y) < tol * 1.2:
-                    return r["hover"]
-        best = None
+    def report_at(self, x, y, tol):
+        if not self.settings["overlays"].get("reports", False):
+            return None
+        for r in self.visible_reports():
+            if "xy" in r and math.hypot(r["xy"][0] - x, r["xy"][1] - y) < tol * 1.2:
+                return r
+        return None
+
+    def alerts_at(self, x, y, tol, inside=True):
+        """The drawn alerts under a point (inside them, or [inside]=False: only on their outline), most
+        important first."""
+        hits = []
         for a in list(self.alerts):
-            # only what is drawn: a hidden watch (or warning type) must not pop up its text
+            # only what is drawn: a hidden watch (or warning type) must not answer
             if a.xy is None or not self.visible(a) or not self._in_time(a):
                 continue
-            # only on the outline, so the text doesn't cover the storm while you look inside the box
-            if any(near_edge(x, y, xy, tol) for xy in a.xy):
-                if best is None or a.style[3] > best.style[3]:
-                    best = a
-        return best.hover if best else None
+            if any(near_edge(x, y, xy, tol) or (inside and _inside(x, y, xy)) for xy in a.xy):
+                hits.append(a)
+        hits.sort(key=lambda a: -a.style[3])
+        return hits
+
+    def hover(self, x, y, tol):
+        r = self.report_at(x, y, tol)
+        if r is not None:
+            return r["hover"] + "\n(click for details)"
+        # only on the outline, so the text doesn't cover the storm while you look inside the box
+        hits = self.alerts_at(x, y, tol * 1.5, inside=False)
+        return hits[0].hover + "\n(click inside it for details)" if hits else None
 
 
 def draw_line(painter, shape, rgb, width, kind, halo=True):

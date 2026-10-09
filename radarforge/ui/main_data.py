@@ -340,12 +340,50 @@ class DataLayersMixin:
 
     # ---------------------------------------------------------------- cameras
     def _map_clicked(self, x, y):
-        if self.view.tool != "pan" or not self.cameras.enabled():
+        if self.view.tool != "pan":
             return
-        group = self.cameras.near(x, y, 8.0 / self.view.scale)
-        if group:
-            from .camera_viewer import CameraViewer
-            CameraViewer(self, group).show()
+        if self.cameras.enabled():
+            group = self.cameras.near(x, y, 8.0 / self.view.scale)
+            if group:
+                from .camera_viewer import CameraViewer
+                CameraViewer(self, group).show()
+                return
+        items = self.info_items_at(x, y)
+        if items:
+            from PySide6.QtGui import QCursor
+            self.show_info(items, QCursor.pos())
+
+    def info_items_at(self, x, y) -> list:
+        """What a click at (x, y) km landed on, most important first: a storm report, the warnings it is inside
+        (or on the outline of), SPC discussions, watches, and the SPC outlook there (only along with
+        something else, or on its outline, so a click in an outlook area isn't always taken)."""
+        tol = 8.0 / self.view.scale
+        items = []
+        r = self.warnings.report_at(x, y, tol)
+        if r is not None:
+            items.append(dict(kind="report", obj=r))
+        alerts = self.warnings.alerts_at(x, y, tol)
+        items += [dict(kind="alert", obj=a) for a in alerts if not a.event.endswith("Watch")]
+        items += [dict(kind="mcd", obj=m) for m in self.spc.mcds_at(x, y, tol)]
+        items += [dict(kind="alert", obj=a) for a in alerts if a.event.endswith("Watch")]
+        lat, lon = self.view.world_to_latlon(x, y)
+        cat = self.spc.outlook_line_at(x, y, tol)
+        if cat is None and items:
+            o = self.spc.outlook_at(lat, lon)
+            cat = o["cat"] if o else None
+        if cat is not None:
+            txt = self.spc.describe_outlook(lat, lon, cat)
+            if txt:
+                lines = txt.split("\n")
+                items.append(dict(kind="outlook", obj=dict(title=lines[0], cat=cat, lines=lines[1:])))
+        return items
+
+    def show_info(self, items, near=None, start=0):
+        """The details panel for [items] (see info_items_at)."""
+        from .info_panel import InfoPanel
+        if getattr(self, "_info_panel", None) is None:
+            self._info_panel = InfoPanel(self)
+        self._info_panel.show_items(items, near, start)
 
     def open_camera_sources(self):
         from .camera_sources import CameraSourcesDialog

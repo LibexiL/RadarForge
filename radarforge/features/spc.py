@@ -14,7 +14,7 @@ from ..data.aws import friendly_error
 from ..products.geometry import aeqd_forward
 from ..render.fonts import ui_font
 from . import feeds
-from .warnings import draw_line, near_edge
+from .warnings import _inside, draw_line, near_edge
 
 UA = {"User-Agent": "RadarForge (NEXRAD viewer; github.com/LibexiL/RadarForge)", "Accept": "application/geo+json"}
 
@@ -184,7 +184,7 @@ class SpcOverlay(QObject):
             txt += f"\nUntil {feeds.local_hm(m['expire'])}"
         if m["watch"] is not None:
             txt += f"\nChance of a watch: {m['watch']}%"
-        return txt + "\n(right-click inside it → read the discussion)"
+        return txt + "\n(click inside it for the full discussion)"
 
     def describe_outlook(self, lat, lon, cat=None) -> str | None:
         """The outlook category (the hovered line's, if given) and the chances at a point."""
@@ -214,26 +214,52 @@ class SpcOverlay(QObject):
             return self.describe_mcd(m)
         return self.describe_outlook(lat, lon) if self.outlook_at(lat, lon) is not None else None
 
+    @staticmethod
+    def _on_label(m, x, y, px):
+        """Whether (x, y) is on an MD's "MD 1234" label, drawn just above its northernmost point (as paint()
+        does; [px]: km per screen pixel)."""
+        xy = max(m["xy"], key=len)
+        i = int(np.argmax(xy[:, 1]))
+        dx, dy = (x - float(xy[i, 0])) / px, (y - float(xy[i, 1])) / px
+        return -26 <= dx <= 50 and 2 <= dy <= 22
+
+    def mcds_at(self, x, y, tol, view=None, inside=True):
+        """The MDs drawn under a point: inside one, on its outline or on its label."""
+        view = view or self._view
+        if view is None or not self._on("spc_mcd"):
+            return []
+        out = []
+        for m in self.mcds:
+            if m.get("_p") != (view.lat0, view.lon0) or not m.get("xy"):
+                continue
+            if any(near_edge(x, y, xy, tol) or (inside and _inside(x, y, xy)) for xy in m["xy"]) or \
+                    self._on_label(m, x, y, 1.0 / max(view.scale, 1e-6)):
+                out.append(m)
+        return out
+
+    def outlook_line_at(self, x, y, tol, view=None):
+        """The outlook category whose outline is under a point (the highest), or None."""
+        view = view or self._view
+        if view is None or not self._on("spc_outlook"):
+            return None
+        hit = None
+        for a in self.outlook:
+            if a["category"] != "CATEGORICAL" or a["threshold"] not in feeds.CATEGORIES:
+                continue
+            if a.get("_p") == (view.lat0, view.lon0) and any(near_edge(x, y, xy, tol) for xy in a["xy"]):
+                if hit is None or feeds.CATEGORIES.index(a["threshold"]) > feeds.CATEGORIES.index(hit["threshold"]):
+                    hit = a
+        return hit["threshold"] if hit else None
+
     def hover(self, x, y, tol, view=None):
         """Text for the outline under the mouse (like warnings: only on the line, not inside)."""
         view = view or self._view
         if view is None:
             return None
         lat, lon = view.world_to_latlon(x, y)
-        if self._on("spc_mcd"):
-            for m in self.mcds:
-                if m.get("_p") == (view.lat0, view.lon0) and any(near_edge(x, y, xy, tol) for xy in m["xy"]):
-                    return self.describe_mcd(m)
-        if self._on("spc_outlook"):
-            hit = None
-            for a in self.outlook:
-                if a["category"] != "CATEGORICAL" or a["threshold"] not in feeds.CATEGORIES:
-                    continue
-                if a.get("_p") == (view.lat0, view.lon0) and any(near_edge(x, y, xy, tol) for xy in a["xy"]):
-                    if hit is None or feeds.CATEGORIES.index(a["threshold"]) > feeds.CATEGORIES.index(hit["threshold"]):
-                        hit = a
-            if hit is not None:
-                return self.describe_outlook(lat, lon, hit["threshold"])
-        return None
+        for m in self.mcds_at(x, y, tol * 1.5, view, inside=False):
+            return self.describe_mcd(m)
+        cat = self.outlook_line_at(x, y, tol, view)
+        return self.describe_outlook(lat, lon, cat) if cat else None
 
     _view = None

@@ -209,7 +209,10 @@ def parse_lsr(js: dict) -> list:
         hover = (f"{typ} {mag} {p.get('unit', '') or ''}".strip() + f"\n{where} {p.get('valid', '')}"
                  f"\n{p.get('source') or ''} · NWS {p.get('wfo') or ''}\n{(p.get('remark') or '')[:300]}").strip()
         out.append(dict(lat=float(lat), lon=float(lon), type=typ, kind=report_kind(typ), hover=hover,
-                        time=_utc(p.get("valid")), source="NWS"))
+                        time=_utc(p.get("valid")), source="NWS",
+                        magnitude=f"{mag} {p.get('unit', '') or ''}".strip(), where=where.strip(", "),
+                        reporter=str(p.get("source") or ""), office=str(p.get("wfo") or ""),
+                        remark=str(p.get("remark") or "").strip()))
     return out
 
 
@@ -229,7 +232,7 @@ def parse_sn_reports(text: str) -> list:
             kind = report_kind(" ".join(body))
         out.append(dict(lat=lat, lon=lon, type=(type_line.split(":")[-1].strip() or REPORT_KINDS[kind][2]).upper(),
                         kind=kind, hover="Spotter Network report\n" + "\n".join(lines), time=_sn_time(hover),
-                        source="Spotter Network"))
+                        source="Spotter Network", remark="\n".join(lines)))
     return out
 
 

@@ -297,12 +297,12 @@ def test_warning_colors_and_visibility(tmp_path):
         a.xy = square
     ov.alerts = [watch]
     assert ov.hover(0.0, 0.0, 0.2) is None                                 # inside the box: nothing
-    assert ov.hover(1.05, 0.3, 0.2) == "WATCH TEXT"                        # on the outline
+    assert ov.hover(1.05, 0.3, 0.2).startswith("WATCH TEXT\n")              # on the outline (+ "click…")
     assert ov.hover(1.5, 0.3, 0.2) is None                                 # outside, away from it
     s["overlays"]["watches"] = False                                       # watches switched off
     assert not ov.visible(watch) and ov.hover(1.05, 0.3, 0.2) is None
     ov.alerts = [watch, svr]
-    assert ov.hover(-0.4, -0.95, 0.2) == "SVR TEXT"
+    assert ov.hover(-0.4, -0.95, 0.2).startswith("SVR TEXT\n")
     s["warning_types"] = {"TOR": True, "SVR": False, "FFW": True, "OTH": True}
     assert ov.hover(-0.4, -0.95, 0.2) is None
     s["overlays"]["warnings"] = False

@@ -303,8 +303,11 @@ class WarningsPanel(QWidget):
         self.tree.header().setSectionResizeMode(3, QHeaderView.Stretch)
         self.tree.itemSelectionChanged.connect(self._selected)
         self.tree.itemDoubleClicked.connect(self._zoom)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._tree_menu)
         wl.addWidget(self.tree, 1)
-        wl.addWidget(_hint("Click a warning to highlight it, double-click to go to it (switches to the nearest radar)."))
+        wl.addWidget(_hint("Click a warning to highlight it, double-click to go to it (switches to the nearest radar). "
+                           "Right-click for its details, or click inside it on the map."))
         self.tabs.addTab(w, "Warnings")
         # --- reports tab
         r = QWidget()
@@ -510,6 +513,17 @@ class WarningsPanel(QWidget):
         _zoom_to(m, xy[:, 0], xy[:, 1])
         m.warnings.selected_uid = a.uid
         m.view.update()
+
+    def _tree_menu(self, pos):
+        item = self.tree.itemAt(pos)
+        a = self._items.get(item.data(0, Qt.UserRole)) if item is not None else None
+        if a is None:
+            return
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.addAction("Details…", lambda: self.main.show_info([dict(kind="alert", obj=a)]))
+        menu.addAction("Go to it", lambda: self._zoom(item))
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _zoom_report(self, item, _col=0):
         lat, lon = item.data(0, Qt.UserRole)

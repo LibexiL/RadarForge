@@ -27,7 +27,7 @@ from ..render.glview import RadarView
 from ..tools.volume3d import Volume3DWindow
 from ..tools.xsection import CrossSectionWindow
 from .datamanager import DataManager
-from .dialogs import ArchiveDialog, McdDialog, PlacefilePanel, SiteDialog
+from .dialogs import ArchiveDialog, PlacefilePanel, SiteDialog
 from .settings_dialog import SettingsDialog
 from . import icons
 from .panels import CELL_CODES, CellsPanel, InspectorPanel, ProductsPanel, WarningsPanel
@@ -1070,9 +1070,10 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                     act(menu, "Follow this storm", lambda: self.start_follow(x, y), "target")
             if self._follow is not None:
                 act(menu, "Stop following the storm", self.stop_follow, "target")
-            mcd = self.spc.mcd_at(lat, lon)
-            if mcd is not None:
-                act(menu, f"Read SPC Mesoscale Discussion {mcd['number']}…", lambda: McdDialog(mcd, self).show(), "flag")
+            from .info_panel import item_title
+            here = self.info_items_at(x, y)
+            for i, it in enumerate(here[:6]):
+                act(menu, f"Details: {item_title(it)}…", lambda _=False, i=i: self.show_info(here, gpos, i), "flag")
             act(menu, "Centre here", lambda: self.view.set_view(x, y, self.view.scale))
             ns = nearest_site(lat, lon)
             if ns is not None and ns.id != self.data.site_id:
