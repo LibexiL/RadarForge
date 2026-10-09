@@ -1,5 +1,62 @@
 # Changelog
 
+## 1.14.0 – 2026-10-09
+
+Radars load faster and more reliably, and a loop is now 10 frames unless you choose more.
+
+### 10 frames by default
+- **New default:** choosing a radar loads a 10-frame loop.
+  - If your settings still have the old default of 12, they change to 10.
+  - A length you picked yourself is kept.
+- **Choosing more:**
+  - The **frames** button beside the timeline offers 6 to 60 frames, plus **Other number…**.
+  - **Settings → Loop & live** takes any number from 1 to 60.
+- **Longer loops fill in straight away.** Before, the extra frames waited for the next archive check, up to
+  90 seconds later.
+
+### Switching radars
+- **The radar you left stops loading.** Its downloads, decoding and Level III stop as soon as you pick
+  another radar. Before, they carried on and the new radar's files waited behind them, so clicking
+  through a few radars could double the wait.
+- **Level III comes in at once.** Its first check used to be skipped while the previous radar's check was
+  still running, which left the panel empty for up to 30 seconds. Rarely, the new radar's Level III then
+  stopped updating altogether.
+- **No more empty panels while the current scan loads.** Level II panels show the newest volume already
+  loaded, marked "(prev vol)". Before, they could show "No Level II volume for this frame" for several
+  seconds.
+
+### Loading the loop
+- **Each volume is decoded as soon as it downloads**, newest first. Before, nothing was decoded until every
+  file had arrived, and then one at a time.
+- **The newest file downloads first, on its own**, so the first picture comes sooner. The rest then download
+  several at a time.
+- **Files stream straight to disk** instead of being held in memory as they download.
+- **Level III fills the whole loop.** Its files download several at a time, and enough are fetched to reach
+  the oldest frame. With SAILS, each volume can have up to four, so the old count only covered the last few
+  volumes.
+- **In tests** with a simulated 100 Mbit/s connection:
+  - A 10-frame loop was ready to play about a quarter sooner after choosing a radar.
+  - After clicking through several radars, it was ready in less than half the time.
+  - A 30-frame loop was ready about 40% sooner, using a little less memory.
+
+### Steadier
+- **The map stays smooth while a loop decodes.** The decoder processes run at a lower priority than the
+  app, and one is always kept free for what's on screen.
+- **Live catch-up runs in a decoder process.** When a live volume has many new chunks, they are now decoded
+  there instead of in the app itself.
+- **A stuck or crashed decoder process is restarted.** Before, one slow decode could switch RadarForge to
+  slower in-app decoding until it was restarted.
+- **Level III lands on the right frame.** While the loop downloads, a product whose own volume hasn't arrived
+  yet waits on a frame of its own. Before, it could land on an older frame and stay there.
+- **Each volume is decoded once.** A second request for a volume that took over two minutes used to start a
+  second decode of the same file.
+- **Long loops use less memory.** A long loop kept up to 40 decoded volumes in memory, whatever the volume
+  cache was set to. Loops of more than 40 frames also decoded volumes again while playing.
+- **The loop no longer pauses on frames with a missing product.** A frame without one of the panels'
+  products (often Level III) made the loop wait on it every time round.
+- **Fixed rare glitches while frames arrive:** a brief "no data", or a jump in the timeline, when the frame
+  list was read while a frame was being added.
+
 ## 1.13.0 – 2026-10-07
 
 ### Live data from polling servers

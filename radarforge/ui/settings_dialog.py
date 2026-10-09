@@ -266,7 +266,9 @@ class SettingsDialog(QDialog):
         self.frames = QSpinBox()
         self.frames.setRange(1, 60)
         self.frames.setValue(int(s["loop_frames"]))
-        f.addRow("Frames to load (live)", self.frames)
+        self.frames.setToolTip("How many volumes each radar's loop loads (10 by default). More frames take "
+                               "longer to load and use more memory.")
+        f.addRow("Frames to load per radar", self.frames)
         self.fps = QDoubleSpinBox()
         self.fps.setRange(0.5, 30)
         self.fps.setSuffix(" frames/s")

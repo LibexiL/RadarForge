@@ -140,6 +140,58 @@ def cached_path(bucket: str, key: str) -> Path:
     return CACHE_DIR / "s3" / bucket / key
 
 
+class Cancelled(Exception):
+    """A download stopped because it was no longer wanted (another radar was chosen)."""
+
+
+def fetch_file(bucket: str, key: str, timeout: float = 60, cancelled=None) -> Path:
+    """Downloads an object into the cache (streamed straight to disk, never held whole in memory) and returns
+    its path; a file already cached isn't read at all. `cancelled()` (optional) is checked as the data comes
+    in, so a download nobody wants any more stops part-way and frees the connection."""
+    path = cached_path(bucket, key)
+    try:
+        if path.stat().st_size > 0:
+            return path
+    except OSError:
+        pass
+    if cancelled is not None and cancelled():
+        raise Cancelled(key)
+    r = session().get(f"{bucket_url(bucket)}/{key}", timeout=timeout, stream=True)
+    try:
+        r.raise_for_status()
+        tmp = None
+        for _attempt in range(2):          # the folder may vanish under us (cache tidy-up): make it again once
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
+                fh = open(tmp, "wb")
+                break
+            except OSError:
+                tmp = None
+        if tmp is None:                    # the cache can't be written (disk full?): a private temporary copy
+            import tempfile
+            fd, name = tempfile.mkstemp(prefix="rf_", suffix="_" + key.rsplit("/", 1)[-1])
+            tmp, path, fh = Path(name), None, os.fdopen(fd, "wb")
+        try:
+            with fh:
+                for block in r.iter_content(1 << 18):
+                    if cancelled is not None and cancelled():
+                        raise Cancelled(key)
+                    fh.write(block)
+        except BaseException:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise
+        if path is None:
+            return tmp
+        os.replace(tmp, path)
+        return path
+    finally:
+        r.close()
+
+
 _chunk_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="rf-chunks")   # live chunks only
 
 

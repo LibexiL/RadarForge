@@ -15,7 +15,9 @@ import time
 from datetime import datetime, timezone
 
 from . import aws
-from .level2 import SweepBuilder
+from .level2 import SweepBuilder, add_chunks, run_isolated
+
+BATCH = 3                # this many new chunks or more are decoded in a decoder process (catching up)
 
 GAP_WAIT = 30.0          # seconds to wait for a missing chunk before skipping it
 STALL_S = 90.0           # seconds without new chunks before checking whether the radar moved on
@@ -51,8 +53,9 @@ class ChunkTracker:
         self.last_progress = time.time()
 
     # ------------------------------------------------------------------ helpers
-    def _event(self, complete, abandoned=False):
-        vol = self.builder.build(self.site, source=f"chunks {self.volume}")
+    def _event(self, complete, abandoned=False, vol=None):
+        if vol is None:
+            vol = self.builder.build(self.site, source=f"chunks {self.volume}")
         vol.complete = complete and not self.missing and not abandoned
         t = datetime.strptime(self.stamp, "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
         return {"time": t, "volume": vol, "complete": complete,
@@ -125,25 +128,39 @@ class ChunkTracker:
             self.gap_since = None
         if not take:
             return events
-        added = False
+        got = []
         for c, (_k, data) in zip(take, aws.fetch_many(aws.CHUNK_BUCKET, [c.key for c in take], cache=False,
                                                       timeout=30, cancelled=lambda: self.cancelled)):
             if isinstance(data, Exception):
                 break                           # try again from this chunk next time
-            try:
-                self.builder.add_bytes(data)
-            except Exception:                   # a damaged chunk: treat it as missing
+            got.append((c, data))
+            if c.kind == "E":
+                break
+        if self.cancelled or not got:
+            return events
+        vol = None
+        if len(got) >= BATCH:
+            # catching up on a volume: parse in a decoder process, off the app's own threads
+            self.builder, oks, vol = run_isolated(add_chunks, self.builder, [d for _c, d in got], self.site,
+                                                  f"chunks {self.volume}")
+        else:
+            oks = []
+            for _c, data in got:
+                try:
+                    self.builder.add_bytes(data)
+                    oks.append(True)
+                except Exception:               # a damaged chunk: treat it as missing
+                    oks.append(False)
+        for (c, _d), ok in zip(got, oks):
+            if not ok:
                 self.missing.append(c.number)
             self.next_chunk = c.number + 1
-            added = True
             if c.kind == "E":
                 self.complete = True
-                break
         if self.cancelled:
             return events
-        if added:
-            self.last_progress = time.time()
-            events.append(self._event(self.complete))
+        self.last_progress = time.time()
+        events.append(self._event(self.complete, vol=vol))
         if self.complete:
             self.prev_stamp = self.stamp
             self._start(aws.next_volume_number(self.volume))
@@ -160,17 +177,17 @@ class ChunkTracker:
             return None
         if newer_than is not None and chunks[0].time <= newer_than:
             return None
-        b = SweepBuilder()
         missing = len(range(1, chunks[-1].number + 1)) - len(chunks)
+        datas = []
         for _k, data in aws.fetch_many(aws.CHUNK_BUCKET, [c.key for c in chunks], cancelled=lambda: self.cancelled):
             if isinstance(data, Exception):
                 missing += 1
                 continue
-            try:
-                b.add_bytes(data)
-            except Exception:
-                missing += 1
-        vol = b.build(self.site, source=f"chunks {n}")
+            datas.append(data)
+        if self.cancelled:
+            return None
+        _b, oks, vol = run_isolated(add_chunks, SweepBuilder(), datas, self.site, f"chunks {n}")   # (a decoder process)
+        missing += oks.count(False)
         vol.complete = missing == 0
         return {"time": chunks[0].time, "volume": vol, "complete": True, "missing": missing, "abandoned": False,
                 "number": n}

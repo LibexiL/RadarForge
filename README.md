@@ -231,7 +231,7 @@ whether to delete your settings and downloaded data too.
 | Live data from a polling server | **Radar → Live data source**: NOAA on AWS (the default), Iowa State's Level II polling server, or any GR2Analyst-style polling server you add in **Settings → Loop & live** (subscription servers: `https://user:password@server/path/`). Archive data always comes from AWS |
 | Quick panel | **F8** or **Quick** (top right): every on/off switch in one place – display, warnings & outlooks, Level III overlays, satellite & lightning (with opacity), MRMS, observations & cameras, map layers, storm tools, location alerts. Click a section title to fold it away; it says how many of its switches are on |
 | Smoothing / dealiasing / Σ trail | toolbar switches (also View menu): **S** smoothing, **D** dealiased velocity, **Ctrl+T** max value trail – each panel shows the highest value over the loop up to the frame shown (CC: the lowest), for hail swaths and rotation tracks |
-| Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom. The **fps** and **frames** buttons at its right set the loop speed and length |
+| Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom. The **fps** and **frames** buttons at its right set the loop speed and length (10 frames unless you pick more, up to 60) |
 | Tilts | **↑ / ↓** or the tilt box |
 | Number of panels | **1 … 6** (number row or number pad; **Alt+1 … Alt+6** also work), or the layout button on the toolbar (**View → Panel layout**) |
 | Cross section | **X**, then drag a line across a storm |
@@ -376,7 +376,7 @@ looks stuck, **F5** (Radar → Reload live data) starts the feed again.
 |---|---|
 | **"Python was not found"** during install (Windows) | Install Python from python.org and tick **"Add python.exe to PATH"**, then double-click `Windows\install.bat` again. |
 | **Black map, frozen window or garbled picture** | Update the graphics driver. RadarForge tests several OpenGL setups by itself and remembers the one that works; `--gl-reset` makes it test again, `--safe-graphics` uses the plainest setup. |
-| **Uses a lot of memory** | **Settings → Performance** shows how much RadarForge is using. A 12-frame loop with 6 panels needs about 1–1.5 GB (more with longer loops). Lower **Rendered image cache** there, or the loop length (**frames** beside the timeline), to use less. |
+| **Uses a lot of memory** | **Settings → Performance** shows how much RadarForge is using. A 10-frame loop (the default) with 6 panels needs about 1–1.5 GB (more with longer loops). Lower **Rendered image cache** there, or the loop length (**frames** beside the timeline), to use less. |
 | **Everything is slow** | **Settings → Performance** shows the OpenGL renderer. *llvmpipe* or *Software* means the GPU driver isn't being used – update it, then start once with `--gl-reset`. |
 | **A panel is gone / messy layout** | **Panels** menu to show it again, or **Panels → Reset panel layout**. |
 | **Dashed coloured circles that look like range rings** | That's the Level III melting layer (**Map → Melting layer**). Real range rings are grey and labelled. |

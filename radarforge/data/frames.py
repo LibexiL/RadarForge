@@ -6,19 +6,20 @@ import threading
 from collections import OrderedDict
 from datetime import datetime
 
-from .level2 import Level2Volume, read_level2_isolated
+from .level2 import DecodeCancelled, Level2Volume, read_level2_isolated
 
 _ids = itertools.count(1)
 
 
 class VolumeCache:
-    """LRU of decoded Level II volumes keyed by file path."""
+    """LRU of decoded Level II volumes keyed by file path. One decode per file: a second caller asking for a
+    volume that is being decoded waits for that decode (and gets its error, if it fails)."""
 
     def __init__(self, capacity: int = 4):
         self.capacity = capacity
         self._d: OrderedDict = OrderedDict()
         self._lock = threading.Lock()
-        self._loading: dict = {}
+        self._loading: dict = {}          # path -> [Event, volume or exception]
 
     def retain(self, paths):
         """Drops decoded volumes of files no frame uses any more (another radar, or older than the loop)."""
@@ -32,35 +33,43 @@ class VolumeCache:
         with self._lock:
             return self._d.get(path)
 
-    def get(self, path: str, site_hint: str = "") -> Level2Volume:
+    def loading(self, path: str) -> bool:
         with self._lock:
-            if path in self._d:
-                self._d.move_to_end(path)
-                return self._d[path]
-            ev = self._loading.get(path)
-            if ev is None:
-                ev = threading.Event()
-                self._loading[path] = ev
-                owner = True
-            else:
-                owner = False
-        if not owner:
-            ev.wait(120)
+            return path in self._loading
+
+    def get(self, path: str, site_hint: str = "") -> Level2Volume:
+        while True:
             with self._lock:
                 if path in self._d:
+                    self._d.move_to_end(path)
                     return self._d[path]
-            return read_level2_isolated(path, site_hint)
+                slot = self._loading.get(path)
+                if slot is None:
+                    slot = [threading.Event(), None]
+                    self._loading[path] = slot
+                    break                                 # this thread decodes it
+            slot[0].wait()
+            res = slot[1]
+            if isinstance(res, Level2Volume):
+                return res
+            if isinstance(res, Exception) and not isinstance(res, DecodeCancelled):
+                raise res
+            # the decoder gave up waiting (a read-ahead no longer wanted): decode it here after all
         try:
             vol = read_level2_isolated(path, site_hint)
+            slot[1] = vol
             with self._lock:
                 self._d[path] = vol
                 while len(self._d) > max(1, self.capacity):
                     self._d.popitem(last=False)
             return vol
+        except BaseException as exc:
+            slot[1] = exc
+            raise
         finally:
             with self._lock:
                 self._loading.pop(path, None)
-            ev.set()
+            slot[0].set()
 
 
 VOLUMES = VolumeCache()
@@ -92,7 +101,7 @@ def volume_capacity(settings) -> int:
     computer has the memory (a decoded volume is about 40-60 MB), so looping and changing products never
     waits on re-decoding."""
     want = int(settings["volume_cache"] or 4)
-    loop = int(settings["loop_frames"] or 12) + 2
+    loop = int(settings["loop_frames"] or 10) + 2
     ram = total_ram_gb()
     room = int(ram * 1.5) if ram else 8           # ~6% of memory for decoded volumes
     return max(want, min(loop, room))
@@ -158,7 +167,7 @@ class Frame:
             self._l2 = VOLUMES.get(self.l2_path, self.site)
 
     def add_l3(self, prod):
-        self.l3[prod.awips] = prod
+        self.l3 = {**self.l3, prod.awips: prod}      # a new dict: other threads may be reading this one
         self.revision += 1
 
     def __repr__(self):

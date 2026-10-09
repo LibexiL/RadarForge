@@ -569,6 +569,22 @@ def read_level2(data: bytes | str, site_hint: str = "") -> Level2Volume:
     return vol
 
 
+def add_chunks(builder, datas: list, site_hint: str = "", source: str = ""):
+    """Adds live chunks (bytes, in order) to [builder] (None: a new one) and builds the volume so far. Runs in a
+    decoder process for a batch of chunks (catching up on a volume). Returns (builder, [chunk decoded ok],
+    volume)."""
+    if builder is None:
+        builder = SweepBuilder()
+    oks = []
+    for d in datas:
+        try:
+            builder.add_bytes(d)
+            oks.append(True)
+        except Exception:              # a damaged chunk: the caller counts it as missing
+            oks.append(False)
+    return builder, oks, builder.build(site_hint, source)
+
+
 def read_chunks(chunks: list, site_hint: str = "") -> Level2Volume:
     """Decode a (possibly partial) list of real-time chunk byte strings in order."""
     b = SweepBuilder()
@@ -583,6 +599,100 @@ def read_chunks(chunks: list, site_hint: str = "") -> Level2Volume:
 _proc_pool = None          # Level II decoding (needs only NumPy)
 _l3_pool = None            # Level III decoding (MetPy, which takes ~150 MB per process: only one has it)
 _proc_failed = False
+_pool_lock = threading.Lock()
+_restarts = 0              # decoder pools replaced after a worker died or hung (3 -> decode in threads)
+
+
+class DecodeCancelled(Exception):
+    """A read-ahead decode that was no longer wanted when its turn came (another radar, frame gone)."""
+
+
+class _Gate:
+    """Hands out the Level II decoder processes' slots. Only as many decodes as there are processes are given
+    to the pool at once, so a decode's time limit counts its own work (not its wait in a queue behind a
+    loop's worth of others), and a decode the screen is waiting on goes ahead of read-ahead ones: the lowest
+    priority number goes first, then first come first served."""
+
+    def __init__(self):
+        self._cv = threading.Condition()
+        self._busy = 0
+        self._waiting: list = []
+        self._seq = 0
+
+    BACKGROUND = 10      # priorities from here on are read-ahead: they leave one process free for the screen
+
+    def acquire(self, slots: int, priority: float, cancelled=None) -> bool:
+        import heapq
+        limit = slots - 1 if priority >= self.BACKGROUND and slots > 1 else slots
+        with self._cv:
+            self._seq += 1
+            me = (priority, self._seq)
+            heapq.heappush(self._waiting, me)
+            try:
+                while not (self._busy < limit and self._waiting[0] == me):
+                    if cancelled is not None and cancelled():
+                        return False
+                    self._cv.wait(0.25 if cancelled is not None else None)
+                self._busy += 1
+                return True
+            finally:
+                if me in self._waiting:
+                    self._waiting.remove(me)
+                    heapq.heapify(self._waiting)
+                self._cv.notify_all()
+
+    def release(self):
+        with self._cv:
+            self._busy = max(0, self._busy - 1)
+            self._cv.notify_all()
+
+    @property
+    def waiting(self) -> int:
+        with self._cv:
+            return len(self._waiting)
+
+
+_gate = _Gate()
+_ctx = threading.local()
+
+
+class decode_priority:
+    """with decode_priority(p[, cancelled]): Level II decodes started by this thread wait their turn with
+    priority p (0, the default, is something on screen; larger numbers wait behind it). [cancelled]: a
+    callable; a decode still waiting when it returns True raises DecodeCancelled instead."""
+
+    def __init__(self, priority: float, cancelled=None):
+        self.p, self.c = priority, cancelled
+
+    def __enter__(self):
+        self._old = (getattr(_ctx, "priority", 0), getattr(_ctx, "cancelled", None))
+        _ctx.priority, _ctx.cancelled = self.p, self.c
+        return self
+
+    def __exit__(self, *exc):
+        _ctx.priority, _ctx.cancelled = self._old
+        return False
+
+
+class decode_slot:
+    """with decode_slot(p[, cancelled]): holds one decoder slot for the decodes this thread runs inside it.
+    Read-ahead takes its slot first and only then claims a volume, so a panel that wants the same volume never
+    waits on a decode that is itself still queued. Raises DecodeCancelled if [cancelled]() turns True first."""
+
+    def __init__(self, priority: float, cancelled=None):
+        self.p, self.c = priority, cancelled
+
+    def __enter__(self):
+        if not _gate.acquire(decoder_count(), self.p, self.c):
+            raise DecodeCancelled()
+        self._old = getattr(_ctx, "held", False)
+        _ctx.held = True
+        return self
+
+    def __exit__(self, *exc):
+        _ctx.held = self._old
+        _gate.release()
+        return False
 
 
 def _new_pool(n: int):
@@ -595,16 +705,36 @@ def _new_pool(n: int):
                                initargs=(os.getpid(),))
 
 
+def decoder_count() -> int:
+    """Level II decoder processes (and so the decodes that run side by side): 2 on a dual core, 3 from four
+    cores up (read-ahead decoding uses all but one, so something on screen never waits for a process)."""
+    import os
+    return max(2, min(3, (os.cpu_count() or 2) // 2 + 1))
+
+
 def _proc_executor(level3: bool = False):
     global _proc_pool, _l3_pool
-    if level3:
-        if _l3_pool is None:
-            _l3_pool = _new_pool(1)
-        return _l3_pool
-    if _proc_pool is None:
-        import os
-        _proc_pool = _new_pool(max(2, min(3, (os.cpu_count() or 2) // 2)))
-    return _proc_pool
+    with _pool_lock:                   # (two threads starting at once must not make two pools)
+        if level3:
+            if _l3_pool is None:
+                _l3_pool = _new_pool(1)
+            return _l3_pool
+        if _proc_pool is None:
+            _proc_pool = _new_pool(decoder_count())
+        return _proc_pool
+
+
+def _kill(pool):
+    procs = list((getattr(pool, "_processes", None) or {}).values())
+    for pr in procs:
+        try:
+            pr.terminate()
+        except Exception:
+            pass
+    try:
+        pool.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
 
 
 def limit_malloc_arenas():
@@ -639,6 +769,7 @@ def _worker_init(parent_pid: int):
     import threading
     import time
     limit_malloc_arenas()
+    _lower_priority()
 
     def watch():
         while True:
@@ -646,6 +777,21 @@ def _worker_init(parent_pid: int):
             if os.getppid() != parent_pid:
                 os._exit(0)
     threading.Thread(target=watch, daemon=True).start()
+
+
+def _lower_priority():
+    """Decoder processes run a notch below the app, so a loop being decoded never makes the map stutter."""
+    import os
+    import sys
+    try:
+        if sys.platform.startswith("win"):
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00004000)     # BELOW_NORMAL_PRIORITY_CLASS
+        else:
+            os.nice(5)
+    except Exception:
+        pass
 
 
 def _call_and_trim(fn, *args):
@@ -662,27 +808,55 @@ def run_isolated(fn, *args, timeout: float = 180, level3: bool = False):
     Parsing is Python-heavy; doing it in another process keeps the UI thread from
     fighting worker threads for the GIL (which is what makes the map stutter).
     [level3]: the Level III decoder process (the only one that loads MetPy).
+    Level II decodes wait their turn for a process (see _Gate and decode_priority).
     """
-    global _proc_failed, _proc_pool, _l3_pool
-    if not _proc_failed:
-        try:
-            return _proc_executor(level3).submit(_call_and_trim, fn, *args).result(timeout=timeout)
-        except Exception as exc:
-            if isinstance(exc, RuntimeError) and "after shutdown" in str(exc):
-                return fn(*args)        # interpreter exiting
-            if not _is_pool_problem(exc):
-                raise                   # a genuine decode error from the worker
-            # broken pool (e.g. a launcher without a __main__ guard), pickling problem, frozen build…
-            import sys
-            print("radarforge: process decoding unavailable, using threads:", exc, file=sys.stderr)
-            _proc_failed = True
-            for pool in (_proc_pool, _l3_pool):
-                try:
-                    pool.shutdown(wait=False, cancel_futures=True)
-                except Exception:
-                    pass
-            _proc_pool = _l3_pool = None
-    return fn(*args)
+    global _proc_failed, _proc_pool, _l3_pool, _restarts
+    from concurrent.futures import TimeoutError as FutTimeout
+    from concurrent.futures.process import BrokenProcessPool
+    gated = not level3 and not getattr(_ctx, "held", False)
+    if gated:
+        slots = decoder_count()
+        if not _gate.acquire(slots, getattr(_ctx, "priority", 0), getattr(_ctx, "cancelled", None)):
+            raise DecodeCancelled()
+    try:
+        if not _proc_failed:
+            pool = None
+            try:
+                pool = _proc_executor(level3)
+                return pool.submit(_call_and_trim, fn, *args).result(timeout=timeout)
+            except Exception as exc:
+                if isinstance(exc, RuntimeError) and "after shutdown" in str(exc):
+                    return fn(*args)        # interpreter exiting
+                if not _is_pool_problem(exc):
+                    raise                   # a genuine decode error from the worker
+                import sys
+                with _pool_lock:
+                    current = _l3_pool if level3 else _proc_pool
+                    if pool is not None and pool is current:
+                        if isinstance(exc, (FutTimeout, BrokenProcessPool)) and _restarts < 3:
+                            # a worker hung or died (out of memory?): start fresh processes next time
+                            _restarts += 1
+                            print(f"radarforge: restarting the decoder processes ({type(exc).__name__})",
+                                  file=sys.stderr)
+                            if level3:
+                                _l3_pool = None
+                            else:
+                                _proc_pool = None
+                            _kill(pool)
+                        else:
+                            # e.g. a launcher without a __main__ guard, a pickling problem, a frozen build…
+                            print("radarforge: process decoding unavailable, using threads:", exc, file=sys.stderr)
+                            _proc_failed = True
+                            for p in (_proc_pool, _l3_pool):
+                                if p is not None:
+                                    _kill(p)
+                            _proc_pool = _l3_pool = None
+                if isinstance(exc, FutTimeout):
+                    raise RuntimeError("decoding took too long") from None
+        return fn(*args)
+    finally:
+        if gated:
+            _gate.release()
 
 
 def _is_pool_problem(exc) -> bool:
@@ -692,15 +866,15 @@ def _is_pool_problem(exc) -> bool:
     from concurrent.futures.process import BrokenProcessPool
     if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError, NotADirectoryError, EOFError)):
         return False                     # a missing or unreadable file: the pool is fine
-    return isinstance(exc, (BrokenProcessPool, pickle.PicklingError, FutTimeout, OSError, AttributeError))
+    # (ImportError: a worker that can't load what the decoder needs, e.g. in an incomplete frozen build)
+    return isinstance(exc, (BrokenProcessPool, pickle.PicklingError, FutTimeout, OSError, AttributeError,
+                            ImportError))
 
 
 def read_level2_isolated(path: str, site_hint: str = "") -> Level2Volume:
-    """Decode in a worker process when possible, falling back to this thread."""
-    try:
-        return run_isolated(read_level2, path, site_hint)
-    except Exception:
-        return read_level2(path, site_hint)
+    """Decode in a worker process when possible (run_isolated falls back to this thread when the processes
+    can't be used; a file that can't be decoded raises, once)."""
+    return run_isolated(read_level2, path, site_hint)
 
 
 def _warm():

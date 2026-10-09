@@ -215,8 +215,8 @@ class ProductsPanel(QWidget):
         labels = []
         if frame is not None:
             if frame.has_level2():
-                t = m.engine._tilt_cache.get((frame.uid, frame.l2_rev))
-                labels = [x.label for x in t] if t else []
+                t = m.engine.tilt_meta(frame)
+                labels = [lab for _el, lab in t] if t else []
             else:
                 labels = [f"{e:.1f}°" for e in (0.5, 0.9, 1.3, 1.8)]
         if labels != self._tilt_labels:

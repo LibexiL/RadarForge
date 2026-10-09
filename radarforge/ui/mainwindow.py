@@ -141,6 +141,10 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._frames_timer.setSingleShot(True)
         self._frames_timer.setInterval(200)
         self._frames_timer.timeout.connect(self._apply_frames_changed)
+        self._prefetch_timer = QTimer(self)       # volumes decoded / Level III arriving: images made in a batch
+        self._prefetch_timer.setSingleShot(True)
+        self._prefetch_timer.setInterval(300)
+        self._prefetch_timer.timeout.connect(lambda: self._prefetch())
         self._update_timer = QTimer(self)
         self._update_timer.setSingleShot(True)
         self._update_timer.setInterval(150)
@@ -192,6 +196,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.data.framesChanged.connect(self._frames_changed)
         self.data.frameUpdated.connect(self._frame_updated)
         self.data.loadingChanged.connect(self._loading_changed)
+        self.data.frameDecoded.connect(self._prefetch_soon)
         self.data.status.connect(self._status_msg)
         self.data.error.connect(lambda m: self._status_msg("⚠ " + m))
         self.data.progress.connect(self._progress)
@@ -643,17 +648,25 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.frame_slider.setRange(0, max(0, n - 1))
         self.frame_slider.setValue(max(0, self.frame_index))
         self.frame_slider.blockSignals(False)
-        if self.current_frame() is not self._shown_frame:
+        cur = self.current_frame()
+        if cur is not self._shown_frame:
             self._show_frame()
+        elif cur is not None and not cur.has_level2():
+            self._show_frame()          # Level III only so far: its Level II panels show the newest volume there is
         else:
             self._update_time_label()
-        if not self.data.loading:
-            self._prefetch()
+        self._prefetch_soon()
+
+    def _prefetch_soon(self):
+        if not self._prefetch_timer.isActive():
+            self._prefetch_timer.start()
 
     def _frame_updated(self, frame):
         self.engine.forget_frames(list(self.data.frames))     # the volume's earlier revision isn't shown again
         if frame is self.current_frame() and not self._update_timer.isActive():
             self._update_timer.start()
+        if not frame.live:
+            self._prefetch_soon()                   # (e.g. its Level III product came in: make that image too)
 
     def _loading_changed(self, busy):
         if not busy:
@@ -721,10 +734,12 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         if frame is None:
             return 0
         if frame.has_level2():
-            tilts = self.engine.tilts(frame)
-            if tilts:
-                els = np.array([t.elevation for t in tilts])
-                return int(np.argmin(np.abs(els - self.tilt_elev)))
+            # the elevations once known (they outlive the decoded volume: a long loop plays from its images
+            # without decoding its volumes again), else from the volume
+            meta = self.engine.tilt_meta(frame)
+            els = [el for el, _lab in meta] if meta is not None else [t.elevation for t in self.engine.tilts(frame)]
+            if els:
+                return int(np.argmin(np.abs(np.array(els) - self.tilt_elev)))
         return int(np.argmin(np.abs(np.array(L3_TILT_ELEVS) - self.tilt_elev)))
 
     def set_tilt_elev(self, elev):
@@ -752,10 +767,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         if frame is None:
             return []
         if frame.has_level2():
-            k = (frame.uid, frame.l2_rev)
-            t = self.engine._tilt_cache.get(k)
+            t = self.engine.tilt_meta(frame)
             if t is not None:
-                return [x.elevation for x in t]
+                return [el for el, _lab in t]
             return []
         return L3_TILT_ELEVS
 
@@ -770,9 +784,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         frame = frame or self.current_frame()
         labels = []
         if frame is not None and frame.has_level2():
-            t = self.engine._tilt_cache.get((frame.uid, frame.l2_rev))
+            t = self.engine.tilt_meta(frame)
             if t:
-                labels = [x.label for x in t]
+                labels = [lab for _el, lab in t]
         elif frame is not None:
             labels = [f"{e:.1f}° (L3)" for e in L3_TILT_ELEVS]
         self.tilt_combo.blockSignals(True)
@@ -885,6 +899,14 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                     prev = frames[idx - 1]
                     img = engine.image(prev, pid, self._tilt_index(prev))
                     src_frame = prev
+            elif img is None and pd.kind not in ("l3", "l3tilt") and not frame.has_level2() and frame in frames:
+                # a Level III product came in before its volume (a radar just chosen, its live volume still on
+                # the way): show the newest volume there is until it arrives
+                idx = frames.index(frame)
+                prev = next((f for f in reversed(frames[:idx]) if f.has_level2()), None)
+                if prev is not None and (frame.time - prev.time).total_seconds() <= 20 * 60:
+                    img = engine.image(prev, pid, self._tilt_index(prev) if pd.tilted else 0)
+                    src_frame = prev
             if img is not None and len(window) > 1:
                 tkey = (pid, round(self.tilt_elev, 2), engine._sig(pid), req[-1])
                 cached = trails.get(tkey)
@@ -957,40 +979,57 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.stateChanged.emit()
 
     def _frame_ready(self, frame):
+        """Every panel's image for [frame] is made (or known not to exist): the loop can show it at once."""
         for p in self.view.panels:
             pd = catalog.get(p.product)
             ti = 0
             if pd.tilted:
                 if frame.has_level2():
-                    t = self.engine._tilt_cache.get((frame.uid, frame.l2_rev))
+                    t = self.engine.tilt_meta(frame)
                     if t is None:
                         return False
-                    els = np.array([x.elevation for x in t])
+                    els = np.array([el for el, _lab in t])
                     ti = int(np.argmin(np.abs(els - self.tilt_elev))) if len(els) else 0
-            if self.engine.cached(frame, p.product, ti) is None and (frame.has_level2() or frame.l3):
+            if (frame.has_level2() or frame.l3) and not self.engine.known(frame, p.product, ti):
                 return False
         return True
 
     def _prefetch(self):
+        """Makes every panel's image for the other frames of the loop in the background (newest first), so the
+        loop plays without waiting. While volumes are still downloading only the ones already decoded are done
+        (they are decoded as they arrive; frameDecoded brings this back for the next)."""
         frames = list(self.data.frames)
         cur = self.current_frame()
         pids = [p.product for p in self.view.panels]
         engine = self.engine
         self._prefetch_gen += 1
         gen = self._prefetch_gen
+        loading = self.data.loading
+
+        def superseded():
+            return gen != self._prefetch_gen
 
         def work():
-            for f in reversed(frames):
-                if f is cur:
-                    continue
-                if gen != self._prefetch_gen or self.data.loading:
-                    return                      # superseded, or new data is still arriving
-                if self.data.frames and f not in self.data.frames:
-                    return
-                for pid in pids:
-                    pd = catalog.get(pid)
-                    ti = self._tilt_index(f) if pd.tilted else 0
-                    engine.image(f, pid, ti)
+            from ..data.level2 import DecodeCancelled, decode_priority
+            with decode_priority(5, cancelled=superseded):     # behind what's on screen, before read-ahead
+                for f in reversed(frames):
+                    if f is cur:
+                        continue
+                    if superseded():
+                        return
+                    if self.data.frames and f not in self.data.frames:
+                        return
+                    if loading and f.has_level2() and f.level2_if_ready() is None:
+                        continue                # not decoded yet: comes back when it is
+                    for pid in pids:
+                        pd = catalog.get(pid)
+                        try:
+                            ti = self._tilt_index(f) if pd.tilted else 0
+                            engine.image(f, pid, ti)
+                        except DecodeCancelled:
+                            return
+                        except Exception:
+                            break
         self.bg_pool.clear()
         self.bg_pool.start(_Bg(work))
 
@@ -1138,7 +1177,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
     def open_settings(self, page=None):
         s = self.settings
         keys = ("dealias_velocity", "trail_mode", "satellite_channel", "satellite_enhance", "satellite_opacity",
-                "lightning_minutes", "mrms_product", "mrms_opacity", "warn_at_location")
+                "lightning_minutes", "mrms_product", "mrms_opacity", "warn_at_location", "loop_frames")
         before = {k: s[k] for k in keys}
         d = SettingsDialog(self.settings, self, page if isinstance(page, str) else None)
         if d.exec():
@@ -1164,6 +1203,8 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             self.data._live_timer.setInterval(max(5, int(self.settings["live_poll_seconds"])) * 1000)
             from ..data.frames import VOLUMES, volume_capacity
             VOLUMES.capacity = volume_capacity(self.settings)
+            if "loop_frames" in changed and self.data.mode == "live":
+                self.data.loop_length_changed()
             self.smooth_act.blockSignals(True)
             self.smooth_act.setChecked(bool(self.settings["gpu_smooth"]))
             self.smooth_act.blockSignals(False)

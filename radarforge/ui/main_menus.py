@@ -23,7 +23,7 @@ from ..features import feeds
 LAYOUT_NAMES = {1: "1 panel", 2: "2 panels side by side", 3: "3 panels side by side", 4: "4 panels (2 × 2)",
                 5: "5 panels (3 over 2)", 6: "6 panels (3 × 2)"}
 LOOP_FPS = (2, 4, 6, 8, 10, 15)
-LOOP_FRAMES = (6, 12, 18, 24, 36, 48)
+LOOP_FRAMES = (6, 10, 12, 15, 20, 24, 30, 36, 48, 60)    # 10 is the default (1.14)
 
 
 class MenusMixin:
@@ -384,10 +384,13 @@ class MenusMixin:
         tb.addWidget(self.fps_btn)
         self.frames_btn = QToolButton()
         self.frames_btn.setPopupMode(QToolButton.InstantPopup)
-        self.frames_btn.setToolTip("How many frames the loop holds (live) – archive loads what you pick")
+        self.frames_btn.setToolTip("How many frames a radar's loop loads (10 unless you pick more) – "
+                                   "archive loads what you pick")
         menu = QMenu(self)
         self.frames_acts = self._radio(menu, [(v, f"{v} frames") for v in LOOP_FRAMES],
-                                       int(self.settings["loop_frames"] or 12), self.set_loop_frames, optional=True)
+                                       int(self.settings["loop_frames"] or 10), self.set_loop_frames, optional=True)
+        menu.addSeparator()
+        menu.addAction("Other number…", self._ask_loop_frames)
         self.frames_btn.setMenu(menu)
         tb.addWidget(self.frames_btn)
         self._update_loop_buttons()
@@ -395,9 +398,9 @@ class MenusMixin:
     def _update_loop_buttons(self):
         fps = float(self.settings["loop_fps"] or 6)
         self.fps_btn.setText(f"{fps:g} fps")
-        self.frames_btn.setText(f"{int(self.settings['loop_frames'] or 12)} frames")
+        self.frames_btn.setText(f"{int(self.settings['loop_frames'] or 10)} frames")
         self._sync_radio(self.fps_acts, int(round(fps)))
-        self._sync_radio(self.frames_acts, int(self.settings["loop_frames"] or 12))
+        self._sync_radio(self.frames_acts, int(self.settings["loop_frames"] or 10))
 
     def set_loop_fps(self, fps):
         self.settings["loop_fps"] = float(fps)
@@ -406,6 +409,14 @@ class MenusMixin:
             self.play_timer.setInterval(int(1000 / max(0.5, float(fps))))
         self._update_loop_buttons()
 
+    def _ask_loop_frames(self):
+        from PySide6.QtWidgets import QInputDialog
+        n, ok = QInputDialog.getInt(self, "Loop length", "Frames to load for each radar (1–60).\n"
+                                    "More frames take longer to load and use more memory.",
+                                    int(self.settings["loop_frames"] or 10), 1, 60)
+        if ok:
+            self.set_loop_frames(n)
+
     def set_loop_frames(self, n):
         self.settings["loop_frames"] = int(n)
         self.settings.save()
@@ -413,9 +424,7 @@ class MenusMixin:
         from ..data.frames import VOLUMES, volume_capacity
         VOLUMES.capacity = volume_capacity(self.settings)
         if self.data.mode == "live":
-            self.data._trim()
-            self.data._last_sync = 0.0          # a longer loop is filled from the archive at the next tick
-            self.data._emit_frames()
+            self.data.loop_length_changed()     # shorter: trimmed now; longer: the older volumes load now
         self._status_msg(f"Loop length: {n} frames" + (" (live)" if self.data.mode == "live" else ""))
 
     # ------------------------------------------------------------------ menus

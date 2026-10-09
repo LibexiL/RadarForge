@@ -59,6 +59,7 @@ def env(monkeypatch):
     monkeypatch.setattr(aws, "fetch_many", b.fetch_many)
     monkeypatch.setattr(aws, "find_latest_volume", lambda site: max(b.vols) if b.vols else None)
     monkeypatch.setattr(live, "SweepBuilder", FakeBuilder)
+    monkeypatch.setattr(live, "run_isolated", lambda fn, *a, **k: fn(*a))      # (no decoder processes here)
     monkeypatch.setattr(live.time, "time", lambda: clock["t"])
     return b, clock
 

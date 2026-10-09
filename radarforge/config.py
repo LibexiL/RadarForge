@@ -81,7 +81,7 @@ DEFAULTS = {
     "workspace_version": 0,        # bumped when the default panel arrangement changes (applied once)
     "camera_caltrans": True,       # street cameras: California DOT (open data, no key)
     "camera_keys": {},             # street cameras: state code (NY, GA...) or "windy" -> free API key
-    "loop_frames": 12,
+    "loop_frames": 10,             # (1.14: 12 -> 10) frames a radar's loop loads; more can be chosen (up to 60)
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
     "live_poll_seconds": 15,
@@ -100,7 +100,7 @@ DEFAULTS = {
     "view": None,                 # {cx, cy, scale}
     "gpu_smooth": True,
     "velocity_filter": 1,          # 0 off, 1 normal, 2 aggressive
-    "settings_version": 3,
+    "settings_version": 4,
     "invert_scroll": False,
     "cursor_link": True,
     "hover_text": True,
@@ -148,6 +148,15 @@ class Settings:
             if int(self.data.get("image_cache_mb") or 600) == 600:
                 self.data["image_cache_mb"] = 300
             self.data["settings_version"] = 3
+        if user_version < 4:
+            # v4 (1.14): a radar loads 10 frames by default; a loop still on the old default of 12 becomes 10
+            # (any other length someone picked stays)
+            try:
+                if int(self.data.get("loop_frames") or 12) == 12:
+                    self.data["loop_frames"] = 10
+            except (TypeError, ValueError):
+                self.data["loop_frames"] = 10
+            self.data["settings_version"] = 4
 
     def save(self):
         try:

@@ -164,6 +164,8 @@ class ProductEngine:
         self._tilt_cache: OrderedDict = OrderedDict()
         self._grid_cache: OrderedDict = OrderedDict()
         self._inflight: dict = {}
+        self._missing: OrderedDict = OrderedDict()   # keys known to have no image (product not in that volume)
+        self._tilt_meta: OrderedDict = OrderedDict()  # (uid, l2_rev) -> [(elevation, label)] (holds no data)
 
     # ---------------------------------------------------------------- cache
     def _get(self, key):
@@ -175,10 +177,15 @@ class ProductEngine:
 
     def _put(self, key, img):
         if img is None:
+            # remembered so a loop doesn't wait on (or keep remaking) a product this frame doesn't have
+            with self._lock:
+                self._missing[key] = True
+                while len(self._missing) > 4000:
+                    self._missing.popitem(last=False)
             return
         # the setting, but never less than the loop on screen needs (frames x panels, ~3 MB an image)
         s = self.settings
-        budget = max(float(s["image_cache_mb"]), int(s["loop_frames"] or 12) * int(s["layout"] or 1) * 3.2) * 1e6
+        budget = max(float(s["image_cache_mb"]), int(s["loop_frames"] or 10) * int(s["layout"] or 1) * 3.2) * 1e6
         n = img.nbytes
         with self._lock:
             old = self._sizes.pop(key, None)
@@ -197,6 +204,7 @@ class ProductEngine:
             self._sizes.clear()
             self._bytes = 0
             self._grid_cache.clear()
+            self._missing.clear()
 
     def forget_frames(self, frames):
         """Drops cached images and tilt lists of frames that are gone (left the loop, another radar) and of
@@ -209,9 +217,21 @@ class ProductEngine:
                 self._bytes -= self._sizes.pop(k, 0)
             for k in [k for k in self._tilt_cache if cur.get(k[0]) != k[1]]:
                 self._tilt_cache.pop(k, None)
+            for k in [k for k in self._tilt_meta if cur.get(k[0]) != k[1]]:
+                self._tilt_meta.pop(k, None)
+            revs = {f.uid: getattr(f, "revision", 0) for f in frames}
+            for k in [k for k in self._missing if (k[0] == "L3none" and revs.get(k[1]) != k[2]) or
+                      (isinstance(k[0], int) and cur.get(k[0]) != k[1])]:
+                self._missing.pop(k, None)
 
     def cached(self, frame, pid, tilt_index):
         return self._get(self._key(frame, pid, tilt_index))
+
+    def known(self, frame, pid, tilt_index) -> bool:
+        """True once the image has been made, or found not to exist (never computes)."""
+        key = self._key(frame, pid, tilt_index)
+        with self._lock:
+            return key in self._cache or key in self._missing
 
     # ---------------------------------------------------------------- tilts
     def tilts(self, frame) -> list:
@@ -228,9 +248,20 @@ class ProductEngine:
             for old in [o for o in self._tilt_cache if o[0] == frame.uid and o != k]:
                 self._tilt_cache.pop(old, None)
             self._tilt_cache[k] = t
-            while len(self._tilt_cache) > 40:
+            # tilts hold their volume's sweeps: keep about as many as the volume cache, so a long loop doesn't
+            # keep every volume it has ever decoded (the elevations stay in _tilt_meta)
+            from ..data.frames import VOLUMES
+            while len(self._tilt_cache) > max(8, VOLUMES.capacity + 2):
                 self._tilt_cache.popitem(last=False)
+            self._tilt_meta[k] = [(x.elevation, x.label) for x in t]
+            while len(self._tilt_meta) > 400:
+                self._tilt_meta.popitem(last=False)
         return t
+
+    def tilt_meta(self, frame):
+        """[(elevation, label)] of a frame's tilts once they are known, else None (never decodes)."""
+        with self._lock:
+            return self._tilt_meta.get((frame.uid, frame.l2_rev))
 
     def tilt_labels(self, frame):
         return [t.label for t in self.tilts(frame)]
@@ -267,6 +298,9 @@ class ProductEngine:
         img = self._get(key)
         if img is not None:
             return img
+        with self._lock:
+            if key in self._missing:
+                return None
         if not cache:
             return self._compute(frame, pid, tilt_index, key)
         # single-flight so parallel requests don't duplicate heavy work
@@ -279,7 +313,7 @@ class ProductEngine:
             else:
                 owner = False
         if not owner:
-            ev.wait(60)
+            ev.wait(180)
             return self._get(key)
         try:
             img = self._compute(frame, pid, tilt_index, key)
