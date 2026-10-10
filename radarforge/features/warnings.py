@@ -289,6 +289,24 @@ LIVE_FACTS = (("tornadoDetection", "Tornado", ""), ("tornadoDamageThreat", "Torn
               ("flashFloodDamageThreat", "Flood damage threat", ""), ("waterspoutDetection", "Waterspout", ""))
 
 
+def alert_title(a) -> str:
+    """'Tornado Warning – PDS', 'Severe Thunderstorm Warning – Considerable', 'Tornado Watch'…"""
+    label = VARIANT[a.variant][2]
+    if " - " in label:
+        extra = label.split(" - ", 1)[1]
+        if extra.lower() not in a.event.lower():
+            return f"{a.event} – {extra}"
+    return a.event
+
+
+def time_left(t_end, now) -> str:
+    s = (t_end - now).total_seconds()
+    if s <= 0:
+        return "expired"
+    m = int(s // 60)
+    return f"{m} min left" if m < 60 else f"{m // 60} h {m % 60:02d} min left"
+
+
 def live_facts(params: dict) -> list:
     out = []
     for key, label, unit in LIVE_FACTS:
@@ -603,13 +621,70 @@ class WarningsOverlay(QObject):
         hits.sort(key=lambda a: -a.style[3])
         return hits
 
+    def now(self):
+        """The time warnings are shown for: now (live), or the frame's time (archive)."""
+        if self.mode == "live" or self.frame_time is None:
+            return datetime.now(timezone.utc)
+        return self.frame_time
+
+    def reports_in(self, a) -> list:
+        """The storm reports on the map that are inside an alert."""
+        if not self.settings["overlays"].get("reports", False) or a.xy is None:
+            return []
+        return [r for r in self.visible_reports() if "xy" in r and any(_inside(*r["xy"], xy) for xy in a.xy)]
+
+    @staticmethod
+    def reports_text(reps) -> str:
+        """'2 tornado, 3 hail (largest 1.75 in)'."""
+        counts = {}
+        for r in reps:
+            name = feeds.REPORT_KINDS.get(r.get("kind", "other"), feeds.REPORT_KINDS["other"])[2].lower()
+            counts[name] = counts.get(name, 0) + 1
+        parts = [f"{n} {k}" for k, n in sorted(counts.items(), key=lambda kv: -kv[1])]
+        sizes = []
+        for r in reps:
+            if r.get("kind") == "hail":
+                try:
+                    sizes.append(float(str(r.get("magnitude") or "").split()[0]))
+                except (ValueError, IndexError):
+                    pass
+        if sizes:
+            parts = [p + (f" (largest {max(sizes):g} in)" if p.endswith(" hail") else "") for p in parts]
+        return ", ".join(parts)
+
+    def summary(self, a) -> str:
+        """The short text for the hover box: what it is, when it ends, its tags, motion and reports inside."""
+        info = a.info or {}
+        lines = [alert_title(a)]
+        if info.get("headline"):
+            lines.append(info["headline"].capitalize())
+        when = []
+        if a.office:
+            when.append(a.office if a.office.startswith(("NWS", "Storm")) else "NWS " + a.office)
+        if a.expires:
+            when.append(f"until {feeds.local_hm(a.expires)} ({time_left(a.expires, self.now())})")
+        if when:
+            lines.append(" · ".join(when))
+        facts = info.get("facts") or []
+        if facts:
+            lines.append(" · ".join(f"{k}: {v}" for k, v in facts))
+        mot = info.get("motion")
+        if mot:
+            lines.append(f"Moving {feeds.compass(mot[0] + 180)} at {round(mot[1] * 1.15078)} mph")
+        reps = self.reports_in(a)
+        if reps:
+            lines.append("Storm reports inside: " + self.reports_text(reps))
+        what = "watch" if a.event.endswith("Watch") else "statement" if a.event.endswith("Statement") else "warning"
+        lines.append(f"Click the outline for the full {what}")
+        return "\n".join(lines)
+
     def hover(self, x, y, tol):
         r = self.report_at(x, y, tol)
         if r is not None:
             return r["hover"] + "\n(click for details)"
         # only on the outline, so the text doesn't cover the storm while you look inside the box
         hits = self.alerts_at(x, y, tol * 1.5, inside=False)
-        return hits[0].hover + "\n(click inside it for details)" if hits else None
+        return self.summary(hits[0]) if hits else None
 
 
 def draw_line(painter, shape, rgb, width, kind, halo=True):

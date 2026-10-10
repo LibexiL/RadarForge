@@ -5,6 +5,7 @@ import math
 import time
 from datetime import datetime, timezone
 
+import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
@@ -79,6 +80,53 @@ class LocationMixin:
             if ll is None:
                 return
         self.go_to_latlon(*ll)
+
+    # ------------------------------------------------------------------ place search
+    def _build_search(self):
+        from ..features.places import LocalPlaces, SearchMarker
+        from .place_search import PlaceSearch
+        self.search_marker = SearchMarker()
+        ovs = list(self.view.overlays)
+        at = ovs.index(self.captions) if getattr(self, "captions", None) in ovs else len(ovs)
+        ovs.insert(at, self.search_marker)
+        self.view.overlays = ovs
+        self.place_search = PlaceSearch(LocalPlaces(self.view.maps.raw),
+                                        lambda: self.view.world_to_latlon(self.view.cx, self.view.cy), self)
+        self.place_search.placeChosen.connect(self.go_to_place)
+        self.place_search.cleared.connect(self.clear_search_marker)
+        self.corner.layout().insertWidget(0, self.place_search)
+
+    def focus_search(self):
+        ps = getattr(self, "place_search", None)
+        if ps is not None:
+            ps.setFocus(Qt.ShortcutFocusReason)
+            ps.selectAll()
+
+    def go_to_place(self, p):
+        """Zoom to a place from the search box (switching radar if it's far away) and mark it."""
+        from .panels import _zoom_to
+        self.go_to_latlon(p["lat"], p["lon"])
+        v = self.view
+        if p.get("bbox"):
+            s, n, w, e = p["bbox"]
+            xs, ys = aeqd_forward(np.array([s, s, n, n]), np.array([w, e, w, e]), v.lat0, v.lon0)
+        else:
+            half = 10.0 if p["source"] == "coords" else 8 + 10 * math.log10(max(p.get("pop") or 0, 1000) / 1000)
+            x, y = aeqd_forward(p["lat"], p["lon"], v.lat0, v.lon0)
+            xs, ys = np.array([x - half, x + half]), np.array([y - half, y + half])
+        _zoom_to(self, xs, ys, pad=1.4)
+        self.search_marker.set(p)
+        v.update()
+        src = " – search results © OpenStreetMap contributors" if p["source"] == "osm" else ""
+        self._status_msg(f"{p['label']} ({p['kind']}){src} · Esc clears the marker")
+        if v.host is not None:
+            v.host.setFocus(Qt.OtherFocusReason)
+
+    def clear_search_marker(self):
+        m = getattr(self, "search_marker", None)
+        if m is not None and m.place is not None:
+            m.clear()
+            self.view.update()
 
     def go_to_latlon(self, lat, lon, zoom=3.0):
         """Centre the map on a point (switching to its nearest radar if it's far from this one)."""

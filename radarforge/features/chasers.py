@@ -111,10 +111,10 @@ class ChasersOverlay(QObject):
             if names:
                 view._halo_text(painter, sx + 11, sy + 4, c["label"], QColor(232, 238, 245), font)
 
-    def hover(self, x, y, tol):
+    def chaser_at(self, x, y, tol):
+        """The chaser drawn nearest (x, y) km, within the tolerance, or None."""
         if not self._visible():
             return None
-        now = datetime.now(timezone.utc)
         best, bd = None, tol * 1.3
         for c in list(self.chasers):
             if "xy" not in c:
@@ -122,12 +122,20 @@ class ChasersOverlay(QObject):
             d = math.hypot(c["xy"][0] - x, c["xy"][1] - y)
             if d < bd:
                 best, bd = c, d
+        return best
+
+    @staticmethod
+    def motion_text(c, now) -> str:
+        h = c["heading"]
+        return (f"Driving {feeds.compass(h)} ({h:.0f}°)" if h is not None else "Stationary") + \
+            f" · position {_age(c['time'], now)}"
+
+    def hover(self, x, y, tol):
+        best = self.chaser_at(x, y, tol)
         if best is None:
             return None
-        h = best["heading"]
-        lines = [f"Storm chaser: {best['name']}",
-                 (f"Driving {feeds.compass(h)} ({h:.0f}°)" if h is not None else "Stationary") +
-                 f" · position {_age(best['time'], now)}"]
+        now = datetime.now(timezone.utc)
+        lines = [f"Storm chaser: {best['name']}", self.motion_text(best, now)]
         lines += [f"{k}: {v}" for k, v in best["info"]]
-        lines.append("Spotter Network")
+        lines.append("Spotter Network · click for details")
         return "\n".join(lines)

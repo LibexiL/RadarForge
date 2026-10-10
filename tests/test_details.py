@@ -47,7 +47,7 @@ def test_alerts_under_a_point():
     assert o.alerts_at(30, 30, 0.5) == [watch]
     assert o.alerts_at(5, 5, 0.5, inside=False) == []                # hover: only on an outline
     assert o.alerts_at(10.2, 5, 0.5, inside=False) == [tor]
-    assert "click inside it" in o.hover(10.2, 5, 0.5)
+    assert "Click the outline" in o.hover(10.2, 5, 0.5)
     assert o.hover(5, 5, 0.5) is None
     o.settings.data["overlays"]["watches"] = False                   # hidden: not clickable either
     assert o.alerts_at(30, 30, 0.5) == []
@@ -80,3 +80,38 @@ def test_panel_titles_and_text():
     assert "Golf balls" in p.body.toPlainText() and p.windowTitle() == "Hail report (1.75 INCH)"
     assert main.warnings.selected_uid is None
     p.close()
+
+
+def test_hover_summary_lists_reports_inside():
+    tor = _alert("Tornado Warning", [(0, 0), (10, 0), (10, 10), (0, 10), (0, 0)], "TORR",
+                 info=dict(facts=[("Hail", "2.75 in")], motion=(250, 20)))
+    o = _overlay([tor])
+    o.reports = [dict(kind="tornado", xy=(5, 5), time=None), dict(kind="hail", magnitude="1.75 INCH", xy=(6, 6), time=None),
+                 dict(kind="hail", magnitude="1.00 INCH", xy=(4, 4), time=None), dict(kind="hail", xy=(50, 50), time=None)]
+    txt = o.summary(tor)
+    assert txt.splitlines()[0] == "Tornado Warning – Reported"
+    assert "Hail: 2.75 in" in txt and "Moving ENE at 23 mph" in txt
+    assert "Storm reports inside: 2 hail (largest 1.75 in), 1 tornado" in txt
+
+
+def test_links_are_clickable():
+    from radarforge.ui.info_panel import linkify
+    h = linkify("Web: https://example.com/a, b <x> www.chase.tv/live.")
+    assert '<a href="https://example.com/a">https://example.com/a</a>,' in h
+    assert '<a href="https://www.chase.tv/live">www.chase.tv/live</a>.' in h and "&lt;x&gt;" in h
+
+
+def test_hover_box_waits_then_follows():
+    from PySide6.QtCore import QPointF
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from radarforge.render.glview import RadarView
+    v = RadarView()
+    v._set_hover("Tornado Warning", QPointF(10, 10))
+    assert v._hover_box is None and v._hover_timer.isActive()          # waits for the mouse to rest
+    v._show_hover_box()
+    assert v._hover_box[0] == "Tornado Warning"
+    v._set_hover("Severe Thunderstorm Warning", QPointF(30, 10))      # moving to another: at once
+    assert v._hover_box[0] == "Severe Thunderstorm Warning" and v._hover_box[1].x() == 30
+    v.hide_hover()
+    assert v._hover_box is None and not v._hover_timer.isActive()

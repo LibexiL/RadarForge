@@ -182,6 +182,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._build_status()
         self._init_updates()             # after the status bar: the "Update to …" button lives there
         self._build_panels()
+        self._build_search()             # the place search box, left of Quick in the menu bar's corner
         self._shortcuts()
         self._show_menu_checks()
         self.setAcceptDrops(True)
@@ -1072,7 +1073,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             if self._follow is not None:
                 act(menu, "Stop following the storm", self.stop_follow, "target")
             from .info_panel import item_title
-            here = self.info_items_at(x, y)
+            here = self.info_items_at(x, y, inside=True)
             for i, it in enumerate(here[:6]):
                 act(menu, f"Details: {item_title(it)}…", lambda _=False, i=i: self.show_info(here, gpos, i), "flag")
             act(menu, "Centre here", lambda: self.view.set_view(x, y, self.view.scale))

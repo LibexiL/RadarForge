@@ -184,7 +184,7 @@ class SpcOverlay(QObject):
             txt += f"\nUntil {feeds.local_hm(m['expire'])}"
         if m["watch"] is not None:
             txt += f"\nChance of a watch: {m['watch']}%"
-        return txt + "\n(click inside it for the full discussion)"
+        return txt + "\nClick the outline for the full discussion"
 
     def describe_outlook(self, lat, lon, cat=None) -> str | None:
         """The outlook category (the hovered line's, if given) and the chances at a point."""

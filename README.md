@@ -225,7 +225,8 @@ whether to delete your settings and downloaded data too.
 |---|---|
 | Pan / zoom / centre | drag · mouse wheel · double-click |
 | Map lines over / under the radar | **Layers → Map → Map lines under the radar** (on by default: echoes cover roads, borders and lakes; off: the lines are drawn on top) |
-| Warning details | click inside a warning, watch, mesoscale discussion or storm report for its details panel (full text, hail / wind / tornado tags, storm motion, time left). Hover an outline for a quick summary, or right-click a warning in the **Warnings** side panel → **Details…** |
+| Warning details | rest the mouse on a warning's, watch's or mesoscale discussion's outline for a summary box (time left, hail / wind / tornado tags, storm motion, storm reports inside); click the outline (the pointer becomes a hand) for its details panel with the full text. Right-click inside it, or a warning in the **Warnings** side panel → **Details…**, works too. Storm reports and chasers open their details when clicked; links in them open in your browser |
+| Search places | the box at the top right (**Ctrl+F**): towns appear as you type; **Enter** searches OpenStreetMap for towns, roads, addresses and landmarks. Pick one to zoom there (switching radar if it's far) with a marker; **Esc** clears it. Coordinates (35.22, -97.44) work too |
 | Change a panel's product or colour table | right-click the panel, or use **Products** in the side panel |
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |
 | Live / archive / files | **Live**, **Archive** and **Open** on the toolbar. **F5** (Radar → Reload live data) restarts the live feed. The badge at the bottom right shows how old the newest live data is |

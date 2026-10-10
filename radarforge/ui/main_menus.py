@@ -609,6 +609,8 @@ class MenusMixin:
         self._act(m, "Level III storm table (text)", self.show_storm_table, None)
 
     def _menu_location(self, m):
+        self._act(m, "Search places…", self.focus_search, "Ctrl+F")
+        m.addSeparator()
         self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L", icon="pin")
         self._act(m, "Set my location…", self.set_my_location_dialog, None)
         self._act(m, "Remove my location", lambda: self.set_my_location(None, None), None)
@@ -739,6 +741,7 @@ class MenusMixin:
                         ("F1", "this list")]),
             ("Data & files", [("F5", "reload live data"), ("Ctrl+O", "open files"), ("Ctrl+A", "archive"),
                               ("Ctrl+R", "choose radar"), ("Ctrl+D", "add / remove favourite radar"),
+                              ("Ctrl+F", "search places (towns, roads, addresses)"),
                               ("Ctrl+L", "go to my location"), ("Ctrl+Shift+L", "saved locations & alerts"),
                               ("Ctrl+P", "placefiles"), ("Ctrl+S", "save image"), ("Ctrl+Shift+C", "copy image"),
                               ("Ctrl+E", "export loop"), ("Ctrl+B", "briefing view"), ("Ctrl+,", "settings")]),

@@ -6,6 +6,7 @@ One panel is reused: clicking something else shows that instead. When several th
 from __future__ import annotations
 
 import html
+import re
 import threading
 from datetime import datetime, timezone
 
@@ -36,22 +37,23 @@ def when(t) -> str:
     return s
 
 
-def left(t_end, now) -> str:
-    s = (t_end - now).total_seconds()
-    if s <= 0:
-        return "expired"
-    m = int(s // 60)
-    return f"{m} min left" if m < 60 else f"{m // 60} h {m % 60:02d} min left"
+left = W.time_left
+alert_title = W.alert_title
+
+_URL = re.compile(r"(?i)\b((?:https?://|www\.)[^\s<>\"']+[^\s<>\"'.,;:!?)\]])")
 
 
-def alert_title(a) -> str:
-    """'Tornado Warning – PDS', 'Severe Thunderstorm Warning – Considerable', 'Tornado Watch'…"""
-    label = W.VARIANT[a.variant][2]
-    if " - " in label:
-        extra = label.split(" - ", 1)[1]
-        if extra.lower() not in a.event.lower():
-            return f"{a.event} – {extra}"
-    return a.event
+def linkify(text: str) -> str:
+    """HTML-escaped text with its web addresses as clickable links (they open in the browser)."""
+    out, last = [], 0
+    for m in _URL.finditer(text):
+        out.append(html.escape(text[last:m.start()]))
+        url = m.group(1)
+        href = url if url.lower().startswith("http") else "https://" + url
+        out.append(f"<a href=\"{html.escape(href, quote=True)}\">{html.escape(url)}</a>")
+        last = m.end()
+    out.append(html.escape(text[last:]))
+    return "".join(out)
 
 
 def item_title(it) -> str:
@@ -64,6 +66,8 @@ def item_title(it) -> str:
         name = feeds.REPORT_KINDS.get(o.get("kind", "other"), feeds.REPORT_KINDS["other"])[2]
         mag = o.get("magnitude") or ""
         return f"{name} report" + (f" ({mag})" if mag else "")
+    if k == "chaser":
+        return f"Storm chaser: {o['name']}"
     return o["title"]
 
 
@@ -75,6 +79,9 @@ def item_rgb(it, main) -> tuple:
         return feeds.MCD_RGB
     if k == "report":
         return feeds.REPORT_KINDS.get(o.get("kind", "other"), feeds.REPORT_KINDS["other"])[1]
+    if k == "chaser":
+        from ..features.chasers import chaser_color
+        return chaser_color(o.get("time"), datetime.now(timezone.utc))
     return feeds.CAT_RGB.get(o.get("cat"), (200, 200, 200))
 
 
@@ -188,6 +195,8 @@ class InfoPanel(QDialog):
                 rows, text, note = self._mcd(o)
             elif k == "report":
                 rows, text = self._report(o)
+            elif k == "chaser":
+                rows = self._chaser(o)
             else:
                 rows = [tuple(line.split(": ", 1)) if ": " in line else ("", line) for line in o["lines"]]
         self.setWindowTitle(item_title(it))
@@ -201,14 +210,14 @@ class InfoPanel(QDialog):
         h = ["<table cellspacing='0' cellpadding='2'>"]
         for lab, val in rows:
             h.append(f"<tr><td style='padding-right:10px; color:{dim}'>{html.escape(lab)}</td>"
-                     f"<td>{html.escape(str(val))}</td></tr>")
+                     f"<td>{linkify(str(val))}</td></tr>")
         h.append("</table>")
         if area:
             h.append(f"<p><b>Areas:</b> {html.escape(area)}</p>")
         if note:
             h.append(f"<p><i>{html.escape(note)}</i></p>")
         if text:
-            h.append("<pre style='white-space:pre-wrap; font-family:monospace'>" + html.escape(text) + "</pre>")
+            h.append("<pre style='white-space:pre-wrap; font-family:monospace'>" + linkify(text) + "</pre>")
         self.body.setHtml("".join(h))
         self._text = "\n".join([item_title(it)] + ([sub] if sub else []) +
                                [f"{a}: {b}" if a else str(b) for a, b in rows] +
@@ -283,6 +292,17 @@ class InfoPanel(QDialog):
             text = r["hover"]
         return rows, text
 
+    def _chaser(self, c):
+        from ..features.chasers import ChasersOverlay
+        rows = [("Now", ChasersOverlay.motion_text(c, datetime.now(timezone.utc)))]
+        if c.get("time") is not None:
+            rows.append(("Position from", when(c["time"])))
+        if c.get("label") and c["label"] != c["name"]:
+            rows.append(("Shown as", c["label"]))
+        rows += [(k, v) for k, v in c.get("info") or []]
+        rows.append(("Source", "Spotter Network"))
+        return rows
+
     def _text_for(self, key, fn, what):
         """(text, note) for a downloaded text: the text once it's in, or a note while it loads / if it failed."""
         if key in self._texts:
@@ -336,7 +356,7 @@ class InfoPanel(QDialog):
         elif k == "mcd" and o.get("xy"):
             xy = np.concatenate(o["xy"])
             _zoom_to(self.main, xy[:, 0], xy[:, 1])
-        elif k == "report" and "xy" in o:
+        elif k in ("report", "chaser") and "xy" in o:
             view.set_view(float(o["xy"][0]), float(o["xy"][1]), max(view.scale, 4.0))
 
     def _open_web(self):

@@ -26,4 +26,6 @@ GOES-19 / GOES-18 GLM (noaa-goes19, noaa-goes18) on AWS through the NOAA Open Da
 NWS API (api.weather.gov), the Iowa Environmental Mesonet (historical warnings, storm reports, SPC products,
 GOES satellite images, current surface observations and BUFKIT model soundings), Spotter Network, and for street
 cameras Caltrans CWWP2 open data, state 511 developer APIs and Windy Webcams (with the user's own keys; pictures
-remain the property of their providers).
+remain the property of their providers). Place search uses OpenStreetMap's Nominatim service (one request per
+search, as its usage policy asks); its results are © OpenStreetMap contributors, available under the Open
+Database License (https://www.openstreetmap.org/copyright).

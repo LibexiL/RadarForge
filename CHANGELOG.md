@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.17.0 – 2026-10-10
+
+Search for places, a hover box for warnings, clickable warning outlines and clickable storm chasers.
+
+### Search places
+- **A search box at the top right** (**Ctrl+F**, or **Location → Search places…**).
+- **Towns appear as you type**, from the town list built into RadarForge, so this works offline. They show
+  their state, so the right Springfield is easy to pick. Typing "Springfield, MO" or "springfield missouri"
+  narrows it to one state.
+- **Press Enter to search OpenStreetMap** for towns, roads, addresses and landmarks. Results nearer the map
+  come first.
+- **Picking a result** zooms the map to it, switching to a nearer radar if it's far away. A pink pin marks the
+  place, and roads and town limits are outlined. **Esc**, or clearing the box, removes the marker.
+- **Coordinates** such as 35.22, -97.44 work too.
+
+### Hover box
+- **Rest the mouse on a warning's outline for a moment** (0.4 s) and a box beside it shows:
+  - What it is and how long is left.
+  - Its tornado, hail and wind tags, and which way the storm is moving.
+  - The storm reports inside it, e.g. "2 hail (largest 1.75 in), 1 tornado".
+- **RadarForge now draws all hover pop-ups itself**: watches, discussions, storm reports, chasers,
+  observations, placefiles and radar sites. The system tooltips used before didn't show over the map on
+  some setups.
+- Saved and copied images don't include the box.
+
+### Click a warning's outline
+- **The pointer becomes a hand** over anything a click opens: warning, watch and discussion outlines, an
+  "MD" label, storm reports, chasers, street cameras and radar sites.
+- **Clicking a warning's outline** opens its details panel. Clicking inside a warning no longer opens it,
+  so clicks while looking at a storm don't pop it up. The shapes that spot sits inside are listed too.
+- **Right-clicking inside a warning** still offers **Details: …**.
+
+### Storm chasers
+- **Click a chaser** for their details: which way they're driving, when their position was sent, and what
+  they share on Spotter Network.
+- **Links open in your browser.** This works for links in a chaser's details, and in any warning, report or
+  discussion text in the panel.
+
 ## 1.16.0 – 2026-10-09
 
 ### Map lines under the radar

@@ -13,9 +13,10 @@ OpenGL.ERROR_CHECKING = False      # glGetError after every call is very slow
 OpenGL.ERROR_LOGGING = False
 from OpenGL import GL  # noqa: E402
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFontMetricsF, QImage, QPainter, QPen, QPolygonF, QSurfaceFormat
+from PySide6.QtGui import (QColor, QFontMetricsF, QImage, QPainter, QPen, QPolygonF, QSurfaceFormat,
+                           QTextDocument)
 from PySide6.QtOpenGL import QOpenGLWindow
-from PySide6.QtWidgets import QToolTip, QWidget
+from PySide6.QtWidgets import QWidget
 
 from ..data.sites import all_sites
 from ..features import feeds
@@ -37,6 +38,8 @@ DEFAULT_COLORS = {
     "label_bg": (0, 0, 0, 185), "label_text": (240, 240, 245), "cursor": (255, 255, 255, 230),
 }
 LEGEND_H = 32
+HOVER_DELAY_MS = 400             # how long the mouse rests on something before its hover box shows
+HOVER_MAX_W = 360                # widest the hover box gets (px) before its text wraps
 
 LAYOUTS = {
     1: [(0, 0, 1, 1)],
@@ -194,6 +197,17 @@ class RadarView(QOpenGLWindow):
         self._wheel_timer.setSingleShot(True)
         self._wheel_timer.setInterval(180)
         self._wheel_timer.timeout.connect(self.update)
+        # the hover box: our own pop-up (system tooltips don't show over an OpenGL window everywhere),
+        # shown after the mouse rests on something for HOVER_DELAY_MS
+        self.clickable_fn = None          # (x, y, tolerance_km) -> bool: a click there opens something
+        self._hover_box = None            # (text, QPointF) drawn by _paint_live
+        self._hover_pending = None
+        self._hover_doc = None            # (text, QTextDocument) laid out once per text
+        self._grabbing = False
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.setInterval(HOVER_DELAY_MS)
+        self._hover_timer.timeout.connect(self._show_hover_box)
         self._sprites: dict = {}
         self._city_cache: dict = {}
         self._header_w = 0
@@ -690,6 +704,11 @@ class RadarView(QOpenGLWindow):
             painter.drawRect(ap.rect.adjusted(0.5, 0.5, -1, -1))
         if self.overlay_image is not None:
             painter.drawImage(QPointF(0, 0), self.overlay_image)
+        if self._hover_box is not None and not self._grabbing:
+            try:
+                self._paint_hover_box(painter)
+            except Exception as exc:
+                print("hover box error:", exc)
 
     def _panel_viewport(self, r, dpr, H):
         return int(r.x() * dpr), int(H - (r.y() + r.height()) * dpr), int(r.width() * dpr), int(r.height() * dpr)
@@ -1277,6 +1296,7 @@ class RadarView(QOpenGLWindow):
 
     # ------------------------------------------------------------------ interaction
     def mousePressEvent(self, ev):
+        self.hide_hover()
         pos = ev.position()
         i = self.panel_at(pos)
         if i >= 0 and i != self.active_panel:
@@ -1350,31 +1370,102 @@ class RadarView(QOpenGLWindow):
         self.update_cursor()
 
     def _hover(self, ev, x, y):
-        sid = self.site_at(ev.position()) if self.tool == "pan" and self._drag is None else None
+        pos = ev.position()
+        pan = self.tool == "pan" and self._drag is None
+        sid = self.site_at(pos) if pan else None
         if sid != self._hover_site:
             self._hover_site = sid
-            self.setCursor(Qt.PointingHandCursor if sid else self._tool_cursor())
             self.update()
+        tol = 8.0 / self.scale
+        # a pointing hand over anything a click opens: radar sites, warning outlines, reports, chasers…
+        hand = bool(sid)
+        if not hand and pan and self.clickable_fn is not None:
+            try:
+                hand = bool(self.clickable_fn(x, y, tol))
+            except Exception:
+                hand = False
+        want = Qt.PointingHandCursor if hand else self._tool_cursor()
+        if self.cursor().shape() != want:
+            self.setCursor(want)
+        txt = None
         if sid:
             s = all_sites()[sid]
             kind = "TDWR" if s.type == "tdwr" else "WSR-88D"
             extra = "  (current radar)" if sid == self.site_id else "\nClick to load this radar"
-            QToolTip.showText(ev.globalPosition().toPoint(), f"{sid} – {s.place}, {s.state}  {kind}{extra}",
-                              self.host)
+            txt = f"{sid} – {s.place}, {s.state}  {kind}{extra}"
+        elif self.hover_text and self._drag is None:
+            for hp in self.hover_providers:
+                try:
+                    txt = hp.hover(x, y, tol)
+                except Exception:
+                    txt = None
+                if txt:
+                    break
+        self._set_hover(txt, pos)
+
+    def _set_hover(self, text, pos):
+        """Show [text] by the mouse once it has rested on it (straight away when moving from one thing
+        to another while a box is showing); None hides it."""
+        if not text:
+            self._hover_timer.stop()
+            self._hover_pending = None
+            if self._hover_box is not None:
+                self._hover_box = None
+                self.update_cursor()
             return
-        if not self.hover_text:
-            QToolTip.hideText()
+        if self._hover_box is not None:
+            self._hover_box = (text, pos)            # follows the mouse (and switches text at once)
             return
-        tol = 8.0 / self.scale
-        for hp in self.hover_providers:
-            try:
-                txt = hp.hover(x, y, tol)
-            except Exception:
-                txt = None
-            if txt:
-                QToolTip.showText(ev.globalPosition().toPoint(), txt, self.host)
-                return
-        QToolTip.hideText()
+        if self._hover_pending is None or self._hover_pending[0] != text:
+            self._hover_timer.start()                # something new: wait for the mouse to rest on it
+        self._hover_pending = (text, pos)
+
+    def _show_hover_box(self):
+        if self._hover_pending is not None:
+            self._hover_box, self._hover_pending = self._hover_pending, None
+            self.update_cursor()
+
+    def hide_hover(self):
+        self._set_hover(None, None)
+
+    def _hover_document(self, text):
+        col = self.colors["label_text"].name()
+        key = (text, col, self.font_label.key())
+        if self._hover_doc is not None and self._hover_doc[0] == key:
+            return self._hover_doc[1]
+        import html as _html
+        lines = text.split("\n")
+        if len(lines) > 18:
+            lines = lines[:17] + ["…"]
+        body = f"<b>{_html.escape(lines[0])}</b>" + "".join("<br>" + _html.escape(l) for l in lines[1:])
+        doc = QTextDocument()
+        doc.setDocumentMargin(0)
+        doc.setDefaultFont(self.font_label)
+        doc.setHtml(f"<div style='color:{col}'>{body}</div>")
+        doc.setTextWidth(-1)
+        if doc.idealWidth() > HOVER_MAX_W:
+            doc.setTextWidth(HOVER_MAX_W)
+        self._hover_doc = (key, doc)
+        return doc
+
+    def _paint_hover_box(self, painter):
+        text, pos = self._hover_box
+        doc = self._hover_document(text)
+        w = min(doc.idealWidth(), HOVER_MAX_W) + 16
+        h = doc.size().height() + 12
+        W, H = self.width(), self.height()
+        x = pos.x() + 16 if pos.x() + 16 + w <= W - 2 else pos.x() - 12 - w
+        y = pos.y() + 20 if pos.y() + 20 + h <= H - 2 else pos.y() - 10 - h
+        x, y = max(2.0, min(x, W - w - 2)), max(2.0, min(y, H - h - 2))
+        bg = QColor(self.colors["label_bg"])
+        bg.setAlpha(max(bg.alpha(), 228))
+        painter.save()
+        painter.setPen(QPen(self.colors["panel_border"], 1))
+        painter.setBrush(bg)
+        painter.drawRoundedRect(QRectF(x, y, w, h), 5, 5)
+        painter.translate(x + 8, y + 6)
+        doc.drawContents(painter)
+        painter.restore()
 
     def mouseReleaseEvent(self, ev):
         if self._track_drag is not None:
@@ -1422,6 +1513,7 @@ class RadarView(QOpenGLWindow):
             self.set_view(x, y, self.scale)
 
     def wheelEvent(self, ev):
+        self.hide_hover()
         steps = ev.angleDelta().y() / 120.0
         if steps == 0:
             return
@@ -1452,7 +1544,7 @@ class RadarView(QOpenGLWindow):
         if t == QEvent.Leave:
             self.cursor_world = None
             self.cursorMoved.emit(float("nan"), float("nan"), -1)
-            QToolTip.hideText()
+            self.hide_hover()
             self.update_cursor()
         elif t in (QEvent.DragEnter, QEvent.DragMove, QEvent.DragLeave, QEvent.Drop):
             if self.drop_handler is not None:
@@ -1479,7 +1571,11 @@ class RadarView(QOpenGLWindow):
         """The view drawn from scratch right now (never the cached scene, which can lag a frame behind)."""
         self._scene_dirty = True
         self._cache_valid = False
-        return self.grabFramebuffer()
+        self._grabbing = True                   # (no hover box in saved images)
+        try:
+            return self.grabFramebuffer()
+        finally:
+            self._grabbing = False
 
     def grab_png(self, path):
         return self.grab_fresh().save(path)

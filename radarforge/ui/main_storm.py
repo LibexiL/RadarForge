@@ -26,12 +26,20 @@ class StormToolsMixin:
                              "(right-click for options, Esc twice to clear)")
 
     def _escape(self):
-        """Esc: back to pan; pressed again, clears the measurement and the storm track."""
+        """Esc: back to pan; pressed again, clears the measurement, the storm track and the search marker."""
+        ps = getattr(self, "place_search", None)
+        if ps is not None and ps.hasFocus():
+            if ps.comp.popup().isVisible():
+                ps.comp.popup().hide()
+            else:
+                ps.clearFocus()                  # back to the map
+            return
         if self.view.tool != "pan":
             self.set_tool("pan")
         else:
             self.view.clear_lines("measure")
             self.view.clear_track()
+            self.clear_search_marker()
 
     def _track_start_time(self):
         f = self.current_frame()

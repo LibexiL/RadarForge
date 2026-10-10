@@ -307,7 +307,7 @@ class WarningsPanel(QWidget):
         self.tree.customContextMenuRequested.connect(self._tree_menu)
         wl.addWidget(self.tree, 1)
         wl.addWidget(_hint("Click a warning to highlight it, double-click to go to it (switches to the nearest radar). "
-                           "Right-click for its details, or click inside it on the map."))
+                           "Right-click for its details, or click its outline on the map."))
         self.tabs.addTab(w, "Warnings")
         # --- reports tab
         r = QWidget()

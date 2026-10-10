@@ -62,6 +62,7 @@ class DataLayersMixin:
                                      self.warnings, self.my_location, self.obs, self.lightning, self.spc, self.mrms,
                                      self.ltg_density]
         self.view.mapClicked.connect(self._map_clicked)
+        self.view.clickable_fn = self._clickable_at
         self._cam_timer = QTimer(self)
         self._cam_timer.setSingleShot(True)
         self._cam_timer.setInterval(1500)
@@ -353,19 +354,37 @@ class DataLayersMixin:
             from PySide6.QtGui import QCursor
             self.show_info(items, QCursor.pos())
 
-    def info_items_at(self, x, y) -> list:
-        """What a click at (x, y) km landed on, most important first: a storm report, the warnings it is inside
-        (or on the outline of), SPC discussions, watches, and the SPC outlook there (only along with
-        something else, or on its outline, so a click in an outlook area isn't always taken)."""
+    def info_items_at(self, x, y, inside=False) -> list:
+        """What a click at (x, y) km landed on, most important first: a storm report or chaser, then the
+        warnings, SPC discussions and watches whose outline is under it (or [inside]: that it is inside, for
+        the right-click menu). Once something is hit, the shapes it sits inside are listed after it, and the
+        SPC outlook there last."""
         tol = 8.0 / self.view.scale
-        items = []
+        edge_tol = tol * 1.5                  # outlines: the same reach as their hover box
+        first = []
         r = self.warnings.report_at(x, y, tol)
         if r is not None:
-            items.append(dict(kind="report", obj=r))
-        alerts = self.warnings.alerts_at(x, y, tol)
-        items += [dict(kind="alert", obj=a) for a in alerts if not a.event.endswith("Watch")]
-        items += [dict(kind="mcd", obj=m) for m in self.spc.mcds_at(x, y, tol)]
-        items += [dict(kind="alert", obj=a) for a in alerts if a.event.endswith("Watch")]
+            first.append(dict(kind="report", obj=r))
+        c = self.chasers.chaser_at(x, y, tol)
+        if c is not None:
+            first.append(dict(kind="chaser", obj=c))
+
+        def ordered(alerts, mcds):
+            return ([dict(kind="alert", obj=a) for a in alerts if not a.event.endswith("Watch")] +
+                    [dict(kind="mcd", obj=m) for m in mcds] +
+                    [dict(kind="alert", obj=a) for a in alerts if a.event.endswith("Watch")])
+        if inside:
+            first += ordered(self.warnings.alerts_at(x, y, edge_tol), self.spc.mcds_at(x, y, edge_tol))
+            items = first
+        else:
+            edge_a = self.warnings.alerts_at(x, y, edge_tol, inside=False)
+            edge_m = self.spc.mcds_at(x, y, edge_tol, inside=False)
+            first += ordered(edge_a, edge_m)
+            items = list(first)
+            if first:                         # and what that spot is inside
+                ids = {id(it["obj"]) for it in first}
+                more = ordered(self.warnings.alerts_at(x, y, tol), self.spc.mcds_at(x, y, tol))
+                items += [it for it in more if id(it["obj"]) not in ids]
         lat, lon = self.view.world_to_latlon(x, y)
         cat = self.spc.outlook_line_at(x, y, tol)
         if cat is None and items:
@@ -377,6 +396,16 @@ class DataLayersMixin:
                 lines = txt.split("\n")
                 items.append(dict(kind="outlook", obj=dict(title=lines[0], cat=cat, lines=lines[1:])))
         return items
+
+    def _clickable_at(self, x, y, tol) -> bool:
+        """Whether a click at (x, y) km opens something (the map shows a pointing hand there)."""
+        edge_tol = tol * 1.5
+        return bool(self.warnings.report_at(x, y, tol) is not None or
+                    self.chasers.chaser_at(x, y, tol) is not None or
+                    (self.cameras.enabled() and self.cameras.near(x, y, tol)) or
+                    self.warnings.alerts_at(x, y, edge_tol, inside=False) or
+                    self.spc.mcds_at(x, y, edge_tol, inside=False) or
+                    self.spc.outlook_line_at(x, y, tol) is not None)
 
     def show_info(self, items, near=None, start=0):
         """The details panel for [items] (see info_items_at)."""
