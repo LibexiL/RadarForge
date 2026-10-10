@@ -147,6 +147,7 @@ class RadarView(QOpenGLWindow):
         self.link_cursor = True
         self.invert_wheel = False
         self.hover_text = True
+        self.maps_under_radar = True      # map lines beneath the radar data (False: drawn over it)
         self.distance_units = "nm"
         self.height_units = "kft"
         self.active_panel = 0
@@ -727,9 +728,13 @@ class RadarView(QOpenGLWindow):
             GL.glScissor(x, y, w, h)
             view = (self.cx, self.cy, self.scale * dpr, 0.0)
             vp = (float(w), float(h))
-            if p.image is not None and p.palette is not None:
+            has_image = p.image is not None and p.palette is not None
+            if self.maps_under_radar:
+                self._draw_maps(view, vp, dpr)        # the echoes cover the roads and borders
+            if has_image:
                 self._draw_image(p, view, vp)
-            self._draw_maps(view, vp, dpr)
+            if not self.maps_under_radar:
+                self._draw_maps(view, vp, dpr)
 
     def _draw_image(self, p, view, vp):
         img = p.image

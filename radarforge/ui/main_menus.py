@@ -589,6 +589,10 @@ class MenusMixin:
             self.layer_acts[name] = self._act(mp, label, lambda checked, n=name: self._toggle_layer(n, checked),
                                               None, checkable=True, checked=on)
         mp.addSeparator()
+        self.maps_under_act = self._act(mp, "Map lines under the radar", self._toggle_maps_under, None,
+                                        checkable=True, checked=bool(self.settings["maps_under_radar"]))
+        self.maps_under_act.setToolTip("Roads, borders and lakes beneath the radar data, so echoes cover them "
+                                       "(off: drawn on top)")
         self._act(mp, "Map colours && fonts…", lambda: self.open_settings("Map style"), None)
         self._act(m, "Placefiles…", self.open_placefiles, "Ctrl+P")
         m.addSeparator()

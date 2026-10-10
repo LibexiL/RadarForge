@@ -374,6 +374,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.view.show_legend = bool(s["show_legend"])
         self.view.invert_wheel = bool(s["invert_scroll"])
         self.view.hover_text = bool(s["hover_text"])
+        self.view.maps_under_radar = bool(s["maps_under_radar"])
         self.view._city_cache.clear()
         self.view.update()
 
@@ -1214,6 +1215,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             self.hover_act.blockSignals(True)
             self.hover_act.setChecked(bool(self.settings["hover_text"]))
             self.hover_act.blockSignals(False)
+            self.maps_under_act.blockSignals(True)
+            self.maps_under_act.setChecked(bool(self.settings["maps_under_radar"]))
+            self.maps_under_act.blockSignals(False)
             self._update_loop_buttons()
             self._panel_req.clear()
             self._show_frame()

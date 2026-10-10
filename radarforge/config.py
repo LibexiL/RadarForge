@@ -104,6 +104,7 @@ DEFAULTS = {
     "invert_scroll": False,
     "cursor_link": True,
     "hover_text": True,
+    "maps_under_radar": True,      # roads, borders, lakes drawn beneath the radar data (False: on top)
     "l3_poll_products": ["NST", "NHI"],
     "xsection_top_kft": 60.0,
     "volume3d_levels": [30.0, 50.0, 65.0],   # (before 1.12)

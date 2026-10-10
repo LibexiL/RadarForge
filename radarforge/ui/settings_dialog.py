@@ -179,6 +179,11 @@ class SettingsDialog(QDialog):
         self.legend.setChecked(bool(s["show_legend"]))
         f.addRow("Panels", self.legend)
         f.addRow("", _hint("These are also on the toolbar and in the Quick panel (F8)."))
+        self.maps_under = QCheckBox("Draw roads, borders and lakes under the radar data")
+        self.maps_under.setChecked(bool(s["maps_under_radar"]))
+        f.addRow("Map lines", self.maps_under)
+        f.addRow("", _hint("Echoes then cover the map lines. Off: the lines are drawn on top, so they show "
+                           "through the storms. Also in Layers → Map."))
         lay.addLayout(f)
         lay.addStretch(1)
         return w
@@ -829,6 +834,7 @@ class SettingsDialog(QDialog):
         s["start_live"] = self.start_live.isChecked()
         s["invert_scroll"] = self.invert.isChecked()
         s["hover_text"] = self.hover.isChecked()
+        s["maps_under_radar"] = self.maps_under.isChecked()
         s["cursor_link"] = self.link.isChecked()
         s["update_check"] = self.upd_check.isChecked()
         s["gpu_smooth"] = self.smooth.isChecked()

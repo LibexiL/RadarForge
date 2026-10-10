@@ -82,6 +82,12 @@ class LayersMixin:
         self.settings["cursor_link"] = on
         self.view.link_cursor = on
 
+    def _toggle_maps_under(self, on):
+        self.settings["maps_under_radar"] = on
+        self.settings.save()
+        self.view.maps_under_radar = on
+        self.view.update()
+
     def _toggle_layer(self, name, on):
         self.settings["map_layers"][name] = on
         self.view.map_visible[name] = on

@@ -224,6 +224,7 @@ whether to delete your settings and downloaded data too.
 | Action | How |
 |---|---|
 | Pan / zoom / centre | drag · mouse wheel · double-click |
+| Map lines over / under the radar | **Layers → Map → Map lines under the radar** (on by default: echoes cover roads, borders and lakes; off: the lines are drawn on top) |
 | Warning details | click inside a warning, watch, mesoscale discussion or storm report for its details panel (full text, hail / wind / tornado tags, storm motion, time left). Hover an outline for a quick summary, or right-click a warning in the **Warnings** side panel → **Details…** |
 | Change a panel's product or colour table | right-click the panel, or use **Products** in the side panel |
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |

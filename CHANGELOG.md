@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.16.0 – 2026-10-09
+
+### Map lines under the radar
+- **Roads, state and county lines, borders and lakes are now drawn beneath the radar data**, so the echoes
+  cover them instead of the lines cutting through the storms.
+- City names, radar sites, range rings, warnings and other overlays stay on top.
+- **To put the lines back on top:** turn off **Layers → Map → Map lines under the radar**, or the setting in
+  **Settings → Display**.
+
 ## 1.15.0 – 2026-10-09
 
 Click a warning, watch, mesoscale discussion or storm report on the map to open a details panel.
