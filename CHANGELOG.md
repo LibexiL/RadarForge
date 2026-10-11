@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.18.1 – 2026-10-11
+
+- **Fixed: zooming in could turn a mesoscale discussion into a solid grey block** covering the radar. With
+  city labels on, the outline was filled with the colour of the city dots drawn just before it. Every map
+  layer now starts from a clean slate, so no layer can pick up another's colours.
+
 ## 1.18.0 – 2026-10-11
 
 New scans load smoothly in live mode, and Level III panels no longer get stuck on "No Level III … for this

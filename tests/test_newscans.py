@@ -57,3 +57,21 @@ def test_partial_sweep_fills_in_over_the_volume_before():
     other = _img(np.arange(0.25, 360, 0.5), 10.0)
     other.gate_spacing = 1.0                                         # different gates: left as it is
     assert fill_partial(new, other) is new
+
+
+def test_outlines_are_never_filled():
+    """A brush left over from another layer (the city dots) used to fill outlines, e.g. a mesoscale discussion."""
+    from PySide6.QtCore import QPointF
+    from PySide6.QtGui import QColor, QImage, QPainter, QPolygonF
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from radarforge.features.warnings import draw_line
+    img = QImage(100, 100, QImage.Format_ARGB32)
+    img.fill(QColor(0, 0, 0))
+    p = QPainter(img)
+    p.setBrush(QColor(230, 230, 230))                              # what the city labels leave behind
+    draw_line(p, QPolygonF([QPointF(10, 10), QPointF(90, 10), QPointF(90, 90), QPointF(10, 90)]),
+              (79, 143, 255), 2.2, "solid")
+    p.end()
+    assert QColor(img.pixel(50, 50)).red() == 0                     # the inside stays clear
+    assert QColor(img.pixel(10, 50)).blue() > 100                   # the outline is drawn

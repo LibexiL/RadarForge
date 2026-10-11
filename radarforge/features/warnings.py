@@ -692,6 +692,8 @@ def draw_line(painter, shape, rgb, width, kind, halo=True):
     poly = isinstance(shape, QPolygonF)
     draw = painter.drawPolygon if poly else painter.drawLine
     args = (shape,) if poly else shape
+    if poly:
+        painter.setBrush(Qt.NoBrush)          # an outline: never filled with whatever brush was set before
     if halo:
         painter.setPen(QPen(QColor(0, 0, 0, 220), width + 2.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         draw(*args)

@@ -865,15 +865,24 @@ class RadarView(QOpenGLWindow):
         return img
 
     def _paint_overlays(self, painter, p, vt):
+        # every layer starts from a clean pen and brush: a brush left over by one (the city dots) used to fill
+        # the next one's outlines (a mesoscale discussion drawn as a solid grey block)
+        def layer(fn, *args):
+            painter.save()
+            painter.setBrush(Qt.NoBrush)
+            try:
+                fn(*args)
+            finally:
+                painter.restore()
         if self.show_range_rings:
-            self._paint_rings(painter, vt)
+            layer(self._paint_rings, painter, vt)
         if self.show_cities:
-            self._paint_cities(painter, p, vt)
+            layer(self._paint_cities, painter, p, vt)
         if self.show_sites:
-            self._paint_sites(painter, vt)
+            layer(self._paint_sites, painter, vt)
         for ov in self.overlays:
             try:
-                ov.paint(painter, vt, p, self)
+                layer(ov.paint, painter, vt, p, self)
             except Exception as exc:
                 print("overlay", type(ov).__name__, exc)
         self._paint_lines(painter, vt)
