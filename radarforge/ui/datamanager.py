@@ -28,6 +28,7 @@ class DataManager(QObject):
     loadingChanged = Signal(bool)
     frameDecoded = Signal()          # a volume was decoded ahead of time (its images can be made now)
     _pollSoon = Signal()             # chunks are flowing: look again in a few seconds
+    _l3Again = Signal()              # a Level III poll ended with codes still waiting: poll again
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
@@ -57,12 +58,18 @@ class DataManager(QObject):
         self._pending_l3: list = []       # archive Level III waiting for its Level II volumes to arrive
         self._l2_expected = False
         self._l3_gen = -1                 # generation a Level III poll is running for (-1: none)
+        self._l3_again = False            # codes were asked for while a poll ran: poll again when it ends
         self._last_l3_poll = 0.0
         self._l3_last: dict = {}          # code -> newest key listed (live: later polls list only what's newer)
         self._l3_fail: dict = {}          # key -> failed downloads/decodes (tried again, up to 3 times)
         self._live_timer = QTimer(self)
         self._live_timer.timeout.connect(self._live_tick)
+        # Level III on its own clock: tied to the Level II poll (every 15 s by default) it was checked only
+        # every 30 s, and a new volume's products took that long to show
+        self._l3_timer = QTimer(self)
+        self._l3_timer.timeout.connect(self._l3_tick)
         self._pollSoon.connect(lambda: QTimer.singleShot(4000, self._poll_live_now))
+        self._l3Again.connect(lambda: self._poll_l3() if self.mode == "live" else None)
         VOLUMES.capacity = volume_capacity(settings)
         # keep the download cache from filling the disk (old files first, then down to 3 GB)
         threading.Thread(target=aws.prune_cache, daemon=True, name="rf-prune").start()
@@ -324,6 +331,7 @@ class DataManager(QObject):
             self._start_aws_live()
         self._poll_l3(force=True)
         self._live_timer.start(max(5, int(self.settings["live_poll_seconds"])) * 1000)
+        self._l3_timer.start(self.L3_FAST_S * 1000)
 
     def _start_aws_live(self, gen=None):
         """Live Level II from NOAA's buckets: the newest volume from the chunks, the loop from the archive."""
@@ -495,6 +503,7 @@ class DataManager(QObject):
 
     def stop_live(self):
         self._live_timer.stop()
+        self._l3_timer.stop()
         if self._poller is not None:
             self._poller.cancelled = True
         self._poller = None
@@ -617,15 +626,11 @@ class DataManager(QObject):
         if self._poller is not None:
             if not self._poller.busy:
                 self._submit_live(self._polled_tick)
-            if time.time() - self._last_l3_poll > self.L3_POLL_S:
-                self._poll_l3()
             return
         tr = self._tracker
         if tr is not None and not tr.busy:
             self._submit_live(self._live_poll_once)
         now = time.time()
-        if now - self._last_l3_poll > self.L3_POLL_S:
-            self._poll_l3()
         if now - self._last_sync > 90 and self._sync_gen != self._gen:
             self._last_sync = now
             self._submit(self._archive_sync)
@@ -646,8 +651,11 @@ class DataManager(QObject):
                 if gen != self._gen or tr.cancelled:
                     return
                 self._apply_live_event(ev, gen)
-            if events and not events[-1]["complete"] or tr.gap_since is not None:
-                self._pollSoon.emit()       # mid-volume (or waiting on a late chunk): check again soon
+            if events and not events[-1]["complete"] or tr.gap_since is not None or \
+                    time.time() - tr.last_progress < 60:
+                # mid-volume, waiting on a late chunk, or a volume just ended (the next starts within seconds):
+                # check again soon rather than at the next regular poll
+                self._pollSoon.emit()
         except Exception as exc:
             if gen == self._gen:
                 self.status.emit(f"Live update failed ({aws.friendly_error(exc)}) – retrying")
@@ -750,7 +758,27 @@ class DataManager(QObject):
             if self._sync_gen == gen:
                 self._sync_gen = -1
 
-    L3_POLL_S = 20           # live: how often Level III is checked (a cheap request: only newer files are listed)
+    L3_POLL_S = 15           # live: how often Level III is checked (a cheap request: only newer files are listed)…
+    L3_FAST_S = 5            # …and while the newest volume still lacks a product on screen (they follow each scan)
+
+    def _l3_tick(self):
+        if self.mode != "live":
+            return
+        with self._lock:
+            f = self.frames[-1] if self.frames else None
+            codes = [self._l3_alt.get(c, c) for c in self.l3_needed]
+        waiting = f is not None and any(not self._has_own_l3(f, c) for c in codes)
+        if waiting or time.time() - self._last_l3_poll >= self.L3_POLL_S:
+            self._poll_l3()
+
+    @staticmethod
+    def _has_own_l3(frame, code) -> bool:
+        """Whether a frame has its own volume's product (not one carried over from the volume before)."""
+        prod = frame.l3.get(code)
+        if prod is None:
+            return False
+        t = prod.vol_time or prod.time
+        return t is not None and abs((t - frame.time).total_seconds()) <= 90
 
     def _l3_mark(self, key, ok, gen=None):
         """Remember a Level III file as done once it decoded; a failed one is tried again (up to 3 times)."""
@@ -773,8 +801,14 @@ class DataManager(QObject):
     L3_PER_VOLUME = 4
 
     def _poll_l3(self, force=False):
-        if self._l3_gen == self._gen or not self.l3_needed or self.site is None:
-            return                  # (one poll per radar at a time; one still running for another is dropped)
+        if not self.l3_needed or self.site is None:
+            return
+        if self._l3_gen == self._gen:
+            # one poll per radar at a time: this one runs again as soon as it's done (a product just asked for,
+            # e.g. after a tilt change, used to wait for the next round)
+            self._l3_again = True
+            return
+        self._l3_again = False
         gen = self._gen
         self._l3_gen = gen
         self._last_l3_poll = time.time()
@@ -821,6 +855,9 @@ class DataManager(QObject):
             finally:
                 if self._l3_gen == gen:
                     self._l3_gen = -1
+                    if self._l3_again and gen == self._gen:
+                        self._l3_again = False
+                        self._l3Again.emit()
         self._submit(work)
 
     def _load_l3_keys(self, gen, keys, code, site_id):

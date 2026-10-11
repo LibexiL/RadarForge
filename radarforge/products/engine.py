@@ -80,6 +80,69 @@ class SweepImage:
         return None
 
 
+FULL_SWEEP = 0.97          # a sweep covering this much of the circle is complete (live sweeps grow radial by radial)
+
+
+def sweep_coverage(sw) -> float:
+    """How much of the circle a sweep covers (0 … 1)."""
+    c = getattr(sw, "_rf_cov", None)
+    if c is None:
+        az = np.sort(np.asarray(sw.azimuths, np.float64))
+        if len(az) == 0:
+            c = 0.0
+        else:
+            lo, hi = _bounds(az, float(getattr(sw, "az_res", 1.0) or 1.0))
+            c = float(min(1.0, (hi - lo).sum() / 360.0))
+        sw._rf_cov = c
+    return c
+
+
+def sweep_done(sw) -> bool:
+    """Whether a sweep is complete: live sweeps say so; for others, whether they cover the circle."""
+    c = getattr(sw, "complete", None)
+    return bool(c) if c is not None else sweep_coverage(sw) >= FULL_SWEEP
+
+
+def image_coverage(img) -> float:
+    return float(min(1.0, (img.az_hi.astype(np.float64) - img.az_lo).sum() / 360.0)) if len(img.az) else 0.0
+
+
+def fill_partial(new, old):
+    """A sweep still coming in, drawn over the same tilt of the volume before: the new radials where they
+    have arrived, the old ones everywhere else (like the beam going round). [new] if they don't line up."""
+    if old is None or len(old.az) == 0 or old.ground_range != new.ground_range or \
+            abs(old.first_gate - new.first_gate) > 1e-3 or abs(old.gate_spacing - new.gate_spacing) > 1e-3:
+        return new
+    lo = new.az_lo.astype(np.float64)
+    hi = new.az_hi.astype(np.float64)
+    o = np.argsort(lo)
+    lo, hi = lo[o], hi[o]
+    c = old.az.astype(np.float64)
+    covered = np.zeros(len(c), bool)
+    for x in (c, c - 360.0, c + 360.0):
+        j = np.searchsorted(lo, x, side="right") - 1
+        ok = j >= 0
+        covered |= ok & (x < hi[np.clip(j, 0, None)])
+    keep = ~covered
+    if not keep.any():
+        return new
+    ng = max(new.values.shape[1], old.values.shape[1])
+
+    def pad(v):
+        v = v.astype(new.values.dtype, copy=False)
+        return v if v.shape[1] == ng else np.pad(v, ((0, 0), (0, ng - v.shape[1])), constant_values=np.nan)
+    az = np.concatenate([new.az, old.az[keep]]).astype(np.float32)
+    order = np.argsort(az, kind="stable")
+    vals = np.concatenate([pad(new.values), pad(old.values[keep])])[order]
+    a_lo = np.concatenate([new.az_lo, old.az_lo[keep]]).astype(np.float32)[order]
+    a_hi = np.concatenate([new.az_hi, old.az_hi[keep]]).astype(np.float32)[order]
+    extra = {k: v for k, v in new.extra.items() if k != "_gpu"}
+    extra["filled"] = True
+    return SweepImage(new.key + ("filled", old.key), new.product, vals, az[order], a_lo, a_hi, new.first_gate,
+                      new.gate_spacing, new.elevation, new.ground_range, new.time, new.label, new.nyquist,
+                      new.source, extra)
+
+
 def _bounds(az_sorted: np.ndarray, nominal: float):
     n = len(az_sorted)
     if n == 0:
@@ -115,10 +178,18 @@ class Tilt:
         return f"{self.elevation:.1f}°" + (f" ×{n}" if n > 1 else "")
 
     def sweep(self, moment: str):
-        for sc in reversed(self.scans):          # latest scan (e.g. last SAILS cut) first
-            if moment in sc.sweeps:
-                return sc.sweeps[moment]
-        return None
+        """The latest complete scan's sweep of [moment] (e.g. the last SAILS cut); while a later cut of this
+        tilt is still coming in, the complete one before it; with none complete yet, the newest there is."""
+        newest = None
+        for sc in reversed(self.scans):          # latest scan first
+            sw = sc.sweeps.get(moment)
+            if sw is None:
+                continue
+            if sweep_done(sw):
+                return sw
+            if newest is None:
+                newest = sw
+        return newest
 
     def moments(self):
         s = set()

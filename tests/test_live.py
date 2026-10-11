@@ -109,8 +109,8 @@ def test_stalled_volume_is_abandoned_for_a_newer_one(env):
     tr = live.ChunkTracker("KTLX")
     tr.poll()
     b.add(11, "20261004-150600", {1: "S", 2: "I"})                 # the radar moved on; volume 10 never ended
-    clock["t"] += 30
-    assert tr.poll() == []
+    clock["t"] += live.STALL_S / 2
+    assert tr.poll() == []                                          # (too soon to look for the next volume)
     clock["t"] += live.STALL_S
     ev = tr.poll()
     assert ev[0]["abandoned"] and ev[0]["complete"] and ev[0]["time"].minute == 0

@@ -22,11 +22,21 @@ class ProductDef:
     description: str = ""
 
     def l3_code(self, tilt_index: int) -> str | None:
+        """The Level III product code; for a per-tilt product [tilt_index] is the slice (see L3_SLICES)."""
         if self.kind == "l3":
             return self.l3
         if self.kind == "l3tilt":
-            return f"N{min(max(tilt_index, 0), 3)}{self.l3}"
+            return f"N{L3_SLICES[min(max(tilt_index, 0), len(L3_SLICES) - 1)]}{self.l3}"
         return None
+
+    def l3_slices(self) -> list:
+        """The slices this per-tilt Level III product comes in (indexes into L3_SLICES)."""
+        have = _SLICES_FOR.get(self.l3, L3_SLICES)
+        return [i for i, s in enumerate(L3_SLICES) if s in have]
+
+    def l3_slice_for(self, elev: float) -> int:
+        """The slice whose usual elevation is nearest [elev]."""
+        return min(self.l3_slices(), key=lambda i: abs(L3_SLICE_ELEVS[i] - elev))
 
     def l3_candidates(self, tilt_index: int) -> list:
         """Primary code plus legacy equivalents (N0Q for N0B, N0U for N0G)."""
@@ -41,6 +51,13 @@ class ProductDef:
 
 
 _LEGACY = {"B": ("Q", "R"), "G": ("U", "V")}
+
+# Level III per-tilt products come in slices, lowest first: N0, NA, N1, NB, N2, N3 (e.g. N0B, NAB, N1B…). Their
+# elevations in the usual storm scan patterns (VCP 12 / 212 / 215); clear-air patterns put N1 … N3 higher, which
+# is why the panels go by each product's own elevation once it is in.
+L3_SLICES = ("0", "A", "1", "B", "2", "3")
+L3_SLICE_ELEVS = (0.5, 0.9, 1.3, 1.8, 2.4, 3.1)
+_SLICES_FOR = {"G": ("0", "A", "1"), "S": ("0", "1", "2", "3")}     # super-res velocity: three; SRV: no NA / NB
 
 P = ProductDef
 PRODUCTS = [

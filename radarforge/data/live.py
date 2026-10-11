@@ -19,8 +19,9 @@ from .level2 import SweepBuilder, add_chunks, run_isolated
 
 BATCH = 3                # this many new chunks or more are decoded in a decoder process (catching up)
 
-GAP_WAIT = 30.0          # seconds to wait for a missing chunk before skipping it
-STALL_S = 90.0           # seconds without new chunks before checking whether the radar moved on
+GAP_WAIT = 12.0          # seconds to wait for a missing chunk before skipping it (late ones come within seconds)
+STALL_S = 15.0           # seconds without new chunks before checking whether the radar moved on (a volume whose
+                         # end chunk never came: one cheap listing of the next volume number, never a false move)
 REFIND_S = 240.0         # seconds without new chunks before searching all volume numbers again
 
 
@@ -96,7 +97,7 @@ class ChunkTracker:
                 self.prev_stamp = self.stamp or self.prev_stamp
                 self._start(moved)
             else:
-                self._next_check = now + 30.0
+                self._next_check = now + 10.0
         if self.cancelled:
             return events
         chunks = aws.list_chunks(self.site, self.volume)

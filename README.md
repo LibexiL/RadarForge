@@ -356,18 +356,28 @@ fonts) and Performance (memory caches and how much memory is in use, graphics in
 | Level III | Digital VIL, Enhanced Echo Tops, Hybrid Hydroclass, Precip Rate, 1-h / 3-h / Storm-Total precip |
 | Level III overlays | Storm tracks, Hail, Melting layer |
 
-SAILS / MESO-SAILS repeats of the 0.5° cut are grouped under that tilt (shown as "0.5° ×2").
+SAILS / MESO-SAILS repeats of the 0.5° cut are grouped under that tilt (shown as "0.5° ×2"); while a repeat is
+coming in, the complete pass before it is shown.
+
+Level III per-tilt products come in slices – N0 (0.5°), NA (0.9°), N1 (1.3°), NB (1.8°), N2 (2.4°), N3 (3.1°)
+in the usual storm scan patterns – and a Level III panel shows the slice nearest the chosen tilt (the panel
+title names it). Super-res velocity only comes as N0G, NAG and N1G.
 
 ### How live mode works
 
 The volume being scanned right now is fetched first, in chunks as the radar produces them, so the newest
 tilts appear within seconds; the rest of the loop then comes from the Level II archive, newest first.
-Tilts the new volume hasn't reached yet show the previous volume ("prev vol" in the panel title).
-Level III products are checked once a minute.
+A sweep still coming in is drawn over the same tilt of the volume before ("scanning" in the panel title), so
+the picture fills in like the beam going round. Tilts the new volume hasn't reached yet show the previous
+volume ("prev vol"), and the tilt list always offers every tilt of the last complete volume.
+Level III products follow each scan by a few minutes: until the new one arrives, the panel shows the one
+before ("earlier volume"). They are checked every 5 seconds while the newest volume is missing one, and
+every 15 seconds otherwise.
 
-The live feed sometimes drops a chunk or a volume's end. RadarForge waits 30 seconds for a late chunk,
+The live feed sometimes drops a chunk or a volume's end. RadarForge waits 12 seconds for a late chunk,
 then carries on without it, and swaps in the complete archive file when NOAA publishes it a few minutes
-later. A volume that never finishes is left after about 90 seconds for the newest one. If live data ever
+later. A volume that stops getting chunks is checked after 15 seconds and left as soon as the radar has
+started the next one. If live data ever
 looks stuck, **F5** (Radar → Reload live data) starts the feed again.
 
 ---

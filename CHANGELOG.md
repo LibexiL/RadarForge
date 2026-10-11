@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.18.0 – 2026-10-11
+
+New scans load smoothly in live mode, and Level III panels no longer get stuck on "No Level III … for this
+time".
+
+### Level III tilts
+- **The right product for every tilt.** Level III comes in slices: N0 (0.5°), NA (0.9°), N1 (1.3°), NB (1.8°),
+  N2 (2.4°) and N3 (3.1°). RadarForge only knew N0–N3, so at 0.9° it asked for N1 (really 1.3°), and some
+  tilts were never downloaded at all.
+- **Changing the tilt now downloads that tilt's Level III.** Before, the download list only changed with the
+  layout or a panel's product. After a tilt change, panels could wait forever for a product nobody asked for.
+- **Panels pick by the product's own elevation**, so clear-air scan patterns, where N1–N3 sit higher, show the
+  nearest tilt too. The header says which slice it is.
+- **No more empty Level III panels while a new scan comes in.** A panel shows the previous product, marked
+  "(earlier volume)", until the new one arrives. Level III products appear a few minutes after each scan.
+- **Level III arrives sooner.**
+  - It's checked every 5 seconds while the newest volume is still missing a product on screen, and every 15
+    seconds otherwise.
+  - Before, the check was tied to the live poll, so with the default settings it only ran every 30 seconds.
+  - A product asked for while a check is running is fetched straight after it, not at the next round.
+
+### New scans in live mode
+- **The picture fills in like the beam going round.** A sweep still coming in is drawn over the same tilt
+  from the volume before, marked "(scanning)". Before, it grew out of an empty panel.
+- **Your tilt stays put.** At the start of each volume, panels used to drop to 0.5° (the only tilt scanned so
+  far) and jump back later. Now a tilt the radar hasn't reached yet shows the volume before, marked
+  "(prev vol)", until it's scanned.
+- **Any tilt can be chosen at any time.** The tilt list comes from the last complete volume, so pressing Up
+  early in a scan no longer does nothing.
+- **SAILS:** while the extra 0.5° pass is coming in, panels keep the complete first pass instead of a half
+  circle.
+- **New volumes are found sooner.** After a volume ends, RadarForge checks again within seconds for the next
+  one, instead of at the next 15-second poll.
+- **Feed hiccups recover faster:**
+  - A volume whose last chunk never arrives is left after 15 seconds of silence, instead of 90.
+  - A chunk that never arrives is skipped after 12 seconds, instead of 30.
+  - The complete archive file still replaces those volumes once it's published.
+
 ## 1.17.0 – 2026-10-10
 
 Search for places, a hover box for warnings, clickable warning outlines and clickable storm chasers.

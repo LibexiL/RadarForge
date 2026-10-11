@@ -21,7 +21,7 @@ from ..features.spc import SpcOverlay
 from ..features.warnings import WarningsOverlay
 from ..products import catalog, colortable
 from ..products import trail as trail_mod
-from ..products.engine import ProductEngine
+from ..products.engine import FULL_SWEEP, ProductEngine, fill_partial, image_coverage
 from ..products.geometry import aeqd_forward, beam_height, slant_range
 from ..render.glview import RadarView
 from ..tools.volume3d import Volume3DWindow
@@ -41,7 +41,7 @@ from .main_menus import MenusMixin
 from .main_storm import StormToolsMixin
 from .updates import UpdatesMixin
 
-L3_TILT_ELEVS = [0.5, 0.9, 1.3, 1.8]
+L3_TILT_ELEVS = list(catalog.L3_SLICE_ELEVS)
 UNIT_F = {"nm": 1.852, "km": 1.0, "mi": 1.609344}
 
 
@@ -744,6 +744,29 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 return int(np.argmin(np.abs(np.array(els) - self.tilt_elev)))
         return int(np.argmin(np.abs(np.array(L3_TILT_ELEVS) - self.tilt_elev)))
 
+    def _l3_tilt_index(self, frame, pd) -> int:
+        """Which Level III slice (see catalog.L3_SLICES) a tilted Level III panel shows on [frame]: of that
+        product's slices the frame has, the one whose own elevation is nearest the chosen tilt (its header
+        says which); before any has come in, the slice whose usual elevation is nearest."""
+        best = None
+        for k in pd.l3_slices():
+            prod = ProductEngine.l3_product(frame, pd, k)
+            r = getattr(prod, "radial", None)
+            if r is None or r.ground_range:
+                continue
+            d = abs(float(r.elevation) - self.tilt_elev)
+            if best is None or d < best[0] - 0.05:
+                best = (d, k)
+        return best[1] if best is not None else pd.l3_slice_for(self.tilt_elev)
+
+    def _panel_ti(self, frame, pd) -> int:
+        """The tilt index a panel's product uses on [frame]."""
+        if not pd.tilted:
+            return 0
+        if pd.kind == "l3tilt":
+            return self._l3_tilt_index(frame, pd)
+        return self._tilt_index(frame)
+
     def set_tilt_elev(self, elev):
         """Show the tilt nearest elev (degrees); 0 = the lowest."""
         els = self._tilt_elevs(self.current_frame()) or [0.5]
@@ -765,15 +788,36 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._show_frame()
         self._prefetch()
 
-    def _tilt_elevs(self, frame):
+    def _tilt_list(self, frame):
+        """[(elevation, label)] to choose from on [frame]. A live volume still being scanned has only its
+        lower tilts so far: its list is the newest finished volume's (the radar scans those again), so any
+        tilt can be chosen at any time (until the volume gets there, panels show it from the volume before)."""
         if frame is None:
             return []
-        if frame.has_level2():
-            t = self.engine.tilt_meta(frame)
-            if t is not None:
-                return [el for el, _lab in t]
-            return []
-        return L3_TILT_ELEVS
+        if not frame.has_level2():
+            return [(e, f"{e:.1f}° (L3)") for e in L3_TILT_ELEVS]
+        own = self.engine.tilt_meta(frame) or []
+        if frame.live:
+            frames = list(self.data.frames)
+            if frame in frames:
+                for f in reversed(frames[:frames.index(frame)]):
+                    if f.has_level2() and not f.live:
+                        done = self.engine.tilt_meta(f)
+                        if done and len(done) >= len(own):
+                            return done
+                        break
+        return own
+
+    def _tilt_elevs(self, frame):
+        return [el for el, _lab in self._tilt_list(frame)]
+
+    def _tilt_reached(self, frame) -> bool:
+        """Whether a live volume still being scanned has reached the chosen tilt (finished volumes: always)."""
+        if frame is None or not frame.live or not frame.has_level2():
+            return True
+        meta = self.engine.tilt_meta(frame)
+        els = [el for el, _lab in meta] if meta is not None else [t.elevation for t in self.engine.tilts(frame)]
+        return bool(els) and min(abs(e - self.tilt_elev) for e in els) <= 0.25
 
     def _tilt_chosen(self, idx):
         els = self._tilt_elevs(self.current_frame())
@@ -784,17 +828,20 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
 
     def _fill_tilt_combo(self, frame):
         frame = frame or self.current_frame()
-        labels = []
-        if frame is not None and frame.has_level2():
-            t = self.engine.tilt_meta(frame)
-            if t:
-                labels = [lab for _el, lab in t]
-        elif frame is not None:
-            labels = [f"{e:.1f}° (L3)" for e in L3_TILT_ELEVS]
+        lst = self._tilt_list(frame)
+        labels = [lab for _el, lab in lst]
+        if [self.tilt_combo.itemText(i) for i in range(self.tilt_combo.count())] == labels and labels:
+            els = [el for el, _lab in lst]
+            i = int(np.argmin(np.abs(np.array(els) - self.tilt_elev)))
+            if self.tilt_combo.currentIndex() != i:
+                self.tilt_combo.blockSignals(True)
+                self.tilt_combo.setCurrentIndex(i)
+                self.tilt_combo.blockSignals(False)
+            return                                   # (unchanged: don't rebuild it on every live update)
         self.tilt_combo.blockSignals(True)
         self.tilt_combo.clear()
         self.tilt_combo.addItems(labels)
-        els = self._tilt_elevs(frame)
+        els = [el for el, _lab in lst]
         if els:
             self.tilt_combo.setCurrentIndex(int(np.argmin(np.abs(np.array(els) - self.tilt_elev))))
         self.tilt_combo.blockSignals(False)
@@ -827,14 +874,15 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._prefetch()
 
     def _update_l3_needs(self):
-        ti = int(np.argmin(np.abs(np.array(L3_TILT_ELEVS) - self.tilt_elev)))
+        # (runs whenever a frame is shown: the chosen tilt, the radar or its scan pattern may have changed)
         codes = set()
         for p in self.view.panels:
             pd = catalog.get(p.product)
-            if pd.kind in ("l3", "l3tilt"):
-                codes.update(pd.l3_candidates(ti)[:1])
-                if pd.kind == "l3tilt" and ti != 0:
-                    codes.update(pd.l3_candidates(0)[:1])
+            if pd.kind == "l3":
+                codes.update(pd.l3_candidates(0)[:1])
+            elif pd.kind == "l3tilt":
+                for k in {pd.l3_slice_for(self.tilt_elev), 0}:     # the lowest too (most used, never missing)
+                    codes.update(pd.l3_candidates(k)[:1])
         ov = self.settings["overlays"]
         for key, (code, _label) in catalog.L3_OVERLAYS.items():
             if ov.get(key):
@@ -847,6 +895,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
     def _show_frame(self):
         frame = self.current_frame()
         self._shown_frame = frame
+        self._update_l3_needs()
         self.l3ov.frame = frame
         if frame is not None:
             self.placefiles.frame_time = frame.time
@@ -891,24 +940,51 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         trails = self._trails
 
         def job():
-            ti = self._tilt_index(frame) if pd.tilted else 0
+            ti = self._panel_ti(frame, pd)
             img = engine.image(frame, pid, ti)
             src_frame = frame
-            if img is None and pd.tilted and frame.live and frame.has_level2():
-                # newest volume hasn't reached this tilt yet: show the previous volume's
+            if img is None and pd.kind in ("l3", "l3tilt") and frame in frames:
+                # this volume's product hasn't come in yet (they follow each scan by a few minutes): show the
+                # newest earlier one, marked "(earlier volume)", rather than an empty panel
+                idx = frames.index(frame)
+                for prev in reversed(frames[:idx]):
+                    if (frame.time - prev.time).total_seconds() > 20 * 60:
+                        break
+                    pti = self._panel_ti(prev, pd)
+                    if ProductEngine.l3_product(prev, pd, pti) is not None:
+                        img = engine.image(prev, pid, pti)
+                        if img is not None:
+                            src_frame = prev
+                            break
+            if pd.tilted and pd.kind != "l3tilt" and frame.live and frame.has_level2() and \
+                    (img is None or not self._tilt_reached(frame)):
+                # the volume being scanned hasn't reached this tilt (or this moment) yet: show the previous
+                # volume's, rather than an empty panel or a different tilt
                 idx = frames.index(frame) if frame in frames else -1
-                if idx > 0:
-                    prev = frames[idx - 1]
-                    img = engine.image(prev, pid, self._tilt_index(prev))
-                    src_frame = prev
+                prev = next((f for f in reversed(frames[:idx]) if f.has_level2()), None) if idx > 0 else None
+                if prev is not None:
+                    pimg = engine.image(prev, pid, self._tilt_index(prev))
+                    if pimg is not None or img is None:
+                        img, src_frame = pimg, prev
             elif img is None and pd.kind not in ("l3", "l3tilt") and not frame.has_level2() and frame in frames:
                 # a Level III product came in before its volume (a radar just chosen, its live volume still on
                 # the way): show the newest volume there is until it arrives
                 idx = frames.index(frame)
                 prev = next((f for f in reversed(frames[:idx]) if f.has_level2()), None)
                 if prev is not None and (frame.time - prev.time).total_seconds() <= 20 * 60:
-                    img = engine.image(prev, pid, self._tilt_index(prev) if pd.tilted else 0)
+                    img = engine.image(prev, pid, self._panel_ti(prev, pd))
                     src_frame = prev
+            if img is not None and src_frame is frame and frame.live and pd.tilted and pd.kind != "l3tilt" \
+                    and image_coverage(img) < FULL_SWEEP:
+                # the sweep is still coming in: draw it over the same tilt of the volume before, so the picture
+                # fills in like the beam going round instead of growing out of an empty panel
+                idx = frames.index(frame) if frame in frames else -1
+                prev = next((f for f in reversed(frames[:idx]) if f.has_level2()), None) if idx > 0 else None
+                if prev is not None:
+                    try:
+                        img = fill_partial(img, engine.image(prev, pid, self._tilt_index(prev)))
+                    except Exception:
+                        pass
             if img is not None and len(window) > 1:
                 tkey = (pid, round(self.tilt_elev, 2), engine._sig(pid), req[-1])
                 cached = trails.get(tkey)
@@ -916,7 +992,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                     older = []
                     for f in window[:-1]:
                         try:
-                            o = engine.image(f, pid, self._tilt_index(f) if pd.tilted else 0)
+                            o = engine.image(f, pid, self._panel_ti(f, pd))
                         except Exception:
                             o = None
                         if o is not None:
@@ -926,9 +1002,14 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 img = cached
             if img is not None:
                 img.gpu_values()            # texture prep off the UI thread
-            tilts = engine.tilts(frame) if frame.has_level2() else []
+            sti = self._panel_ti(src_frame, pd) if src_frame is not frame else ti
+            labels = []
+            if src_frame.has_level2() and pd.tilted:
+                meta = engine.tilt_meta(src_frame)     # (never decodes a volume just for its tilt's name)
+                labels = [lab for _el, lab in meta] if meta is not None else \
+                    [t.label for t in engine.tilts(src_frame)]
             return {"req": req, "img": img, "frame": src_frame, "ti": ti,
-                    "tilt_label": tilts[ti].label if tilts and pd.tilted and ti < len(tilts) else ""}
+                    "tilt_label": labels[sti] if sti < len(labels) else ""}
         self.pool.start(_ImageJob(job, self.relay, p.index))
 
     def _image_ready(self, idx, res):
@@ -956,11 +1037,15 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         if img is not None:
             t = img.time or frame.time
             tl = img.label if img.source == "L3" else (res["tilt_label"] if pd.tilted else "")
-            stale = "  (prev vol)" if frame is not self.current_frame() else ""
+            cur = self.current_frame()
+            stale = "  (prev vol)" if frame is not cur and img.source != "L3" else ""
             tags = ""
-            if img.source == "L3" and frame is not None and img.time is not None and \
-                    (frame.time - img.time).total_seconds() > 150:
+            ref = cur if cur is not None else frame
+            if img.source == "L3" and ref is not None and img.time is not None and \
+                    (ref.time - img.time).total_seconds() > 150:
                 tags += "  (earlier volume)"          # this volume's own product hasn't come in yet
+            if img.extra.get("filled"):
+                tags += "  (scanning)"                # new radials over the volume before
             if img.extra.get("dealiased") and p.product in ("VEL", "L3G", "L3S"):
                 tags += "  dealiased"
             if img.extra.get("trail"):
@@ -970,8 +1055,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         else:
             p.header = f"{site}  {pd.name}"
             if pd.kind in ("l3", "l3tilt"):
-                ti = res.get("ti", 0)
-                p.message = f"No Level III {pd.l3_code(ti)} for this time"
+                code = pd.l3_code(res.get("ti", 0))
+                p.message = (f"Waiting for Level III {code} (it follows each scan by a few minutes)"
+                             if self.data.mode == "live" else f"No Level III {code} for this time")
             elif not frame.has_level2():
                 p.message = "No Level II volume for this frame"
             else:
@@ -985,7 +1071,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         for p in self.view.panels:
             pd = catalog.get(p.product)
             ti = 0
-            if pd.tilted:
+            if pd.kind == "l3tilt":
+                ti = self._l3_tilt_index(frame, pd)
+            elif pd.tilted:
                 if frame.has_level2():
                     t = self.engine.tilt_meta(frame)
                     if t is None:
@@ -1026,8 +1114,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                     for pid in pids:
                         pd = catalog.get(pid)
                         try:
-                            ti = self._tilt_index(f) if pd.tilted else 0
-                            engine.image(f, pid, ti)
+                            engine.image(f, pid, self._panel_ti(f, pd))
                         except DecodeCancelled:
                             return
                         except Exception:
