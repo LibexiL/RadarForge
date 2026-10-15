@@ -1,0 +1,22 @@
+; RadarForge default velocity (values in knots). Distinct brightness steps so
+; 10 / 25 / 45 / 70 kt bands are easy to tell apart.
+Product: BV
+Units: KTS
+Step: 10
+RF: 119 0 125
+Color: -140  255 255 255     170 255 255
+Color: -120  110 255 255     0 215 255
+Color: -100  0 255 190       0 255 70
+Color: -70   0 240 40        0 185 30
+Color: -45   0 165 25        0 115 15
+Color: -25   10 100 20       30 72 35
+Color: -10   40 68 45        88 98 88
+SolidColor: -2 112 112 112
+Color: 2     98 86 86        82 48 48
+Color: 10    105 28 28       150 8 14
+Color: 25    160 0 10        215 0 0
+Color: 45    235 0 0         255 70 70
+Color: 70    255 100 120     255 165 185
+Color: 100   255 205 165     255 240 110
+Color: 120   255 245 120     255 255 230
+SolidColor: 140 255 255 255

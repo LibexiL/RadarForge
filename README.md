@@ -48,12 +48,17 @@ keep the extracted files together – everything else is the program itself, sha
 * **All the products**: reflectivity, velocity, spectrum width, dual-pol (ZDR, CC, PHI, KDP),
   storm-relative and dealiased velocity, azimuthal shear, divergence, composite reflectivity,
   echo tops, VIL, MESH/POSH, and the official Level III products (see [Products](#products)).
+* **Colour tables**: WxVortex reflectivity, Enhanced velocity (mph) and Heatseaker correlation coefficient by
+  default (the earlier RadarForge tables are in `radarforge/products/palettes/classic`).
 * **GRLevelX compatible**: your GR2Analyst `.pal` colour tables and placefiles work as they are.
   Drop a `.pal` onto a panel to use it; placefiles can be drawn above or below the radar data.
 * **Warnings & storm reports** from the NWS (live) and the Iowa Environmental Mesonet (archive),
   with a warning list you can sort, filter and zoom to. Every warning type and threat level (TOR,
   TORR, TORP, TORE, SVR, SVRC, SVRD, FFW, FFWC, FFWE…) has its own line – colour, width and style –
-  with the NWS colours by default. Going to a warning switches to the radar nearest it.
+  with the classic colours by default (green flash flood, yellow severe, red tornado, magenta confirmed /
+  PDS tornado; the NWS colours are one click away). Going to a warning switches to the radar nearest it.
+  Stepping back through a loop – live or archive – shows the warnings in force at each scan, polygons as they
+  were then, and newly issued warnings flash on the map for a few seconds.
 * **Storm reports**: NWS local storm reports plus Spotter Network reports for the last 1–24 hours,
   with type filters. Live reports fade as they get older.
 * **Storm chasers**: live Spotter Network positions with the direction they're driving.
@@ -279,13 +284,13 @@ Every feature has one home:
 | Menu | What's there |
 |---|---|
 | **File** | open files, the archive, export pictures and loops, settings |
-| **View** | panel layout, smoothing, dealiasing, Σ trail, velocity noise filter, colour bars, pop-ups, theme, map colours, full screen |
-| **Radar** | choose a radar, favourites, live data and reload, archive, frames, tilts, storm motion |
+| **View** | panel layout; *Radar display*: smoothing, dealiasing, Σ trail, velocity noise filter, colour tables; *Screen*: colour bars, linked cursor, hover details, theme, map colours, reset view, full screen |
+| **Radar** | *Radar*: choose a radar, favourites; *Data*: live data and reload, live data source, past data (archive), open files; *Loop & tilt*: loop length, frames, tilts, storm motion |
 | **Layers** | everything drawn on the map, in three groups: *warnings & outlooks*, *weather data* (satellite, lightning, MRMS, surface obs, cameras) and *radar & map* (Level III overlays, map layers, placefiles) |
 | **Tools** | mouse tools (pan, cross section, measure, track, 3-D) and storm analysis (flags, follow, rotation history, sounding, cell tables) |
 | **Location** | my location, saved places and their alerts |
 | **Panels** | show or hide each side and tool panel, lock or reset the layout |
-| **Help** | shortcuts (**F1**), the radar guide, learn mode, the optional-components check, check for updates, about |
+| **Help** | Getting started (a one-page tour, also shown the first time RadarForge starts), shortcuts (**F1**), the radar guide, learn mode, the optional-components check, check for updates, about |
 
 Right-click a radar panel for its product and colour table, and for things to do *at that spot*: a
 sounding, rotation history, following the storm, reading an SPC discussion, the nearest radar, or saving

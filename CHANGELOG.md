@@ -1,5 +1,52 @@
 # Changelog
 
+## 1.19.0 – 2026-10-14
+
+New default colour tables, warnings that match each scan's time, classic warning colours, flashing new
+warnings, and a friendlier layout for new users.
+
+### Colour tables
+- **New defaults:**
+  - WxVortex for reflectivity.
+  - Enhanced for velocity, in mph.
+  - Heatseaker for correlation coefficient.
+- Colour tables you loaded yourself are kept. The earlier RadarForge tables are in
+  `radarforge/products/palettes/classic` if you want them back.
+
+### Warnings
+- **Each scan shows the warnings of its own time.** Stepping back through a loop, live or archive, shows the
+  warnings that were in force at that scan, with the polygons as they were then (an update can shrink a
+  warning).
+  - The newest live scan shows what's in force now.
+  - The warnings for the loop's whole span are downloaded once, from Iowa State's warning archive, so
+    stepping through is instant. The recent end is refreshed every few minutes.
+  - Before, live loops showed today's warnings on every scan, and archive loops downloaded the warnings
+    again for each scan.
+- **Classic colours by default:**
+  - Green flash flood, yellow severe thunderstorm and red tornado.
+  - Magenta for a confirmed, PDS or emergency tornado.
+  - **Settings → Warnings → NWS colours** switches back. Lines you changed yourself are kept.
+- **New warnings flash.** A warning that has just been issued, or upgraded (e.g. a tornado warning becoming
+  "observed"), pulses on the map for 8 seconds. **Settings → Warnings** sets how long, or turns it off.
+
+### Easier to find your way around
+- **Getting started:** a one-page tour of the basics (Help → Getting started). It opens by itself the first
+  time RadarForge runs.
+- **Quick panel:**
+  - A new **Radar & loop** section at the top: choose a radar, live data, past data, open files, panel
+    layout and loop length.
+  - Sections are in order of use, and labels are spelled out ("Storm reports", "Severe outlook",
+    "Discussions", "Strike density", "Hover details"…).
+  - On new installs, the specialist sections (MRMS, cameras, storm tools) start folded.
+- **Menus:**
+  - **View** is split into *Radar display* (smoothing, dealiasing, trail, velocity filter, colour tables)
+    and *Screen* (colour bars, cursor, hover details, theme, map colours).
+  - **Radar** is grouped into *Radar*, *Data* and *Loop & tilt*, and gains **Loop length**.
+  - "Open archive…" is now **Open past data (archive)…**, and "Pop-up details on hover" is now **Hover
+    details**.
+- **Side panels on new installs:** Quick and Products on top; Warnings, Inspector and Storm cells below.
+  Placefiles opens when you use it (Layers → Placefiles…).
+
 ## 1.18.1 – 2026-10-11
 
 - **Fixed: zooming in could turn a mesoscale discussion into a solid grey block** covering the radar. With

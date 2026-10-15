@@ -340,6 +340,8 @@ def main(argv=None):
         QTimer.singleShot(200, lambda: win._open_paths([os.path.abspath(f) for f in args.files]))
     elif not args.no_live and settings["start_live"]:
         QTimer.singleShot(200, win.start_live)
+    if settings["show_welcome"]:
+        QTimer.singleShot(900, win.show_welcome)      # a new install: the Getting started page, once
     rc = app.exec()
     failed = updater.start_pending()  # an update's installer or the restarted program, once the window has closed
     if failed:

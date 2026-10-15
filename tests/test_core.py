@@ -283,7 +283,7 @@ def test_warning_colors_and_visibility(tmp_path):
     from radarforge.config import Settings
     from radarforge.features import warnings as w
     s = Settings(path=Path(tmp_path) / "s.json")
-    assert w.warning_color(s, "Flash Flood Warning") == (0x8b, 0, 0)       # NWS dark red
+    assert w.warning_color(s, "Flash Flood Warning") == (0, 255, 0)        # classic green (NWS: dark red)
     assert w.warning_color(s, "Tornado Watch") == (255, 255, 0)
     s["warning_colors"] = {"Tornado Warning": "#ff00ff", "Tornado Watch": "bad"}
     assert w.warning_color(s, "Tornado Warning") == (255, 0, 255)
@@ -334,13 +334,14 @@ def test_warning_line_variants(tmp_path):
     assert v("Snow Squall Warning", {}) == "SQW" and v("Tornado Watch", {}) == "TOA"
     assert set(w.BASE_CODE.values()) <= set(w.VARIANT) and set(w.CLASSIC_PRESET) <= set(w.VARIANT)
     s = Settings(path=Path(tmp_path) / "s.json")
-    assert w.line_style(s, "TORE") == ((255, 0, 0), 6.0, "double")
+    assert w.line_style(s, "TORE") == ((255, 0, 255), 6.0, "double")          # classic colours by default
+    assert w.nws_line("TORE") == ("#ff0000", 6.0, "double")
     assert w.line_style(s, "SVRD")[2] == "center"
     s["warning_lines"] = {"TORR": {"color": "#ff00ff", "width": 3.5, "kind": "solid"}, "SVR": {"kind": "zigzag"}}
     assert w.line_style(s, "TORR") == ((255, 0, 255), 3.5, "solid")
     assert w.line_style(s, "SVR")[2] == "solid"                            # unknown style -> default
     s["warning_colors"] = {"Tornado Warning": "#00ff00"}                   # 1.5.0 setting still honoured
-    assert w.line_style(s, "TOR")[0] == (0, 255, 0) and w.line_style(s, "TORP")[0] == (255, 0, 0)
+    assert w.line_style(s, "TOR")[0] == (0, 255, 0) and w.line_style(s, "TORP")[0] == (255, 0, 255)
     a = w.Alert("Tornado Warning", [], "x", None, None, variant="TORP")
     assert a.style[3] == 13 and a.variant_label == "Tornado - PDS"
     assert w.Alert("Tornado Warning", [], "x", None, None).variant == "TOR"

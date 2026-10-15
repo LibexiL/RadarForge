@@ -901,7 +901,11 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             self.placefiles.frame_time = frame.time
             self.warnings.frame_time = frame.time
             if self.data.mode in ("archive", "local"):
-                self.warnings.set_archive_time(frame.time)
+                self.warnings.set_archive_time(frame.time)       # (first: the mode decides the span fetched)
+            frames = self.data.frames
+            if frames:
+                # the warnings of the loop's whole span: each scan then shows those of its own time
+                self.warnings.set_span(frames[0].time, frames[-1].time, frames[-1].time)
             n = len(self.data.frames)
             live = " LIVE" if frame.live else ""
             self.time_label.setText(f" {frame.time:%Y-%m-%d %H:%M:%S}Z  [{self.frame_index + 1}/{n}]{live} ")

@@ -1239,8 +1239,10 @@ class Workspace(QWidget):
             return False
 
     def apply_default(self, total_w=1500, total_h=900):
-        side = [k for k in self._panels if self.group(k) == "side"]
-        groups = [["quick", "products", "placefiles"], ["warnings", "cells", "inspector"]]
+        # what a new user needs first; Placefiles opens when used (Layers → Placefiles…, or the Panels menu)
+        later = {"placefiles"}
+        side = [k for k in self._panels if self.group(k) == "side" and k not in later]
+        groups = [["quick", "products"], ["warnings", "inspector", "cells"]]
         groups = [[k for k in g if k in side] for g in groups]
         extra = [k for k in side if not any(k in g for g in groups)]
         if extra:
@@ -1251,7 +1253,7 @@ class Workspace(QWidget):
             {"t": "center"},
             {"t": "split", "o": "v", "sizes": [int(total_h * 0.58), int(total_h * 0.42)][:len(groups)],
              "c": [{"t": "stack", "keys": g, "cur": g[0]} for g in groups]}]},
-            "floating": [], "closed": [k for k in self._panels if self.group(k) != "side"]}
+            "floating": [], "closed": [k for k in self._panels if self.group(k) != "side" or k in later]}
         for k in self._panels:
             self._panels[k].pop("home", None)
         self.restore(state)

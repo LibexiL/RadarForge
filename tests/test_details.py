@@ -19,12 +19,17 @@ def _alert(event, ring, variant=None, **kw):
 
 
 def _overlay(alerts):
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
     from radarforge.config import Settings
-    o = W.WarningsOverlay.__new__(W.WarningsOverlay)
-    o.settings = Settings.__new__(Settings)
-    o.settings.data = {"overlays": {"warnings": True, "watches": True, "reports": True}, "warning_types": {},
-                       "report_types": {}}
+    st = Settings.__new__(Settings)
+    st.data = {"overlays": {"warnings": True, "watches": True, "reports": True}, "warning_types": {},
+               "report_types": {}, "warning_lines": {}, "warning_colors": {}, "warning_flash_s": 8}
+    st.path = None
+    o = W.WarningsOverlay(st, lambda: {})
+    o._timer.stop()
     o.alerts, o.reports, o.mode, o.frame_time = alerts, [], "live", None
+    o._ver += 1
     return o
 
 

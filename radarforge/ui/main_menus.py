@@ -446,7 +446,7 @@ class MenusMixin:
         self.open_act.setIconText("Open")              # the toolbar keeps the short words
         self.open_act.setShortcut(QKeySequence("Ctrl+O"))
         m.addAction(self.archive_act)
-        self.archive_act.setText("Open archive…")
+        self.archive_act.setText("Open past data (archive)…")
         self.archive_act.setIconText("Archive")
         self.archive_act.setShortcut(QKeySequence("Ctrl+A"))
         m.addSeparator()
@@ -467,7 +467,7 @@ class MenusMixin:
         lay = self._submenu(m, "Panel layout", "layout4")
         for a in self.layout_group.actions():
             lay.addAction(a)
-        m.addSeparator()
+        self._header(m, "Radar display")
         m.addAction(self.smooth_act)
         m.addAction(self.dealias_act)
         m.addAction(self.trail_act)
@@ -480,29 +480,31 @@ class MenusMixin:
             a.triggered.connect(lambda _=False, lv=lvl: self.set_velocity_filter(lv))
             self.vf_group.addAction(a)
             vf.addAction(a)
-        m.addSeparator()
+        self._act(m, "Colour tables…", lambda: self.open_settings("Colour tables"), None, icon="palette",
+                  tip="Load GR-style .pal colour tables for any product")
+        self._header(m, "Screen")
         self.legend_act = self._act(m, "Colour bars", self._toggle_legend, None, checkable=True,
                                     checked=bool(self.settings["show_legend"]))
         self.link_act = self._act(m, "Linked cursor", self._toggle_link, None, checkable=True,
                                   checked=bool(self.settings["cursor_link"]))
-        self.hover_act = self._act(m, "Pop-up details on hover", self._toggle_hover_text, None, checkable=True,
+        self.hover_act = self._act(m, "Hover details", self._toggle_hover_text, None, checkable=True,
                                    checked=bool(self.settings["hover_text"]),
                                    tip="Show warning, storm and layer details when the mouse rests on them")
-        m.addSeparator()
         self.theme_menu = self._submenu(m, "Theme", "theme")
         self.theme_menu.aboutToShow.connect(self._fill_theme_menu)
-        self._act(m, "Map colours && fonts…", lambda: self.open_settings("Map style"), None, icon="palette")
+        self._act(m, "Map colours && fonts…", lambda: self.open_settings("Map style"), None)
         m.addSeparator()
         self._act(m, "Reset view", self.reset_view, "Home")
         self._act(m, "Full screen", lambda: self.showNormal() if self.isFullScreen() else self.showFullScreen(),
                   "F11")
 
     def _menu_radar(self, m):
+        self._header(m, "Radar")
         self._act(m, "Choose radar…", self.choose_site, "Ctrl+R", icon="radar")
         self.fav_menu = self._submenu(m, "Favourite radars", "star")
         self.fav_menu.aboutToShow.connect(self._fill_fav_menu)
         self._act(m, "Add / remove this radar as a favourite", self.toggle_favorite, "Ctrl+D")
-        m.addSeparator()
+        self._header(m, "Data")
         m.addAction(self.live_act)
         self.live_act.setText("Live data")
         self.live_act.setIconText("Live")
@@ -511,7 +513,13 @@ class MenusMixin:
         self.source_menu = self._submenu(m, "Live data source", "live")
         self.source_menu.aboutToShow.connect(self._fill_source_menu)
         m.addAction(self.archive_act)
-        m.addSeparator()
+        m.addAction(self.open_act)
+        self._header(m, "Loop & tilt")
+        ll = self._submenu(m, "Loop length", "film")
+        for a in self.frames_acts:
+            ll.addAction(a)
+        ll.addSeparator()
+        ll.addAction("Other number…", self._ask_loop_frames)
         fr = self._submenu(m, "Frames", "play")
         self._act(fr, "Play / pause loop", self.toggle_play, None).setToolTip("Space")
         self._act(fr, "Previous frame", lambda: self.step_frame(-1), None)
@@ -522,8 +530,8 @@ class MenusMixin:
         self._act(tl, "Higher tilt", lambda: self.step_tilt(1), None)
         self._act(tl, "Lower tilt", lambda: self.step_tilt(-1), None)
         self._act(tl, "Lowest tilt", lambda: self.set_tilt_elev(0.0), None)
-        m.addSeparator()
-        self._act(m, "Storm motion…", self.edit_storm_motion, None, icon="motion")
+        self._act(m, "Storm motion…", self.edit_storm_motion, None, icon="motion",
+                  tip="The storm motion used for storm-relative velocity and the track tool")
 
     def _menu_layers(self, m):
         self._header(m, "Warnings & outlooks")
@@ -624,6 +632,8 @@ class MenusMixin:
         self._act(m, "Test the alert sound", lambda: self.notifier.play(), None)
 
     def _menu_help(self, m):
+        self._act(m, "Getting started…", self.show_welcome, None, icon="info",
+                  tip="A one-page tour of the basics")
         self._act(m, "Keyboard shortcuts", self.show_shortcuts, "F1", icon="keyboard")
         self._menu_help_extras(m)
         self._act(m, "Check optional components…", self.show_component_check, None,
@@ -723,6 +733,10 @@ class MenusMixin:
             keypad = QKeySequence(QKeyCombination(Qt.KeypadModifier, Qt.Key(Qt.Key_0 + n)))
             for key in (QKeySequence(str(n)), keypad, QKeySequence(f"Alt+{n}")):
                 sc(key, lambda n=n: self.set_layout(n))
+
+    def show_welcome(self):
+        from .welcome import WelcomeDialog
+        WelcomeDialog(self).exec()
 
     def show_shortcuts(self):
         rows = [

@@ -13,7 +13,8 @@ from PySide6.QtWidgets import (QApplication, QAbstractItemView, QCheckBox, QColo
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from .. import themes
-from ..features.warnings import BASE_CODE, CLASSIC_PRESET, LINE_KINDS, VARIANT, VARIANTS, default_line, hex_rgb
+from ..features.warnings import (BASE_CODE, CLASSIC_PRESET, LINE_KINDS, NWS_PRESET, VARIANT, VARIANTS, default_line,
+                                 hex_rgb)
 from ..products import catalog, colortable
 from . import icons
 
@@ -453,9 +454,10 @@ class SettingsDialog(QDialog):
 
     def _page_warnings(self):
         w, lay = _page("Warnings", "Warning lines: every warning type and threat level has its own line. "
-                                   "Click a line to change its colour, width and style. The defaults "
-                                   "use the National Weather Service's colours; the NWS has no separate colours "
-                                   "for threat levels, so those are told apart by the line style.")
+                                   "Click a line to change its colour, width and style. The defaults are the "
+                                   "classic colours: green flash flood, yellow severe thunderstorm, red tornado, "
+                                   "magenta for a reported, PDS or emergency tornado. Higher threat levels "
+                                   "also get thicker or doubled lines.")
         self.warn_lines = {}
         user = dict(self.s["warning_lines"] or {})
         legacy = dict(self.s["warning_colors"] or {})
@@ -488,19 +490,33 @@ class SettingsDialog(QDialog):
         scroll.setWidget(inner)
         lay.addWidget(scroll, 1)
         hb = QHBoxLayout()
+        classic = QPushButton("Classic colours (default)")
+        classic.setToolTip("Green flash flood, yellow severe thunderstorm, red tornado, magenta reported / PDS / "
+                           "emergency tornado")
         nws = QPushButton("NWS colours")
-        nws.setToolTip("Reset every line to the defaults (NWS colours)")
-        classic = QPushButton("Classic colours")
-        classic.setToolTip("Green flash flood, yellow severe thunderstorm, magenta reported / PDS / emergency tornado")
-        nws.clicked.connect(lambda: self._line_preset({}))
+        nws.setToolTip("The National Weather Service's own colours (dark red flash flood, orange severe "
+                       "thunderstorm); threat levels are told apart by the line style")
         classic.clicked.connect(lambda: self._line_preset(CLASSIC_PRESET))
-        hb.addWidget(nws)
+        nws.clicked.connect(lambda: self._line_preset(NWS_PRESET))
         hb.addWidget(classic)
+        hb.addWidget(nws)
         hb.addStretch(1)
         lay.addLayout(hb)
         self.go_nearest = QCheckBox("Going to a warning switches to the radar nearest it")
         self.go_nearest.setChecked(bool(self.s["go_to_nearest_radar"]))
         lay.addWidget(self.go_nearest)
+        fr = QHBoxLayout()
+        fr.addWidget(QLabel("Flash a newly issued or upgraded warning for"))
+        self.flash_s = QSpinBox()
+        self.flash_s.setRange(0, 60)
+        self.flash_s.setSuffix(" s")
+        self.flash_s.setSpecialValueText("never")
+        self.flash_s.setValue(int(self.s["warning_flash_s"] or 0))
+        self.flash_s.setToolTip("Live data: a warning that has just been issued, or upgraded (e.g. a tornado warning "
+                                "that becomes \"observed\"), pulses on the map this long")
+        fr.addWidget(self.flash_s)
+        fr.addStretch(1)
+        lay.addLayout(fr)
         return w
 
     def _edit_line(self, code, btn):
@@ -870,6 +886,7 @@ class SettingsDialog(QDialog):
         s["warning_lines"] = lines
         s["warning_colors"] = {}           # 1.5.0 colours now live in warning_lines
         s["go_to_nearest_radar"] = self.go_nearest.isChecked()
+        s["warning_flash_s"] = self.flash_s.value()
         s["volume_cache"] = self.vcache.value()
         s["image_cache_mb"] = self.icache.value()
         s["scene_cache"] = self.scene_cache.isChecked()

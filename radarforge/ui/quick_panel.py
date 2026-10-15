@@ -210,56 +210,47 @@ class QuickPanel(QWidget):
             self.sections.append(sec)
             return sec
 
-        # how the radar is drawn
-        s = section("display", "Display")
-        s.chip(m.smooth_act, "Smoothing")
-        s.chip(m.dealias_act, "Dealias")
-        s.chip(m.trail_act, "Σ Trail")
-        s.chip(m.legend_act, "Colour bars")
-        s.chip(m.link_act, "Linked cursor")
-        s.chip(m.hover_act, "Pop-ups")
-        s.segment("Vel. filter", m.vf_group.actions(), ["Off", "Normal", "Strong"])
+        # the radar and its loop: what a new user reaches for first
+        s = section("radar", "Radar & loop")
+        s.button("Choose radar…", m.choose_site, "Pick a radar from the list, or click a radar square on the map "
+                                                 "(Ctrl+R)")
+        s.chip(m.live_act, "Live data", "Real-time data that updates by itself (F5 reloads it)")
+        s.button("Past data…", m.open_archive, "Load any past date and time from the NOAA archive (Ctrl+A)")
+        s.button("Open files…", m.open_files, "Open Level II / Level III files from your computer (Ctrl+O)")
+        s.segment("Panels", m.layout_group.actions(), ["1", "2", "3", "4", "5", "6"])
+        loop = [a for a in getattr(m, "frames_acts", []) if a.data() in (6, 10, 20, 30)]
+        if loop:
+            s.segment("Loop", loop, [str(a.data()) for a in loop])
 
         s = section("warnings", "Warnings & outlooks")
-        s.chip(ov.get("warnings"), "Warnings")
-        s.chip(ov.get("watches"), "Watches")
-        s.chip(ov.get("reports"), "Reports")
-        s.chip(ov.get("spc_outlook"), "SPC outlook")
-        s.chip(ov.get("spc_mcd"), "SPC MDs")
-        s.chip(ov.get("chasers"), "Chasers")
+        s.chip(ov.get("warnings"), "Warnings", "NWS warnings on the map (rest the mouse on an outline for a "
+                                               "summary, click it for the full warning)")
+        s.chip(ov.get("watches"), "Watches", "Tornado and severe thunderstorm watches")
+        s.chip(ov.get("reports"), "Storm reports", "Tornado, hail, wind and flood reports")
+        s.chip(ov.get("spc_outlook"), "Severe outlook", "The Storm Prediction Center's convective outlook "
+                                                         "(marginal … high risk)")
+        s.chip(ov.get("spc_mcd"), "Discussions", "Storm Prediction Center mesoscale discussions (often come before "
+                                                 "a watch)")
+        s.chip(ov.get("chasers"), "Storm chasers", "Spotter Network chasers (click one for their details)")
         s.segment("Reports", m.rep_hours_group.actions(), ["1h", "3h", "6h", "12h", "24h"])
         s.segment("Outlook", m.spc_day_acts, ["Day 1", "Day 2", "Day 3"])
 
+        # how the radar is drawn
+        s = section("display", "Display")
+        s.chip(m.smooth_act, "Smoothing")
+        s.chip(m.dealias_act, "Dealiasing", "Unfold aliased velocities (fixes red / green flips in strong winds) (D)")
+        s.chip(m.trail_act, "Σ Max trail")
+        s.chip(m.legend_act, "Colour bars")
+        s.chip(m.link_act, "Linked cursor", "One cursor shown in every panel")
+        s.chip(m.hover_act, "Hover details", "Rest the mouse on warnings, reports, sites… for a summary box")
+        s.segment("Velocity filter", m.vf_group.actions(), ["Off", "Normal", "Strong"])
+
         s = section("overlays", "Radar overlays")
-        s.chip(ov.get("storm_tracks"), "Storm tracks")
-        s.chip(ov.get("hail"), "Hail index")
-        s.chip(ov.get("melting_layer"), "Melting layer")
-        s.chip(ov.get("storm_flags"), "Storm flags")
+        s.chip(ov.get("storm_tracks"), "Storm tracks", "Level III storm cell tracks and forecast positions (NST)")
+        s.chip(ov.get("hail"), "Hail markers", "Level III hail index (NHI)")
+        s.chip(ov.get("melting_layer"), "Melting layer", "Level III melting layer rings (N0M)")
+        s.chip(ov.get("storm_flags"), "Storm flags", "Automatic flags for rotation, possible debris and hail")
         s.chip(m.rings_act, "Range rings")
-
-        s = section("satellite", "Satellite & lightning")
-        s.chip(ov.get("satellite"), "Satellite")
-        s.chip(ov.get("lightning"), "Lightning")
-        s.chip(ov.get("lightning_density"), "Ltg density")
-        s.segment("Channel", m.sat_channel_acts, ["IR", "Visible", "Water vap."])
-        self.sat_slider = s.label_row("Opacity", self._slider("satellite"))
-        s.segment("Flashes", m.ltg_minutes_acts, ["5 min", "10", "15", "30"])
-
-        s = section("mrms", "MRMS swaths")
-        s.chip(ov.get("mrms"), "MRMS swath")
-        self.mrms_combo = QComboBox()
-        self._mrms_keys = list(mrms.PRODUCTS)
-        for k in self._mrms_keys:
-            self.mrms_combo.addItem(mrms.PRODUCTS[k][0])
-        self.mrms_combo.currentIndexChanged.connect(self._mrms_picked)
-        s.label_row("Product", self.mrms_combo)
-        self.mrms_slider = s.label_row("Opacity", self._slider("mrms"))
-        self.sync_mrms()
-
-        s = section("data", "Observations & cameras")
-        s.chip(ov.get("surface_obs"), "Surface obs")
-        s.chip(ov.get("cameras"), "Cameras")
-        s.button("Camera keys…", m.open_camera_sources, "Street camera sources and free keys")
 
         s = section("map", "Map")
         s.chip(m.cities_act, "Cities")
@@ -270,19 +261,46 @@ class QuickPanel(QWidget):
         for key, label in names.items():
             if key in m.layer_acts:
                 s.chip(m.layer_acts[key], label)
+        if getattr(m, "maps_under_act", None) is not None:
+            s.chip(m.maps_under_act, "Lines under radar", "Roads and borders beneath the radar, so storms cover them")
         s.button("Colours…", lambda: m.open_settings("Map style"), "Map colours, line widths and fonts")
+
+        s = section("satellite", "Satellite & lightning")
+        s.chip(ov.get("satellite"), "Satellite", "GOES satellite under the radar (live)")
+        s.chip(ov.get("lightning"), "Lightning", "GOES lightning flashes (live)")
+        s.chip(ov.get("lightning_density"), "Strike density", "Lightning strike density map (NLDN, via MRMS)")
+        s.segment("Channel", m.sat_channel_acts, ["IR", "Visible", "Water vap."])
+        self.sat_slider = s.label_row("Opacity", self._slider("satellite"))
+        s.segment("Flashes", m.ltg_minutes_acts, ["5 min", "10", "15", "30"])
+
+        s = section("mrms", "MRMS swaths")
+        s.chip(ov.get("mrms"), "Show swath", "Rotation tracks, hail size or rainfall over the last hours (MRMS)")
+        self.mrms_combo = QComboBox()
+        self._mrms_keys = list(mrms.PRODUCTS)
+        for k in self._mrms_keys:
+            self.mrms_combo.addItem(mrms.PRODUCTS[k][0])
+        self.mrms_combo.currentIndexChanged.connect(self._mrms_picked)
+        s.label_row("Product", self.mrms_combo)
+        self.mrms_slider = s.label_row("Opacity", self._slider("mrms"))
+        self.sync_mrms()
+
+        s = section("data", "Observations & cameras")
+        s.chip(ov.get("surface_obs"), "Surface obs", "Weather station plots: temperature, dew point, wind (live)")
+        s.chip(ov.get("cameras"), "Cameras", "Street cameras (when zoomed in)")
+        s.button("Camera keys…", m.open_camera_sources, "Street camera sources and free keys")
 
         s = section("storm", "Storm tools")
         s.chip(m.follow_act, "Follow storm")
-        s.chip(m.learn_act, "Learn mode")
+        s.chip(m.learn_act, "Learn mode", "Explains the values under the mouse in the Inspector panel")
         s.button("Storm motion…", m.edit_storm_motion, "Storm motion used for SRV and the track tool")
         s.button("Sounding", lambda: m.open_sounding(), "Model sounding at the map centre")
         s.button("Rotation", lambda: m.open_rotation_history(), "Rotation history at the map centre")
         s.button("Cell table", lambda: m.show_panel("cells"), "Level III storm cell table")
 
         s = section("location", "Location & alerts")
-        s.chip(m.warn_loc_act, "Alerts on")
+        s.chip(m.warn_loc_act, "Alerts on", "Pop up a new warning that covers your location (live)")
         s.button("My location", m.go_to_my_location, "Go to my location (Ctrl+L)")
+        s.button("Search…", m.focus_search, "Find a town, road or address (Ctrl+F)")
         s.button("Places…", lambda: m.open_locations(), "Saved locations and their alerts (Ctrl+Shift+L)")
 
         lay.addStretch(1)

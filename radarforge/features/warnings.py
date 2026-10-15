@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -129,9 +130,18 @@ def variant_of(event: str, params: dict) -> str:
     return BASE_CODE.get(event, "SPS")
 
 
-def default_line(code: str) -> tuple:
-    """(colour hex, width, kind) the code has by default."""
+def nws_line(code: str) -> tuple:
+    """(colour hex, width, kind) of the code in the National Weather Service's colours."""
     return VARIANT.get(code, VARIANT["SPS"])[3]
+
+
+NWS_PRESET = {code: nws_line(code) for code in VARIANT}
+
+
+def default_line(code: str) -> tuple:
+    """(colour hex, width, kind) the code has by default: the classic colours (green flash flood, yellow severe,
+    magenta reported / PDS tornado), the NWS ones for the rest."""
+    return CLASSIC_PRESET.get(code) or nws_line(code)
 
 
 def line_style(settings, code: str) -> tuple:
@@ -170,7 +180,7 @@ VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm 
 
 class Alert:
     __slots__ = ("event", "rings", "hover", "issued", "expires", "style", "xy", "_proj", "office", "area",
-                 "tags", "uid", "variant", "key", "action", "info")
+                 "tags", "uid", "variant", "key", "action", "info", "valid")
 
     def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid="", variant=None,
                  key="", action="", info=None):
@@ -193,6 +203,9 @@ class Alert:
         # for the details panel: {"description", "instruction", "headline", "facts": [(label, value)],
         # "motion": (from_deg, kt) | None, "iem": {...} (archive: where its text can be downloaded)}
         self.info = info or {}
+        # when this polygon applies: (from, until). Iowa State's archive has one piece per polygon (a warning's
+        # update can shrink it); live alerts are valid from issue to expiry
+        self.valid = (issued, expires)
 
     @property
     def variant_label(self):
@@ -327,12 +340,31 @@ def storm_motion(text: str):
     return (int(m.group(1)) % 360, int(m.group(2))) if m else None
 
 
+IEM_SBW = "https://mesonet.agron.iastate.edu/geojson/sbw.geojson"
+
+
+def _iso(t: datetime) -> str:
+    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+
+
 def fetch_archive_alerts(ts: datetime) -> list:
-    r = requests.get("https://mesonet.agron.iastate.edu/geojson/sbw.geojson",
-                     params={"ts": ts.strftime("%Y-%m-%dT%H:%M:%SZ")}, headers=UA, timeout=30)
+    """Warnings (and watches) in force at one time, from Iowa State's archive."""
+    r = requests.get(IEM_SBW, params={"ts": ts.strftime("%Y-%m-%dT%H:%M:%SZ")}, headers=UA, timeout=30)
     r.raise_for_status()
+    return parse_iem_sbw(r.json())
+
+
+def fetch_alert_history(start: datetime, end: datetime) -> list:
+    """Every warning polygon in force at some time between start and end (a loop's span), each with the time
+    it applied: going through the loop then shows each scan the warnings of its own time, polygons as they were."""
+    r = requests.get(IEM_SBW, params={"sts": _iso(start), "ets": _iso(end)}, headers=UA, timeout=40)
+    r.raise_for_status()
+    return parse_iem_sbw(r.json())
+
+
+def parse_iem_sbw(js: dict) -> list:
     out = []
-    for f in r.json().get("features", []):
+    for f in js.get("features", []):
         p = f.get("properties", {})
         ev = VTEC_EVENT.get((p.get("phenomena"), p.get("significance")))
         if ev is None:
@@ -367,11 +399,27 @@ def fetch_archive_alerts(ts: datetime) -> list:
                        significance=str(p.get("significance") or ""), etn=int(p.get("eventid")))
         except (TypeError, ValueError, AttributeError):
             iem = None
-        out.append(Alert(ev, rings, hover, begin, _t(p.get("polygon_end")),
-                         p.get("wfo") or "", f"#{p.get('eventid')}", short,
-                         f"{p.get('wfo')}.{p.get('phenomena')}.{p.get('significance')}.{p.get('eventid')}", variant,
-                         info=dict(facts=facts, iem=iem)))
+        end = _t(p.get("polygon_end"))
+        expire = _t(p.get("expire")) or end
+        if end is None or begin is None or end <= begin:
+            end = expire                       # (the archive has the odd polygon that ends before it begins)
+        key = f"{p.get('wfo')}.{p.get('phenomena')}.{p.get('significance')}.{p.get('eventid')}"
+        a = Alert(ev, rings, hover, issue or begin, expire, p.get("wfo") or "", f"#{p.get('eventid')}", short,
+                  f"{key}@{p.get('polygon_begin') or ''}", variant, key, str(p.get("status") or ""),
+                  info=dict(facts=facts, iem=iem))
+        a.valid = (begin, end)
+        out.append(a)
     return out
+
+
+def event_key(key: str) -> tuple:
+    """A warning's identity whatever the source: ('OUN', 'TO', 'W', 42) from 'KOUN.TO.W.0042' (NWS) or
+    'OUN.TO.W.42' (Iowa State). Watches are numbered nationally, so the office is left out for them."""
+    try:
+        office, ph, sig, etn = key.split("@")[0].split(".")[:4]
+        return ("" if sig == "A" else office[-3:].upper(), ph, sig, int(etn))
+    except (ValueError, AttributeError):
+        return (key,)
 
 
 IEM_EVENT = "https://mesonet.agron.iastate.edu/json/vtec_event.py"
@@ -421,12 +469,14 @@ def report_on(settings, r) -> bool:
 class WarningsOverlay(QObject):
     changed = Signal()
     status = Signal(str)
+    _flashStart = Signal()            # (from the fetch thread: starts the flash animation on the UI thread)
 
     def __init__(self, settings, county_polys_fn, parent=None):
         super().__init__(parent)
         self.settings = settings
         self.county_polys_fn = county_polys_fn
-        self.alerts: list = []
+        self.alerts: list = []            # live: what's in force right now (NWS)
+        self.history: list = []           # every warning polygon over the loop's span, each with its time (IEM)
         self.reports: list = []
         self.mode = "live"
         self.archive_time = None
@@ -436,18 +486,168 @@ class WarningsOverlay(QObject):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(60_000)
-        self.frame_time = None
+        self.frame_time = None            # the scan on screen
+        self.latest_time = None           # the newest scan of the loop
         self.center = (35.0, -97.0)
+        self._span = None                 # (start, end) the loop covers
+        self._hist_span = None            # (start, end) self.history covers
+        self._hist_at = 0.0               # when it was fetched
+        self._hist_busy = False
+        self._hist_gen = 0
+        self._ver = 0                     # bumps whenever alerts or history change (for the cache below)
+        self._shown = (None, None)        # ((frame_time, ver, latest, mode), alerts) last worked out
+        # new warnings flash for a few seconds when they first appear (and when one is upgraded, e.g. a tornado
+        # warning becoming "observed")
+        self._known: dict = {}            # event key -> priority seen (live)
+        self._flash: dict = {}            # event key -> (start, end) epoch seconds
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setInterval(60)
+        self._flash_timer.timeout.connect(self._flash_tick)
+        self._flashStart.connect(self._flash_timer.start)
 
     def set_live(self):
+        if self.mode != "live":
+            self._known.clear()               # (what's in force now isn't "new" just because we came back)
+            self._last_fetch = 0.0
         self.mode = "live"
         self.refresh(force=True)
 
     def set_archive_time(self, t: datetime):
+        """Archive / files: the scan on screen (storm reports follow it; the warnings come from the history)."""
         self.mode = "archive"
         if self.archive_time is None or abs((t - self.archive_time).total_seconds()) >= 120:
             self.archive_time = t
             self.refresh(force=True)
+        if self._span is None or not (self._span[0] - timedelta(hours=6) <= t <= self._span[1] + timedelta(hours=6)):
+            self.set_span(t, t, t)            # (a time far from the loop's: at least this scan's warnings)
+
+    # ---------------------------------------------------------------- warnings at the scan's time
+    HISTORY_REFRESH_S = 150           # live: the recent end of the history is fetched again this often
+
+    def set_span(self, start, end, latest):
+        """The loop covers start … end (its newest scan: latest). The warnings of that whole span are fetched
+        once (and their recent end again every few minutes in live mode)."""
+        if start is None or end is None:
+            return
+        self._span = (start, end)
+        if latest != self.latest_time:
+            self.latest_time = latest
+            self._ver += 1
+        self._ensure_history()
+
+    def _ensure_history(self, force=False):
+        if self._span is None or self._hist_busy:
+            return
+        ov = self.settings["overlays"]
+        if not (ov.get("warnings", True) or ov.get("watches", True)):
+            return
+        start, end = self._span
+        start = start - timedelta(minutes=2)
+        if self.mode == "live":
+            end = datetime.now(timezone.utc)
+        hs = self._hist_span
+        covered = hs is not None and hs[0] <= start and (hs[1] >= end - timedelta(seconds=30) if self.mode != "live"
+                                                         else time.time() - self._hist_at < self.HISTORY_REFRESH_S)
+        if covered and not force:
+            return
+        if end - start > timedelta(hours=24):
+            start = end - timedelta(hours=24)     # (a loop is never that long; don't ask for days of warnings)
+        self._hist_busy = True
+        gen = self._hist_gen
+
+        def work():
+            try:
+                hist = fetch_alert_history(start, end + timedelta(minutes=1))
+                if gen == self._hist_gen:
+                    hist.sort(key=lambda a: a.style[3])
+                    self.history = hist
+                    self._hist_span = (start, end)
+                    self._hist_at = time.time()
+                    self._ver += 1
+            except Exception as exc:
+                self.status.emit(f"Earlier warnings unavailable – {friendly_error(exc)} (the newest are shown)")
+                self._hist_at = time.time() - self.HISTORY_REFRESH_S + 60      # try again in a minute
+            finally:
+                self._hist_busy = False
+                self.changed.emit()
+        threading.Thread(target=work, daemon=True).start()
+
+    def forget_history(self):
+        """Another radar's or another time's loop: the history starts again."""
+        self._hist_gen += 1
+        self.history = []
+        self._hist_span = None
+        self._span = None
+        self._ver += 1
+
+    def shown_alerts(self) -> list:
+        """The warnings and watches in force at the scan on screen. The newest live scan shows what's in force
+        now; an earlier scan (or any archive scan) the polygons of its own time."""
+        t = self.frame_time
+        key = (t, self._ver, self.latest_time, self.mode, id(self.alerts), id(self.history))
+        if self._shown[0] == key:
+            return self._shown[1]
+        live = self.mode == "live"
+        if live and (t is None or self.latest_time is None or t >= self.latest_time - timedelta(seconds=1)):
+            out = list(self.alerts)
+        elif t is None:
+            out = []
+        else:
+            out, seen = [], set()
+            for a in list(self.history):
+                b, e = a.valid
+                if b is not None and e is not None and b <= t < e:
+                    out.append(a)
+                    seen.add(event_key(a.key))
+            if live:
+                # in force now and already then, but not in the archive yet (it is a few minutes behind)
+                for a in list(self.alerts):
+                    b, e = a.valid
+                    if event_key(a.key) in seen or (b is not None and b > t) or (e is not None and e < t):
+                        continue
+                    out.append(a)
+            out.sort(key=lambda a: a.style[3])
+        self._shown = (key, out)
+        return out
+
+    # ---------------------------------------------------------------- new warnings flash
+    def _note_new(self, alerts, first):
+        """Flash warnings that weren't there before (or were upgraded to a higher threat), live only."""
+        secs = float(self.settings["warning_flash_s"] or 0)
+        now = time.time()
+        known = {}
+        for a in alerts:
+            if a.event.endswith(("Watch", "Statement")):
+                continue
+            k = event_key(a.key)
+            pri = a.style[3]
+            known[k] = max(pri, known.get(k, 0))
+            old = self._known.get(k)
+            if first or secs <= 0:
+                continue
+            fresh = a.issued is None or (datetime.now(timezone.utc) - a.issued).total_seconds() < 20 * 60
+            if (old is None and fresh) or (old is not None and pri > old):
+                self._flash[k] = (now, now + secs)
+        self._known = known
+        if self._flash:
+            self._flashStart.emit()
+
+    def _flash_tick(self):
+        now = time.time()
+        self._flash = {k: v for k, v in self._flash.items() if v[1] > now}
+        if not self._flash:
+            self._flash_timer.stop()
+        self.changed.emit()                                     # (redraws the map)
+
+    def flashing(self, a):
+        """0 … 1 how bright a flashing warning's pulse is right now, or None."""
+        f = self._flash.get(event_key(a.key)) if self._flash else None
+        if f is None:
+            return None
+        now = time.time()
+        if now >= f[1]:
+            return None
+        return 0.5 + 0.5 * math.cos((now - f[0]) * 2 * math.pi * 1.4)        # 1.4 pulses a second
 
     def refresh(self, force=False):
         ov = self.settings["overlays"]
@@ -462,13 +662,17 @@ class WarningsOverlay(QObject):
 
         def work():
             try:
-                if want_w:
-                    if mode == "live":
-                        alerts = fetch_live_alerts(self.county_polys_fn())
-                    else:
-                        alerts = fetch_archive_alerts(t) if t else []
+                if want_w and mode == "live":
+                    alerts = fetch_live_alerts(self.county_polys_fn())
                     alerts.sort(key=lambda a: a.style[3])
+                    first = not self._known and self._last_fetch == 0.0
+                    self._note_new(alerts, first)
                     self.alerts = alerts
+                    self._last_fetch = time.time()
+                    self._ver += 1
+                elif want_w and self.alerts:
+                    self.alerts = []                # (archive: the warnings come from the history)
+                    self._ver += 1
                 if want_r:
                     hours = int(self.settings["report_hours"] or 3)
                     if mode == "live":
@@ -486,14 +690,17 @@ class WarningsOverlay(QObject):
                                 print("Spotter Network reports:", exc)
                         self.reports = reps
                         self._report_key = key
-                self.status.emit(f"Warnings: {len(self.alerts)} active" + (f", {len(self.reports)} reports"
-                                                                          if want_r else ""))
+                n = len(self.alerts) if mode == "live" else len(self.shown_alerts())
+                self.status.emit(f"Warnings: {n} {'active' if mode == 'live' else 'at this time'}" +
+                                 (f", {len(self.reports)} reports" if want_r else ""))
             except Exception as exc:
                 self.status.emit(f"Warnings unavailable – {friendly_error(exc)} (retrying)")
             finally:
                 self._busy = False
                 self.changed.emit()
         threading.Thread(target=work, daemon=True).start()
+        if self.mode == "live":
+            self._ensure_history()            # (its recent end, every few minutes)
 
     # ---------------------------------------------------------------- drawing
     def _xy(self, a, lat0, lon0):
@@ -520,29 +727,22 @@ class WarningsOverlay(QObject):
         return bool((self.settings["warning_types"] or {}).get(EVENT_GROUP.get(a.event, "OTH"), True))
 
     def _in_time(self, a) -> bool:
-        t = self.frame_time
-        if self.mode == "archive" and t is not None and a.issued and a.expires:
-            return a.issued <= t <= a.expires
-        return True
+        return True                           # (shown_alerts() is already the scan's own time)
 
     def active_alerts(self):
-        """Alerts valid for the displayed time (all current alerts in live mode)."""
-        t = self.frame_time
-        out = []
-        for a in list(self.alerts):
-            if self.mode == "archive" and t is not None and a.issued and a.expires:
-                if not (a.issued <= t <= a.expires):
-                    continue
-            out.append(a)
-        return out
+        """The warnings in force at the scan on screen (see shown_alerts)."""
+        return self.shown_alerts()
 
     def paint(self, painter, vt, panel, view):
         ov = self.settings["overlays"]
         x0, y0, x1, y1 = vt.world_bounds(pad=10)
-        for a in list(self.alerts):
-            if not self.visible(a) or not self._in_time(a):
+        sel = self.selected_uid
+        sel_key = sel.split("@")[0] if sel and "@" in sel else None
+        for a in self.shown_alerts():
+            if not self.visible(a):
                 continue
             is_watch = a.event.endswith("Watch")
+            pulse = self.flashing(a)
             _rgb, _w, fill, _pri = a.style
             rgb, width, kind = line_style(self.settings, a.variant)
             for xy in self._xy(a, view.lat0, view.lon0):
@@ -555,8 +755,20 @@ class WarningsOverlay(QObject):
                     painter.setBrush(QColor(*rgb, fill))
                     painter.drawPolygon(poly)
                 painter.setBrush(Qt.NoBrush)
+                if pulse is not None:
+                    # newly issued: a glowing, pulsing band around it and a light wash inside
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QColor(*rgb, int(25 + 70 * pulse)))
+                    painter.drawPolygon(poly)
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(QColor(*rgb, int(60 + 150 * pulse)), width + 4 + 8 * pulse, Qt.SolidLine,
+                                        Qt.RoundCap, Qt.RoundJoin))
+                    painter.drawPolygon(poly)
+                    painter.setPen(QPen(QColor(255, 255, 255, int(200 * pulse)), width + 1.5, Qt.SolidLine,
+                                        Qt.RoundCap, Qt.RoundJoin))
+                    painter.drawPolygon(poly)
                 draw_line(painter, poly, rgb, width, kind, halo=not is_watch)
-                if a.uid == self.selected_uid:
+                if a.uid == sel or (sel_key is not None and a.key == sel_key):
                     painter.setPen(QPen(QColor(255, 255, 255), width + 1.5, Qt.DashLine))
                     painter.drawPolygon(poly)
         if ov.get("reports", False):
@@ -612,9 +824,9 @@ class WarningsOverlay(QObject):
         """The drawn alerts under a point (inside them, or [inside]=False: only on their outline), most
         important first."""
         hits = []
-        for a in list(self.alerts):
+        for a in self.shown_alerts():
             # only what is drawn: a hidden watch (or warning type) must not answer
-            if a.xy is None or not self.visible(a) or not self._in_time(a):
+            if a.xy is None or not self.visible(a):
                 continue
             if any(near_edge(x, y, xy, tol) or (inside and _inside(x, y, xy)) for xy in a.xy):
                 hits.append(a)

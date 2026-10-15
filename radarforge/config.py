@@ -52,6 +52,7 @@ DEFAULTS = {
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
     "go_to_nearest_radar": True,   # going to a warning switches to the radar nearest it
+    "warning_flash_s": 8,          # a newly issued (or upgraded) warning flashes on the map this long; 0 = never
     "report_hours": 3,             # live storm reports: how many hours back (1, 3, 6, 12, 24)
     "report_types": {"tornado": True, "hail": True, "wind": True, "flood": True, "other": False},
     "spotter_reports": True,       # add Spotter Network reports to the NWS ones (live)
@@ -77,7 +78,8 @@ DEFAULTS = {
     "dealias_velocity": False,     # (1.9.1) base velocity panels show dealiased velocity (toolbar button)
     "trail_mode": False,           # (1.9.1) Σ: panels show the max (CC: min) of the loop up to the frame shown
     "warnings_in_view": False,     # Warnings panel: list only warnings in the area you're looking at
-    "quick_collapsed": [],         # Quick panel sections folded away
+    "show_welcome": False,         # the Getting started page at start-up (a fresh install shows it once)
+    "quick_collapsed": ["mrms", "data", "storm"],   # Quick panel sections folded away (new installs: the specialist ones)
     "workspace_version": 0,        # bumped when the default panel arrangement changes (applied once)
     "camera_caltrans": True,       # street cameras: California DOT (open data, no key)
     "camera_keys": {},             # street cameras: state code (NY, GA...) or "windy" -> free API key
@@ -122,6 +124,7 @@ DEFAULTS = {
 class Settings:
     def __init__(self, path: Path | None = None):
         self.path = path or (CONFIG_DIR / "settings.json")
+        self.fresh = False
         self.data = copy.deepcopy(DEFAULTS)
         self.load()
 
@@ -137,7 +140,8 @@ class Settings:
                 else:
                     self.data[k] = v
         except FileNotFoundError:
-            pass
+            self.fresh = True                            # a new install: the Getting started page opens once
+            self.data["show_welcome"] = True
         except Exception as exc:  # corrupt file: keep defaults
             print("settings: could not read", self.path, exc)
         if user_version < 2:
