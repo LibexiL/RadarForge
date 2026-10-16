@@ -1,5 +1,92 @@
 # Changelog
 
+## 1.20.1 – 2026-10-15
+
+- **Severe, Winter and Tropical have their own side panels.** The Layers panel was getting crowded, so each kind
+  of weather now has a tab with:
+  - a **Set up the map for …** button (the preset);
+  - only the switches that weather needs;
+  - buttons that open its model maps.
+- **Model maps one click away:**
+  - **Severe set:** HRRR CAPE, 0–1 km helicity, 0–6 km shear and STP in four panels. There's also a storm-scale
+    set and single maps.
+  - **Winter set:** precipitation type, snowfall, freezing rain and temperature. There's also a snow set.
+  - **Tropical set:** the GFS over the Atlantic.
+- **Layers** keeps the layers for any weather: warnings on / off, radar overlays, satellite & observations, radar
+  display and the map.
+- **Menus match the panels:** the Layers menu groups everything under **Severe**, **Winter** and **Tropical**,
+  then the general layers.
+- **New default panel arrangement:** Layers / Severe / Winter / Tropical on top, then Products / Models /
+  Warnings / Storm cells. The Inspector is in the Panels menu.
+- **Getting started** points to the weather panels and the severe model maps.
+
+## 1.20.0 – 2026-10-15
+
+Forecast models, winter weather, hurricanes, and a reorganised layout.
+
+### Models view (new)
+- **A second view beside the radar:** the **Radar / Models** switch at the top left, or **F6**. Forecast maps
+  from four NOAA models, Pivotal-Weather style:
+  - **HRRR** (3 km, hourly, 18–48 h), **NAM 3 km** (60 h), **RAP** (13 km, 21–51 h) and **GFS** (0.25°, 16 days).
+  - Only the fields on screen are downloaded from NOAA's buckets on AWS (about 0.5–3 MB each), and kept in the
+    cache folder.
+- **Fields:**
+  - Severe: simulated radar, surface / mixed-layer / most-unstable CAPE, CIN, 0–1 and 0–3 km helicity,
+    0–6 km shear (with shear arrows), STP, supercell composite, updraft-helicity tracks, 700–500 mb lapse
+    rates, lifted index.
+  - Surface: temperature (with the 32 °F line), dewpoint, humidity, 10 m wind barbs, gusts, simulated radar
+    with isobars, precipitable water.
+  - Upper air: 500 mb heights and wind, 500 mb vorticity, 850 mb temperature and wind, 250 mb jet.
+  - Precipitation and winter: total precipitation, precipitation type, snowfall (10:1 and the model's own),
+    freezing rain, snow depth.
+- **Each panel shows its own field** (keys 1–6 for more panels), all at the same forecast hour.
+- The **Models panel** lists the fields by group, with what each one means. Right-click a panel to change its
+  field or open a **model sounding** at that spot and hour.
+- **← →** step the forecast hours, **Space** plays them; the run and the area (CONUS or a region) are picked
+  in the toolbar. The newest run is found automatically.
+- The pictures are made for the part of the map you're looking at, so they stay sharp when you zoom in.
+
+### Winter
+- **Precipitation type on the radar:** the new **Precipitation Type Reflectivity** product colours the radar's
+  own reflectivity by rain, snow, sleet or freezing rain, from the HRRR analysis for each scan's hour (past
+  scans too).
+- **Freezing line:** the HRRR's 32 °F line at the surface for each scan's hour.
+- **Snowfall totals:** NOAA's gridded snowfall analysis (NOHRSC) for the last 24, 48 or 72 hours.
+- **Winter storm warnings and advisories:** blizzard, winter storm, ice storm, lake effect snow, winter weather
+  and freezing rain, extreme cold, cold weather, freeze and frost. They're issued for whole counties, so they
+  are shaded as one area under the storm warnings. A **Winter** filter turns them all on or off.
+- **Winter storm reports:** snow, blizzard, sleet and freezing rain have their own type and filter; snow
+  reports show their total on the map.
+- A **winter reflectivity** colour table that spreads light snow over more colours.
+
+### Tropical
+- **Active storms** from the National Hurricane Center: position, strength and movement, the forecast
+  **cone and track** (with times and strength at each point), the **wind field** (tropical-storm, 50 kt and
+  hurricane force), the past track and the **coastal watches and warnings**.
+- **Hurricane, tropical storm and storm surge warnings and watches**, shaded by county.
+- **When it reaches you:** the new **Tropical** panel works out the closest approach and when
+  tropical-storm-force (and hurricane-force) winds arrive at your location, from the official forecast.
+- **Model tracks** ("spaghetti"): the official forecast with the GFS, HAFS, Canadian, UK and others.
+- **Tropical outlook:** the areas being watched, with their 2- and 7-day chances.
+- **Buoys and coastal stations:** wind, gusts, waves, pressure and water temperature.
+- **Satellite on the storm:** the GOES layer can follow a storm with the 1-minute mesoscale view.
+- **48- and 72-hour MRMS rainfall** for slow, wet storms.
+- **Past storms:** pick any Atlantic or East Pacific storm since 1950 and **replay its landfall** (the archive
+  radar nearest it, its best track, and the NHC forecast of the time with an approximate cone), or show its
+  whole track. **Historic tracks** shows every storm that passed near you or the map centre, coloured by
+  strength.
+
+### Layout
+- **Layers panel** (was Quick, still F8): **presets** at the top set the map up for the kind of weather in one
+  click – **Severe**, **Winter**, **Tropical** or **Clean** – then every layer, grouped: Warnings, Storm reports
+  & chasers, Storm Prediction Center, Winter, Tropical, Radar overlays, Satellite & observations, Radar display
+  and Map. Radar controls moved out of it to the toolbar and the Radar menu, where they always were too.
+- **Menus match the panels:** the Layers menu has the same groups in the same order, a new **Models** menu, and
+  the Location menu's items are now under **Tools → My location & places**.
+- **Getting started** rewritten for the new layout; the first visit to the Models view shows a short hint.
+- The side panels are arranged again once (Layers, Products and Models on top; Warnings, Tropical, Inspector
+  and Storm cells below).
+
 ## 1.19.0 – 2026-10-14
 
 New default colour tables, warnings that match each scan's time, classic warning colours, flashing new

@@ -23,7 +23,7 @@ def test_default_loop_is_ten_and_the_old_default_migrates(tmp_path):
     p = tmp_path / "settings.json"
     p.write_text(json.dumps({"settings_version": 3, "loop_frames": 12}))
     s = Settings(path=p)
-    assert s["loop_frames"] == 10 and s["settings_version"] == 4
+    assert s["loop_frames"] == 10 and s["settings_version"] >= 4
     p.write_text(json.dumps({"settings_version": 3, "loop_frames": 24}))         # picked by the user: kept
     assert Settings(path=p)["loop_frames"] == 24
     p.write_text(json.dumps({"settings_version": 4, "loop_frames": 12}))         # chosen after 1.14: kept

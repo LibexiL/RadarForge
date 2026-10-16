@@ -6,26 +6,29 @@ from PySide6.QtWidgets import QCheckBox, QDialog, QHBoxLayout, QLabel, QPushButt
 
 STEPS = [
     ("Pick a radar",
-     "Click a radar square on the map, or <b>Choose radar</b> at the top left (Ctrl+R). Live data starts right "
-     "away and keeps itself up to date."),
+     "Click a radar square on the map, or the radar button at the top left (Ctrl+R). Live data starts right "
+     "away and keeps itself up to date. <b>Archive</b> loads any past storm."),
     ("Move around",
      "Scroll to zoom, drag to pan, double-click to centre. <b>← →</b> step through the loop, <b>Space</b> plays "
-     "it, <b>↑ ↓</b> change the tilt."),
+     "it, <b>↑ ↓</b> change the tilt, keys <b>1</b>–<b>6</b> show more panels."),
     ("Warnings",
-     "Coloured outlines are NWS warnings: <span style='color:#ff3030'><b>red</b></span> tornado, "
-     "<span style='color:#ff40ff'><b>magenta</b></span> tornado confirmed or PDS, "
+     "Outlines are storm warnings: <span style='color:#ff3030'><b>red</b></span> tornado, "
+     "<span style='color:#ff40ff'><b>magenta</b></span> confirmed / PDS tornado, "
      "<span style='color:#e0e000'><b>yellow</b></span> severe thunderstorm, "
-     "<span style='color:#30d030'><b>green</b></span> flash flood. Rest the mouse on an outline for a summary; "
-     "click it for the full warning. New warnings flash for a few seconds."),
-    ("Panels and products",
-     "Keys <b>1</b>–<b>6</b> change how many panels you see. Right-click a panel to pick what it shows "
-     "(reflectivity, velocity, correlation coefficient…)."),
-    ("Every switch in one place",
-     "The <b>Quick</b> panel (F8) has the layers, warnings, map, satellite and storm tools as one-click "
-     "buttons. Right-click the map for soundings, storm tools and the nearest radar."),
-    ("Find a place, or go back in time",
-     "Type a town, road or address in the search box at the top right (Ctrl+F). <b>Radar → Past data</b> "
-     "loads any past storm; the warnings shown always match the scan's time."),
+     "<span style='color:#30d030'><b>green</b></span> flash flood. Shaded counties are winter and tropical alerts. "
+     "Click any of them for the full text."),
+    ("Weather panels",
+     "The side panels have one tab per kind of weather: <b>Severe</b> (warnings, reports, SPC, storm tools), "
+     "<b>Winter</b> (precipitation type, freezing line, snow) and <b>Tropical</b> (hurricanes). Each has a "
+     "one-click setup at the top and buttons for its model maps. <b>Layers</b> (F8) holds the rest: satellite, "
+     "overlays, display and map."),
+    ("Models",
+     "The <b>Models</b> button (or F6) switches to forecast maps from the HRRR, NAM, RAP and GFS. The quickest way "
+     "in: <b>Severe → Severe set</b> shows CAPE, helicity, shear and STP side by side. ← → step the forecast hours, "
+     "Space plays them, right-click a panel to change its field."),
+    ("Find a place",
+     "Type a town, road or address in the search box at the top right (Ctrl+F). Right-click the map for "
+     "soundings, storm tools and the nearest radar."),
 ]
 
 
@@ -34,7 +37,7 @@ class WelcomeDialog(QDialog):
         super().__init__(main)
         self.main = main
         self.setWindowTitle("Getting started with RadarForge")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(580)
         lay = QVBoxLayout(self)
         lay.setSpacing(10)
         title = QLabel("<span style='font-size:16pt; font-weight:600'>Welcome to RadarForge</span><br>"
@@ -51,13 +54,17 @@ class WelcomeDialog(QDialog):
         row = QHBoxLayout()
         pick = QPushButton("Choose a radar…")
         pick.clicked.connect(lambda: (self.accept(), main.choose_site()))
-        quick = QPushButton("Open the Quick panel")
-        quick.clicked.connect(lambda: (self.accept(), main.show_panel("quick")))
+        layers = QPushButton("Open the Severe panel")
+        layers.clicked.connect(lambda: (self.accept(), main.show_panel("severe")))
+        models = QPushButton("Show severe model maps")
+        models.clicked.connect(lambda: (self.accept(), main.open_model_set(["cape_ml", "srh01", "shear06", "stp"],
+                                                                           "hrrr")))
         close = QPushButton("Start")
         close.setDefault(True)
         close.clicked.connect(self.accept)
         row.addWidget(pick)
-        row.addWidget(quick)
+        row.addWidget(layers)
+        row.addWidget(models)
         row.addStretch(1)
         row.addWidget(close)
         lay.addLayout(row)

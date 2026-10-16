@@ -1,0 +1,18 @@
+; RadarForge winter reflectivity: light snow (5-25 dBZ) spread over more colours
+Product: BR
+Units: dBZ
+Step: 5
+Color4: 0 60 70 90 0
+Color4: 3 90 110 150 140
+Color: 6 110 150 210
+Color: 10 70 155 235
+Color: 15 40 115 225
+Color: 20 30 70 190
+Color: 25 30 160 90
+Color: 30 20 115 40
+Color: 35 250 230 60
+Color: 45 245 130 30
+Color: 55 220 30 30
+Color: 65 255 255 255
+Color: 75 150 0 200
+RF: 0 0 0 0

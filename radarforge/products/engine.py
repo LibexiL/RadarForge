@@ -349,6 +349,9 @@ class ProductEngine:
             return (s["velocity_filter"],)
         if pid in ("MESH", "POSH"):
             return (s["freezing_level_ft"], s["minus20_level_ft"])
+        if pid == "PTYPE":
+            from ..features import winter
+            return (winter.VERSION[0],)
         return ()
 
     def _key(self, frame, pid, tilt_index):
@@ -516,6 +519,23 @@ class ProductEngine:
                             ref, ((0, 0), (0, n - ref.shape[1])), constant_values=np.nan)
                         out[~(np.nan_to_num(ref, nan=-99.0) >= 15.0)] = np.nan
             return self._make(key, pid, sw, out, m.first_gate, m.gate_spacing, label, **extra)
+        if pid == "PTYPE":
+            sw = tilt.sweep("REF")
+            if sw is None:
+                return None
+            from ..features import winter
+            m = sw.moments["REF"]
+            ref = self.moment_values(sw, "REF", rf=False)
+            _order, az, _lo, _hi = self._sorted_sweep(sw)
+            grid = None
+            if vol.lat is not None and vol.lon is not None:
+                try:
+                    grid = winter.surface_grid(vol.lat, vol.lon, sw.start_time or vol.start_time)
+                except Exception as exc:
+                    print("precipitation type:", exc)
+            out = winter.ptype_values(ref, az, m.first_gate, m.gate_spacing, float(sw.elevation), grid)
+            return self._make(key, pid, sw, out, m.first_gate, m.gate_spacing, label,
+                              ptype=grid.source if grid is not None else "unavailable")
         if pid == "KDP":
             sw = tilt.sweep("PHI")
             if sw is None:

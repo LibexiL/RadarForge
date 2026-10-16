@@ -47,14 +47,18 @@ DEFAULTS = {
     "overlays": {"warnings": True, "watches": True, "storm_tracks": True, "hail": False, "melting_layer": False, "reports": False,
                  "chasers": False, "spc_outlook": False, "spc_mcd": False,
                  "satellite": False, "mrms": False, "lightning": False, "lightning_density": False,
-                 "surface_obs": False, "storm_flags": False, "cameras": False},
-    "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True},   # watches: overlays["watches"]
+                 "surface_obs": False, "storm_flags": False, "cameras": False,
+                 # (1.20) winter and tropical layers
+                 "freezing_line": False, "snowfall": False, "tropical": False, "tropical_wind": True,
+                 "tropical_spaghetti": False, "tropical_outlook": False, "buoys": False},
+    "warning_types": {"TOR": True, "SVR": True, "FFW": True, "OTH": True, "WIN": True, "TRO": True},   # watches:
+                                   # overlays["watches"]; WIN winter storm / blizzard / ice…, TRO hurricane / storm surge…
     "warning_colors": {},          # (1.5.0) event -> "#rrggbb"; replaced by warning_lines
     "warning_lines": {},           # code (TOR, TORR, SVRD...) -> {"color", "width", "kind"}
     "go_to_nearest_radar": True,   # going to a warning switches to the radar nearest it
     "warning_flash_s": 8,          # a newly issued (or upgraded) warning flashes on the map this long; 0 = never
     "report_hours": 3,             # live storm reports: how many hours back (1, 3, 6, 12, 24)
-    "report_types": {"tornado": True, "hail": True, "wind": True, "flood": True, "other": False},
+    "report_types": {"tornado": True, "hail": True, "wind": True, "flood": True, "winter": True, "other": False},
     "spotter_reports": True,       # add Spotter Network reports to the NWS ones (live)
     "chasers_active_only": False,  # Spotter Network: only members with 5+ accepted reports
     "chaser_names": True,
@@ -67,6 +71,7 @@ DEFAULTS = {
     "satellite_channel": "ir",     # ir | vis | wv (GOES via IEM, live)
     "satellite_opacity": 0.85,
     "satellite_enhance": True,     # colour-enhanced infrared / water vapour
+    "satellite_sector": "conus",   # conus | storm (a 1-minute mesoscale sector aimed at a followed storm)
     "mrms_product": "rot60",       # see features/mrms.py PRODUCTS
     "mrms_opacity": 0.8,
     "ltg_density_product": "ltg5",
@@ -79,7 +84,21 @@ DEFAULTS = {
     "trail_mode": False,           # (1.9.1) Σ: panels show the max (CC: min) of the loop up to the frame shown
     "warnings_in_view": False,     # Warnings panel: list only warnings in the area you're looking at
     "show_welcome": False,         # the Getting started page at start-up (a fresh install shows it once)
-    "quick_collapsed": ["mrms", "data", "storm"],   # Quick panel sections folded away (new installs: the specialist ones)
+    "hints_seen": [],              # one-time hints already shown (Models view, Layers presets…)
+    # (1.20) the Models view
+    "model_id": "hrrr",            # hrrr | nam | rap | gfs
+    "model_run": "",               # YYYYMMDDHH of a chosen run ("" = the newest)
+    "model_fh": 0,                 # forecast hour shown
+    "model_fields": ["refc", "cape_sb", "srh01", "stp", "shear06", "td2m"],   # one field per panel
+    "model_region": "CONUS",       # a features/models.py REGIONS name, or "radar"
+    "model_opacity": 0.9,
+    # (1.20) winter and tropical
+    "snowfall_hours": 24,          # NOHRSC snowfall analysis: 24, 48 or 72 hours
+    "tropical_models": ["OFCL", "AVNO", "HFAI", "HFBI", "CMC", "NVGM", "UKX", "TVCN", "CLP5"],   # spaghetti aids
+    "layer_preset": "",            # the Layers preset last chosen (severe | winter | tropical | clean)
+    "ptype_prev": "REF",           # panel 1's product before precipitation type took it over
+    "quick_collapsed": ["overlays", "satellite", "display"],   # Layers panel sections folded away (new installs:
+                                   # the specialist ones; 1.20 renamed the sections)
     "workspace_version": 0,        # bumped when the default panel arrangement changes (applied once)
     "camera_caltrans": True,       # street cameras: California DOT (open data, no key)
     "camera_keys": {},             # street cameras: state code (NY, GA...) or "windy" -> free API key
@@ -102,7 +121,7 @@ DEFAULTS = {
     "view": None,                 # {cx, cy, scale}
     "gpu_smooth": True,
     "velocity_filter": 1,          # 0 off, 1 normal, 2 aggressive
-    "settings_version": 4,
+    "settings_version": 5,
     "invert_scroll": False,
     "cursor_link": True,
     "hover_text": True,
@@ -162,6 +181,10 @@ class Settings:
             except (TypeError, ValueError):
                 self.data["loop_frames"] = 10
             self.data["settings_version"] = 4
+        if user_version < 5:
+            # v5 (1.20): the Quick panel became the Layers panel, with new sections
+            self.data["quick_collapsed"] = list(DEFAULTS["quick_collapsed"])
+            self.data["settings_version"] = 5
 
     def save(self):
         try:

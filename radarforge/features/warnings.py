@@ -32,6 +32,25 @@ NWS_COLORS = {
     "Special Weather Statement": "#ffe4b5",
     "Tornado Watch": "#ffff00",
     "Severe Thunderstorm Watch": "#db7093",
+    # (1.20) winter, cold and tropical: whole counties / zones, shaded
+    "Blizzard Warning": "#ff4500",
+    "Winter Storm Warning": "#ff69b4",
+    "Ice Storm Warning": "#8b008b",
+    "Lake Effect Snow Warning": "#008b8b",
+    "Winter Storm Watch": "#4682b4",
+    "Winter Weather Advisory": "#7b68ee",
+    "Freezing Rain Advisory": "#da70d6",
+    "Extreme Cold Warning": "#0000ff",
+    "Extreme Cold Watch": "#5f9ea0",
+    "Cold Weather Advisory": "#afeeee",
+    "Freeze Warning": "#483d8b",
+    "Frost Advisory": "#6495ed",
+    "Hurricane Warning": "#dc143c",
+    "Hurricane Watch": "#ff00ff",
+    "Tropical Storm Warning": "#b22222",
+    "Tropical Storm Watch": "#f08080",
+    "Storm Surge Warning": "#b524f7",
+    "Storm Surge Watch": "#db7ff7",
 }
 
 
@@ -66,6 +85,25 @@ VARIANTS = [
     ("SPS", "Special Weather Statement", "Special Weather Statement", ("#ffe4b5", 1.5, "solid"), 2),
     ("TOA", "Tornado Watch", "Tornado Watch", ("#ffff00", 1.5, "solid"), 1),
     ("SVA", "Severe Thunderstorm Watch", "Severe Thunderstorm Watch", ("#db7093", 1.5, "solid"), 1),
+    # (1.20) issued for whole counties / zones: shaded, under the storm warnings
+    ("HUW", "Hurricane Warning", "Hurricane Warning", ("#dc143c", 2.0, "solid"), 4.6),
+    ("SSW", "Storm Surge Warning", "Storm Surge Warning", ("#b524f7", 2.0, "solid"), 4.5),
+    ("TRW", "Tropical Storm Warning", "Tropical Storm Warning", ("#b22222", 1.8, "solid"), 4.4),
+    ("HUA", "Hurricane Watch", "Hurricane Watch", ("#ff00ff", 1.5, "solid"), 4.3),
+    ("SSA", "Storm Surge Watch", "Storm Surge Watch", ("#db7ff7", 1.5, "solid"), 4.2),
+    ("TRA", "Tropical Storm Watch", "Tropical Storm Watch", ("#f08080", 1.5, "solid"), 4.1),
+    ("BZW", "Blizzard Warning", "Blizzard Warning", ("#ff4500", 2.0, "solid"), 3.9),
+    ("ISW", "Ice Storm Warning", "Ice Storm Warning", ("#8b008b", 2.0, "solid"), 3.8),
+    ("WSW", "Winter Storm Warning", "Winter Storm Warning", ("#ff69b4", 1.8, "solid"), 3.7),
+    ("LEW", "Lake Effect Snow Warning", "Lake Effect Snow Warning", ("#008b8b", 1.8, "solid"), 3.6),
+    ("ECW", "Extreme Cold Warning", "Extreme Cold Warning", ("#0000ff", 1.5, "solid"), 3.4),
+    ("WSA", "Winter Storm Watch", "Winter Storm Watch", ("#4682b4", 1.5, "solid"), 3.3),
+    ("ZRY", "Freezing Rain Advisory", "Freezing Rain Advisory", ("#da70d6", 1.5, "solid"), 3.2),
+    ("WWY", "Winter Weather Advisory", "Winter Weather Advisory", ("#7b68ee", 1.5, "solid"), 3.1),
+    ("ECA", "Extreme Cold Watch", "Extreme Cold Watch", ("#5f9ea0", 1.2, "solid"), 2.9),
+    ("CWY", "Cold Weather Advisory", "Cold Weather Advisory", ("#afeeee", 1.2, "solid"), 2.8),
+    ("FZW", "Freeze Warning", "Freeze Warning", ("#483d8b", 1.2, "solid"), 2.7),
+    ("FRY", "Frost Advisory", "Frost Advisory", ("#6495ed", 1.2, "solid"), 2.6),
 ]
 VARIANT = {v[0]: v for v in VARIANTS}
 LINE_KINDS = ("solid", "center", "double")
@@ -73,6 +111,17 @@ BASE_CODE = {"Tornado Warning": "TOR", "Tornado Emergency": "TORE", "Severe Thun
              "Flash Flood Warning": "FFW", "Flash Flood Emergency": "FFWE", "Special Marine Warning": "SMW",
              "Extreme Wind Warning": "EWW", "Snow Squall Warning": "SQW", "Dust Storm Warning": "DSW",
              "Special Weather Statement": "SPS", "Tornado Watch": "TOA", "Severe Thunderstorm Watch": "SVA"}
+BASE_CODE.update({v[1]: v[0] for v in VARIANTS if v[0] in (
+    "HUW", "SSW", "TRW", "HUA", "SSA", "TRA", "BZW", "ISW", "WSW", "LEW", "ECW", "WSA", "ZRY", "WWY", "ECA", "CWY",
+    "FZW", "FRY")})
+WINTER_EVENTS = ("Blizzard Warning", "Ice Storm Warning", "Winter Storm Warning", "Lake Effect Snow Warning",
+                 "Winter Storm Watch", "Freezing Rain Advisory", "Winter Weather Advisory", "Extreme Cold Warning",
+                 "Extreme Cold Watch", "Cold Weather Advisory", "Freeze Warning", "Frost Advisory")
+TROPICAL_EVENTS = ("Hurricane Warning", "Storm Surge Warning", "Tropical Storm Warning", "Hurricane Watch",
+                   "Storm Surge Watch", "Tropical Storm Watch")
+# issued for whole counties / forecast zones (no storm polygon): drawn as shaded areas
+AREA_EVENTS = set(WINTER_EVENTS) | set(TROPICAL_EVENTS)
+STORM_WATCHES = ("Tornado Watch", "Severe Thunderstorm Watch")
 
 # "Classic colours" preset: green flash flood, yellow severe, magenta reported/PDS/emergency tornado
 CLASSIC_PRESET = {
@@ -87,12 +136,15 @@ CLASSIC_PRESET = {
 STYLES = {}
 for _ev, _code in BASE_CODE.items():
     _c, _w, _k = VARIANT[_code][3]
-    STYLES[_ev] = (hex_rgb(_c), _w, 45 if _ev.endswith("Watch") else 0, VARIANT[_code][4])
+    STYLES[_ev] = (hex_rgb(_c), _w, (35 if _ev.endswith("Watch") else 60) if _ev in AREA_EVENTS else
+                   (45 if _ev.endswith("Watch") else 0), VARIANT[_code][4])
 
 # filter groups (Warnings panel buttons); "WAT" is the same switch as Map -> Watches
 FILTERS = [("TOR", "Tornado", ("Tornado Warning", "Tornado Emergency")),
            ("SVR", "Severe", ("Severe Thunderstorm Warning",)),
            ("FFW", "Flood", ("Flash Flood Warning", "Flash Flood Emergency")),
+           ("WIN", "Winter", WINTER_EVENTS),
+           ("TRO", "Tropical", TROPICAL_EVENTS),
            ("OTH", "Other", ("Special Marine Warning", "Extreme Wind Warning", "Snow Squall Warning",
                              "Dust Storm Warning", "Special Weather Statement")),
            ("WAT", "Watches", ("Tornado Watch", "Severe Thunderstorm Watch"))]
@@ -175,12 +227,20 @@ VTEC_EVENT = {("TO", "W"): "Tornado Warning", ("SV", "W"): "Severe Thunderstorm 
               ("FF", "W"): "Flash Flood Warning", ("MA", "W"): "Special Marine Warning",
               ("EW", "W"): "Extreme Wind Warning", ("SQ", "W"): "Snow Squall Warning",
               ("DS", "W"): "Dust Storm Warning", ("TO", "A"): "Tornado Watch",
-              ("SV", "A"): "Severe Thunderstorm Watch"}
+              ("SV", "A"): "Severe Thunderstorm Watch", ("BZ", "W"): "Blizzard Warning",
+              ("WS", "W"): "Winter Storm Warning", ("IS", "W"): "Ice Storm Warning",
+              ("LE", "W"): "Lake Effect Snow Warning", ("WS", "A"): "Winter Storm Watch",
+              ("WW", "Y"): "Winter Weather Advisory", ("ZR", "Y"): "Freezing Rain Advisory",
+              ("EC", "W"): "Extreme Cold Warning", ("EC", "A"): "Extreme Cold Watch",
+              ("CW", "Y"): "Cold Weather Advisory", ("FZ", "W"): "Freeze Warning", ("FR", "Y"): "Frost Advisory",
+              ("HU", "W"): "Hurricane Warning", ("HU", "A"): "Hurricane Watch",
+              ("TR", "W"): "Tropical Storm Warning", ("TR", "A"): "Tropical Storm Watch",
+              ("SS", "W"): "Storm Surge Warning", ("SS", "A"): "Storm Surge Watch"}
 
 
 class Alert:
     __slots__ = ("event", "rings", "hover", "issued", "expires", "style", "xy", "_proj", "office", "area",
-                 "tags", "uid", "variant", "key", "action", "info", "valid")
+                 "tags", "uid", "variant", "key", "action", "info", "valid", "_path")
 
     def __init__(self, event, rings, hover, issued, expires, office="", area="", tags=(), uid="", variant=None,
                  key="", action="", info=None):
@@ -206,6 +266,11 @@ class Alert:
         # when this polygon applies: (from, until). Iowa State's archive has one piece per polygon (a warning's
         # update can shrink it); live alerts are valid from issue to expiry
         self.valid = (issued, expires)
+        self._path = None           # (projection, QPainterPath in km): a county-based alert's merged outline
+
+    @property
+    def is_area(self):
+        return self.event in AREA_EVENTS
 
     @property
     def variant_label(self):
@@ -257,7 +322,7 @@ def fetch_live_alerts(county_polys: dict) -> list:
             ev = "Flash Flood Emergency"
         variant = variant_of(ev, params)
         rings = _rings(f.get("geometry"))
-        if not rings and ev.endswith("Watch"):
+        if not rings and (ev.endswith("Watch") or ev in AREA_EVENTS):
             for same in (p.get("geocode") or {}).get("SAME", []):
                 try:
                     fips = int(same[1:])
@@ -720,7 +785,7 @@ class WarningsOverlay(QObject):
     def visible(self, a) -> bool:
         """Whether an alert's type is switched on (Map menu and the Warnings panel buttons)."""
         ov = self.settings["overlays"]
-        if a.event.endswith("Watch"):
+        if a.event in STORM_WATCHES:
             return bool(ov.get("watches", True))
         if not ov.get("warnings", True):
             return False
@@ -740,6 +805,9 @@ class WarningsOverlay(QObject):
         sel_key = sel.split("@")[0] if sel and "@" in sel else None
         for a in self.shown_alerts():
             if not self.visible(a):
+                continue
+            if a.event in AREA_EVENTS:
+                self._paint_area(painter, vt, view, a, a.uid == sel or (sel_key is not None and a.key == sel_key))
                 continue
             is_watch = a.event.endswith("Watch")
             pulse = self.flashing(a)
@@ -798,6 +866,49 @@ class WarningsOverlay(QObject):
                 painter.setFont(f2 if len(letter) > 1 else f1)
                 painter.setPen(QColor(0, 0, 0, alpha))
                 painter.drawText(int(sx - rad), int(sy - rad), 2 * rad, 2 * rad, Qt.AlignCenter, letter)
+                inches = feeds.snow_inches(r)
+                if inches is not None and vt.km_across < 900:
+                    view._halo_text(painter, sx + rad + 2, sy + 4, f"{inches:g}″", QColor(190, 215, 255), f1)
+
+    def _paint_area(self, painter, vt, view, a, selected):
+        """A county / zone based alert (winter storm, hurricane…): its counties shaded as one area, one outline."""
+        from PySide6.QtGui import QPainterPath, QTransform
+        xys = self._xy(a, view.lat0, view.lon0)
+        if a._path is None or a._path[0] != (view.lat0, view.lon0):
+            path = QPainterPath()
+            path.setFillRule(Qt.WindingFill)
+            for xy in xys:
+                if len(xy) < 3:
+                    continue
+                path.addPolygon(QPolygonF([QPointF(float(x), float(y)) for x, y in xy]))
+                path.closeSubpath()
+            a._path = ((view.lat0, view.lon0), path.simplified())
+        path = a._path[1]
+        x0, y0, x1, y1 = vt.world_bounds(pad=10)
+        br = path.boundingRect()
+        if br.right() < x0 or br.left() > x1 or br.bottom() < y0 or br.top() > y1:
+            return
+        rgb, width, _kind = line_style(self.settings, a.variant)
+        _rgb, _w, fill, _pri = a.style
+        pulse = self.flashing(a)
+        painter.save()
+        painter.setTransform(QTransform(vt.scale, 0, 0, -vt.scale, vt.ox - vt.cx * vt.scale, vt.oy + vt.cy * vt.scale),
+                             True)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(*rgb, int(fill + (60 * pulse if pulse is not None else 0))))
+        painter.drawPath(path)
+        painter.setBrush(Qt.NoBrush)
+        for w, col in ((width + 2.0, QColor(0, 0, 0, 150)), (width, QColor(*rgb))):
+            pen = QPen(col, w, Qt.DashLine if a.event.endswith("Watch") else Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawPath(path)
+        if selected:
+            pen = QPen(QColor(255, 255, 255), width + 1.5, Qt.DashLine)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawPath(path)
+        painter.restore()
 
     def visible_reports(self):
         """Reports drawn now: types switched on, and (archive) near the frame's time."""

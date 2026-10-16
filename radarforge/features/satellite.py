@@ -41,9 +41,21 @@ def satellite_for(lon: float) -> str:
     return "GOES-18" if lon < -105.0 else "GOES-19"
 
 
-def urls(sat: str, channel: int) -> dict:
-    stem = f"{BASE}/channel{channel:02d}/{sat}_C{channel:02d}"
+def urls(sat: str, channel: int, sector: str = "conus") -> dict:
+    base = BASE.replace("/conus", f"/{sector}")
+    stem = f"{base}/channel{channel:02d}/{sat}_C{channel:02d}"
     return {k: f"{stem}.{k}" for k in ("png", "wld", "json")}
+
+
+def covers(im, wld, lon0, lat, lon, sat) -> bool:
+    """Whether a picture (with its scan-angle world file) shows a point."""
+    w, h = im.size
+    sw = scan_world(wld, w, h, sat)
+    x, y, vis = georaster.geos_forward(lat, lon, lon0)
+    if not bool(vis):
+        return False
+    row, col = georaster.world_pixels(sw, x, y)
+    return 0.05 * h <= float(row) < 0.95 * h and 0.05 * w <= float(col) < 0.95 * w
 
 
 def lon0_from_proj(proj: str, default: float) -> float:
@@ -98,9 +110,9 @@ def reproject(rgba, wld, lon0, lat_c, lon_c, half_km=HALF_KM, n=GRID_N) -> np.nd
     return out
 
 
-def fetch_image(sat, channel):
+def fetch_image(sat, channel, sector="conus"):
     from PIL import Image
-    u = urls(sat, channel)
+    u = urls(sat, channel, sector)
     meta = {}
     try:
         meta = requests.get(u["json"], headers=UA, timeout=20).json().get("meta") or {}
@@ -136,6 +148,7 @@ class SatelliteOverlay(BackgroundLayer):
         self.raster = None
         self._src = None              # (sat, channel, valid, image, wld, lon0) last download
         self._attempted = None
+        self.follow = None            # (lat, lon) a storm to follow with a mesoscale sector (Tropical panel)
 
     def enabled(self):
         return bool(self.settings["overlays"].get("satellite", False)) and self.is_live()
@@ -150,25 +163,42 @@ class SatelliteOverlay(BackgroundLayer):
         kind = self.kind()
         channel = CHANNELS[kind][0]
         center = (self.view.lat0, self.view.lon0)
-        sat = satellite_for(center[1])
+        follow = self.follow if self.settings["satellite_sector"] == "storm" else None
+        sat = satellite_for(follow[1] if follow else center[1])
         enhance = bool(self.settings["satellite_enhance"])
-        want = (sat, kind, center, enhance)
+        want = (sat, kind, center, enhance, follow)
         if want != self._attempted:
             self._attempted = want
             self._next.pop("sat", None)
 
         def work():
             src = self._src
-            if src is None or src[:2] != (sat, channel) or self.raster is None or self.raster.pkey == want:
+            sector = "conus"
+            if follow is not None:
+                # a 1-minute mesoscale sector when one is aimed at the storm, else the CONUS picture
+                for sec in ("mesoscale-1", "mesoscale-2"):
+                    try:
+                        im, wld, meta, valid = fetch_image(sat, channel, sec)
+                        lon0 = lon0_from_proj(meta.get("proj4str"), SAT_LON[sat])
+                        if wld is not None and covers(im, wld, lon0, follow[0], follow[1], sat):
+                            src = self._src = (sat, channel, valid, im, wld, lon0, sec)
+                            sector = sec
+                            break
+                    except Exception:
+                        continue
+            if sector == "conus" and (src is None or src[:2] != (sat, channel) or len(src) > 6 and src[6] != "conus"
+                                      or self.raster is None or self.raster.pkey == want):
                 im, wld, meta, valid = fetch_image(sat, channel)
                 lon0 = lon0_from_proj(meta.get("proj4str"), SAT_LON[sat])
-                src = self._src = (sat, channel, valid, im, wld, lon0)
-            _sat, _ch, valid, im, wld, lon0 = src
+                src = self._src = (sat, channel, valid, im, wld, lon0, "conus")
+            _sat, _ch, valid, im, wld, lon0 = src[:6]
             rgba = image_rgba(im, kind, enhance)
             sw = scan_world(wld, rgba.shape[1], rgba.shape[0], sat)
-            out = reproject(rgba, sw, lon0, center[0], center[1])
-            ras = georaster.Raster(georaster.to_qimage(out), HALF_KM, center, valid,
-                                   f"{sat} {CHANNELS[kind][1].split(' (')[0].lower()}")
+            half, n = (1500.0, 1100) if sector != "conus" else (HALF_KM, GRID_N)
+            out = reproject(rgba, sw, lon0, center[0], center[1], half, n)
+            label = f"{sat} {CHANNELS[kind][1].split(' (')[0].lower()}" + (" (1-min mesoscale)" if sector != "conus"
+                                                                             else "")
+            ras = georaster.Raster(georaster.to_qimage(out), half, center, valid, label)
             ras.pkey = want
             self.raster = ras
         return [("sat", work, 5 * 60)]

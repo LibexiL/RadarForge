@@ -190,9 +190,10 @@ class _Relay(QObject):
 
 
 class SoundingDialog(QDialog):
-    def __init__(self, main, lat, lon, model="RAP"):
+    def __init__(self, main, lat, lon, model="RAP", valid=None):
         super().__init__(main)
         self.main = main
+        self.valid = valid               # a forecast time to open at (from the Models view), or None
         self.lat, self.lon = lat, lon
         self.profiles = []
         self.cur = None
@@ -285,6 +286,8 @@ class SoundingDialog(QDialog):
     def _archive_time(self):
         """The frame's time when looking at a past case (older than 3 hours), else None (latest run)."""
         from datetime import datetime, timezone
+        if self.valid is not None:
+            return None                  # a forecast: the newest run
         f = self.main.current_frame()
         t = getattr(f, "time", None)
         if t is None or (datetime.now(timezone.utc) - t).total_seconds() < 3 * 3600:
@@ -295,7 +298,7 @@ class SoundingDialog(QDialog):
         """The forecast hour closest to the radar frame shown (or now)."""
         from datetime import datetime, timezone
         f = self.main.current_frame()
-        t = getattr(f, "time", None) or datetime.now(timezone.utc)
+        t = self.valid or getattr(f, "time", None) or datetime.now(timezone.utc)
         best, bd = 0, None
         for i, p in enumerate(self.profiles):
             if p.time is None:

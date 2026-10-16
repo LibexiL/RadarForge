@@ -54,13 +54,15 @@ class DataLayersMixin:
         self._flags_gen = 0
         self._follow = None                    # {"x", "y", "t", "dx", "dy"} km, km/min
         self._follow_gen = 0
-        self.view.overlays = [self.mrms, self.ltg_density, self.spc, self.warnings, self.placefiles, self.l3ov,
-                              self.obs, self.cameras, self.lightning, self.chasers, self.storm_flags,
-                              self.my_location, self.captions]
+        self._init_winter_tropical()
+        self.captions.providers += [self.freezing, self.snowfall, self.tropical]
+        self.view.overlays = [self.mrms, self.ltg_density, self.snowfall, self.spc, self.tropical, self.warnings,
+                              self.freezing, self.placefiles, self.l3ov, self.obs, self.cameras, self.lightning,
+                              self.chasers, self.storm_flags, self.my_location, self.captions]
         self.view.underlays = [self.satellite, self.placefiles]
         self.view.hover_providers = [self.l3ov, self.storm_flags, self.chasers, self.cameras, self.placefiles,
-                                     self.warnings, self.my_location, self.obs, self.lightning, self.spc, self.mrms,
-                                     self.ltg_density]
+                                     self.tropical, self.warnings, self.my_location, self.obs, self.lightning, self.spc,
+                                     self.freezing, self.snowfall, self.mrms, self.ltg_density]
         self.view.mapClicked.connect(self._map_clicked)
         self.view.clickable_fn = self._clickable_at
         self._cam_timer = QTimer(self)
@@ -84,7 +86,8 @@ class DataLayersMixin:
         return getattr(f, "time", None)
 
     def _refresh_data_layers(self, force=False):
-        for ov in (self.satellite, self.mrms, self.ltg_density, self.lightning, self.obs):
+        for ov in (self.satellite, self.mrms, self.ltg_density, self.lightning, self.obs, self.freezing,
+                   self.snowfall, self.tropical):
             ov.refresh(force=force)
 
     def _layers_frame_changed(self, frame):
@@ -92,6 +95,8 @@ class DataLayersMixin:
         if self.data.mode != "live":
             for ov in (self.mrms, self.ltg_density, self.lightning):
                 ov.refresh()
+        for ov in (self.freezing, self.snowfall):
+            ov.on_frame()
         self._update_storm_flags(frame)
         self._follow_frame(frame)
 
@@ -103,6 +108,13 @@ class DataLayersMixin:
                 self._update_storm_flags(self.current_frame(), force=True)
         elif key in ("satellite", "mrms", "lightning", "lightning_density", "surface_obs") and on:
             self._refresh_data_layers(force=True)
+        elif key in ("freezing_line", "snowfall") and on:
+            (self.freezing if key == "freezing_line" else self.snowfall).refresh(force=True)
+        elif key.startswith("tropical") or key == "buoys":
+            self.tropical.invalidate()
+            self.tropical.refresh(force=True)
+            if hasattr(self, "tropical_panel"):
+                self.tropical_panel.sync()
         elif key == "cameras" and on:
             self.cameras.refresh(force=True)
             if not self.cameras.all_cameras():
@@ -172,7 +184,7 @@ class DataLayersMixin:
                                               (3, "Outlook: day 3")], self.spc.day(), self.set_spc_day)
 
     def _menu_storm_tools(self, m):
-        self._overlay_act(m, "storm_flags", "Automatic storm flags (rotation, debris, hail)", icon="flag")
+        m.addAction(self.overlay_acts["storm_flags"])
         self.follow_act = self._act(m, "Follow storm", self._toggle_follow, None, checkable=True, checked=False,
                                     tip="Right-click a storm → Follow this storm. The map stays on it as frames change.")
         self._iconize(self.follow_act, "target")
@@ -341,7 +353,13 @@ class DataLayersMixin:
 
     # ---------------------------------------------------------------- cameras
     def _map_clicked(self, x, y):
-        if self.view.tool != "pan":
+        if self.view.tool != "pan" or getattr(self, "view_mode", "radar") == "models":
+            return
+        st = self.tropical.storm_at(x, y, 8.0 / self.view.scale)
+        if st is not None:
+            self.tropical.selected = st.id
+            self.show_panel("tropical")
+            self.tropical_panel.sync()
             return
         if self.cameras.enabled():
             group = self.cameras.near(x, y, 8.0 / self.view.scale)
@@ -399,6 +417,10 @@ class DataLayersMixin:
 
     def _clickable_at(self, x, y, tol) -> bool:
         """Whether a click at (x, y) km opens something (the map shows a pointing hand there)."""
+        if getattr(self, "view_mode", "radar") == "models":
+            return False
+        if self.tropical.storm_at(x, y, tol) is not None:
+            return True
         edge_tol = tol * 1.5
         return bool(self.warnings.report_at(x, y, tol) is not None or
                     self.chasers.chaser_at(x, y, tol) is not None or
@@ -425,11 +447,12 @@ class DataLayersMixin:
             self.cameras.refresh(force=True)
 
     # ---------------------------------------------------------------- windows
-    def open_sounding(self, lat=None, lon=None):
+    def open_sounding(self, lat=None, lon=None, model="RAP", valid=None):
+        """A model sounding; [valid]: the forecast time to open at (the Models view's hour)."""
         from .sounding_dialog import SoundingDialog
         if lat is None:
             lat, lon = self.view.world_to_latlon(self.view.cx, self.view.cy)
-        SoundingDialog(self, float(lat), float(lon)).show()
+        SoundingDialog(self, float(lat), float(lon), model=model, valid=valid).show()
 
     def open_rotation_history(self, x=None, y=None):
         if not self.data.frames:

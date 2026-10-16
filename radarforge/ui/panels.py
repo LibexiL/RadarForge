@@ -267,15 +267,15 @@ class WarningsPanel(QWidget):
         w = QWidget()
         wl = QVBoxLayout(w)
         wl.setContentsMargins(6, 6, 6, 6)
-        frow = QHBoxLayout()
+        frow = QGridLayout()
         frow.setSpacing(3)
         self.filters = {}
-        for key, label, events in FILTERS:
+        for i, (key, label, events) in enumerate(FILTERS):
             cb = _chip(label, "Show on the map and in this list: " + ", ".join(events))
             cb.setChecked(self._filter_on(key))
             cb.toggled.connect(lambda on, k=key: self._filter_changed(k, on))
             self.filters[key] = cb
-            frow.addWidget(cb)
+            frow.addWidget(cb, i // 4, i % 4)
         wl.addLayout(frow)
         row2 = QHBoxLayout()
         self.in_view = QCheckBox("Only in view")
@@ -397,6 +397,9 @@ class WarningsPanel(QWidget):
                 act.blockSignals(False)
             if on:
                 m.warnings.refresh(force=True)
+        elif hasattr(m, "set_warning_type"):
+            m.set_warning_type(key, on)                 # keeps the menus and the Severe / Winter panels in step
+            return
         else:
             types = dict(s["warning_types"] or {})
             types[key] = on

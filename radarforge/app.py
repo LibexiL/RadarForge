@@ -92,7 +92,8 @@ class _Tee:
 
 
 def check_components() -> list:
-    """[(name, ok, message)] for each optional component (lightning files, MRMS decoding, sounds, MP4, soundings)."""
+    """[(name, ok, message)] for each optional component (lightning files, MRMS decoding, sounds, MP4, soundings,
+    model maps)."""
     results = []
 
     def check(name, fn):
@@ -141,8 +142,20 @@ def check_components() -> list:
         import metpy.calc
         return f"MetPy ({len(dir(metpy.calc))} functions)"
 
+    def model_maps():
+        import numpy as np
+        from skimage import measure
+        from .features import grib2
+        v = np.add.outer(np.arange(8.0), np.arange(8.0))
+        assert measure.find_contours(v, 7.0)
+        p = grib2.lcc_params(38.5, 38.5, -97.5, 6371229.0)
+        x, y = grib2.lcc_forward(p, 35.0, -97.0)
+        la, lo = grib2.lcc_inverse(p, x, y)
+        assert abs(float(la) - 35.0) < 1e-6
+        return "GRIB2 (Lambert, complex packing) and isolines"
+
     for name, fn in (("Lightning files (GLM)", glm), ("MRMS decoding", grib), ("Alert sounds", sound),
-                     ("MP4 export", mp4), ("Model soundings", metpy)):
+                     ("MP4 export", mp4), ("Model soundings", metpy), ("Model maps", model_maps)):
         check(name, fn)
     return results
 

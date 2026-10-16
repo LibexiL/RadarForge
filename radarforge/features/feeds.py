@@ -167,10 +167,14 @@ REPORT_KINDS = {
     "wind_damage": ("W", (80, 160, 255), "Wind damage", "wind"),
     "wind_gust": ("G", (150, 210, 255), "Wind gust", "wind"),
     "flood": ("F", (30, 200, 180), "Flooding", "flood"),
+    "snow": ("S", (120, 175, 255), "Snow", "winter"),
+    "blizzard": ("BZ", (255, 110, 70), "Blizzard", "winter"),
+    "sleet": ("SL", (250, 175, 110), "Sleet", "winter"),
+    "ice": ("I", (215, 120, 235), "Freezing rain / ice", "winter"),
     "other": ("•", (180, 180, 190), "Other", "other"),
 }
 REPORT_GROUPS = (("tornado", "Tornado"), ("hail", "Hail"), ("wind", "Wind"), ("flood", "Flood"),
-                 ("other", "Other"))
+                 ("winter", "Winter"), ("other", "Other"))
 
 
 def report_kind(type_text: str) -> str:
@@ -191,7 +195,27 @@ def report_kind(type_text: str) -> str:
         return "wind_gust"
     if "FLOOD" in u or "DEBRIS FLOW" in u:
         return "flood"
+    if "BLIZZARD" in u:
+        return "blizzard"
+    if "FREEZING" in u or "ICE STORM" in u or "GLAZE" in u:
+        return "ice"
+    if "SLEET" in u:
+        return "sleet"
+    if "SNOW" in u:
+        return "snow"
     return "other"
+
+
+def snow_inches(r) -> float | None:
+    """A snow report's total in inches (None when it has none)."""
+    if r.get("kind") != "snow":
+        return None
+    try:
+        v = float(str(r.get("magnitude") or "").split()[0])
+    except (ValueError, IndexError):
+        return None
+    unit = str(r.get("magnitude") or "").upper()
+    return v / 2.54 if " CM" in unit else v
 
 
 def parse_lsr(js: dict) -> list:

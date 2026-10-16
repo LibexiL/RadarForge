@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QMenu, QMessageBo
 
 from .. import __version__, themes
 from ..features import feeds
+from ..features import models as models_mod
 
 LAYOUT_NAMES = {1: "1 panel", 2: "2 panels side by side", 3: "3 panels side by side", 4: "4 panels (2 × 2)",
                 5: "5 panels (3 over 2)", 6: "6 panels (3 × 2)"}
@@ -144,6 +145,7 @@ class MenusMixin:
         self.addToolBar(tb)
         self.main_tb = tb
         self._icon_targets = []           # (action or button, icon name) re-tinted when the theme changes
+        self._build_view_switch(tb)       # [Radar] [Models]
 
         # radar + data source
         self.site_btn = QToolButton()
@@ -154,7 +156,7 @@ class MenusMixin:
         f = self.site_btn.font()
         f.setBold(True)
         self.site_btn.setFont(f)
-        tb.addWidget(self.site_btn)
+        self._site_btn_act = tb.addWidget(self.site_btn)
         self._icon_targets.append((self.site_btn, "radar"))
         tb.addSeparator()
         self.live_act = QAction("Live", self, checkable=True)
@@ -206,7 +208,7 @@ class MenusMixin:
         self.tilt_combo.setMinimumContentsLength(7)
         self.tilt_combo.setToolTip("Elevation angle (↑ / ↓)")
         self.tilt_combo.activated.connect(self._tilt_chosen)
-        tb.addWidget(self.tilt_combo)
+        self._tilt_combo_act = tb.addWidget(self.tilt_combo)
         up = QAction("Higher tilt", self)
         up.setToolTip("Higher tilt (Up)")
         up.triggered.connect(lambda: self.step_tilt(1))
@@ -262,6 +264,7 @@ class MenusMixin:
         for a, ic in ((self.smooth_act, "smooth"), (self.dealias_act, "dealias"), (self.trail_act, "trail")):
             self._tb_button(tb, a, text_beside=False)
             self._icon_targets.append((a, ic))
+        self._build_models_toolbar(tb)    # model / run / area pickers (shown in the Models view)
 
         # panel switches live in the menu bar's free right-hand corner, so they're never pushed off a
         # narrow window: [Quick] [Side panel] (Quick is added once the panels exist)
@@ -392,7 +395,7 @@ class MenusMixin:
         menu.addSeparator()
         menu.addAction("Other number…", self._ask_loop_frames)
         self.frames_btn.setMenu(menu)
-        tb.addWidget(self.frames_btn)
+        self._frames_btn_act = tb.addWidget(self.frames_btn)
         self._update_loop_buttons()
 
     def _update_loop_buttons(self):
@@ -434,9 +437,9 @@ class MenusMixin:
         self._menu_file(mb.addMenu("&File"))
         self._menu_view(mb.addMenu("&View"))
         self._menu_radar(mb.addMenu("&Radar"))
+        self._menu_models(mb.addMenu("&Models"))
         self._menu_layers(mb.addMenu("&Layers"))
         self._menu_tools(mb.addMenu("&Tools"))
-        self._menu_location(mb.addMenu("L&ocation"))
         self.panels_menu = mb.addMenu("&Panels")
         self._menu_help(mb.addMenu("&Help"))
 
@@ -534,13 +537,23 @@ class MenusMixin:
                   tip="The storm motion used for storm-relative velocity and the track tool")
 
     def _menu_layers(self, m):
-        self._header(m, "Warnings & outlooks")
-        w = self._submenu(m, "Warnings && reports", "warning")
-        self._overlay_act(w, "warnings", "NWS warnings")
-        self._overlay_act(w, "watches", "Watches (live)")
-        self._overlay_act(w, "reports", "Local storm reports")
-        w.addSeparator()
-        hours = w.addMenu("Storm reports: show the last")
+        """Grouped like the side panels: presets, the three weather panels (Severe, Winter, Tropical), then the
+        Layers panel's general groups."""
+        self._header(m, "Presets")
+        self._menu_presets(m)
+        self._header(m, "Weather")
+        sev = self._submenu(m, "Severe", "warning")
+        self.wtype_acts = getattr(self, "wtype_acts", {})
+        for key, label in (("TOR", "Tornado warnings"), ("SVR", "Severe thunderstorm warnings"),
+                           ("FFW", "Flash flood warnings"),
+                           ("OTH", "Other warnings (marine, extreme wind, snow squall, dust, statements)")):
+            self.wtype_acts[key] = self._act(sev, label, lambda on, k=key: self.set_warning_type(k, on), None,
+                                             checkable=True,
+                                             checked=bool((self.settings["warning_types"] or {}).get(key, True)))
+        sev.addSeparator()
+        rp = self._submenu(sev, "Storm reports && chasers", "target")
+        self._overlay_act(rp, "reports", "Local storm reports")
+        hours = rp.addMenu("Storm reports: show the last")
         self.rep_hours_group = QActionGroup(self)
         for h in (1, 3, 6, 12, 24):
             a = QAction(f"{h} hour" + ("s" if h > 1 else ""), self, checkable=True)
@@ -549,36 +562,57 @@ class MenusMixin:
             a.triggered.connect(lambda _=False, h=h: self.set_report_hours(h))
             self.rep_hours_group.addAction(a)
             hours.addAction(a)
-        types = w.addMenu("Storm reports: types")
+        types = rp.addMenu("Storm reports: types")
         self.rep_type_acts = {}
         for g, label in feeds.REPORT_GROUPS:
             on = bool((self.settings["report_types"] or {}).get(g, g != "other"))
-            self.rep_type_acts[g] = self._act(types, label + (" (rain, snow…)" if g == "other" else ""),
+            self.rep_type_acts[g] = self._act(types, label + (" (snow, sleet, ice)" if g == "winter" else
+                                                              " (rain, cold…)" if g == "other" else ""),
                                               lambda checked, g=g: self.set_report_type(g, checked), None,
                                               checkable=True, checked=on)
-        self.sn_rep_act = self._act(w, "Include Spotter Network reports", self._toggle_sn_reports, None,
+        self.sn_rep_act = self._act(rp, "Include Spotter Network reports", self._toggle_sn_reports, None,
                                     checkable=True, checked=bool(self.settings["spotter_reports"]))
-        w.addSeparator()
-        self._act(w, "Refresh warnings now", lambda: self.warnings.refresh(force=True), None, icon="refresh")
-        spc = self._submenu(m, "Storm Prediction Center", "flag")
+        rp.addSeparator()
+        self._overlay_act(rp, "chasers", "Storm chasers (Spotter Network)")
+        self.chaser_acts = self._radio(rp, [(False, "Chasers: everyone"),
+                                            (True, "Chasers: active reporters only (5+ reports in a year)")],
+                                       bool(self.settings["chasers_active_only"]), self._set_chasers_active)
+        self.chaser_names_act = self._act(rp, "Chaser names (zoomed in)", self._toggle_chaser_names, None,
+                                          checkable=True, checked=bool(self.settings["chaser_names"]))
+        spc = self._submenu(sev, "Storm Prediction Center", "flag")
         self._overlay_act(spc, "spc_outlook", "Convective outlook")
         self._overlay_act(spc, "spc_mcd", "Mesoscale discussions")
         self._menu_spc_days(spc)
-        ch = self._submenu(m, "Storm chasers", "target")
-        self._overlay_act(ch, "chasers", "Show storm chasers (Spotter Network)")
-        ch.addSeparator()
-        self.chaser_acts = self._radio(ch, [(False, "Everyone"), (True, "Active reporters only (5+ reports in a year)")],
-                                       bool(self.settings["chasers_active_only"]), self._set_chasers_active)
-        ch.addSeparator()
-        self.chaser_names_act = self._act(ch, "Show names (zoomed in)", self._toggle_chaser_names, None,
-                                          checkable=True, checked=bool(self.settings["chaser_names"]))
-        self._header(m, "Weather data")
-        self._menu_data_layers(m)
-        self._header(m, "Radar & map")
-        l3 = self._submenu(m, "Level III overlays", "radar")
-        for key, label in (("storm_tracks", "Storm tracks (NST)"), ("hail", "Hail index (NHI)"),
-                           ("melting_layer", "Melting layer (N0M)")):
-            self._overlay_act(l3, key, label)
+        sev.addSeparator()
+        for key, label in (("storm_tracks", "Storm tracks (Level III NST)"), ("hail", "Hail index (Level III NHI)")):
+            self._overlay_act(sev, key, label)
+        self._overlay_act(sev, "storm_flags", "Storm flags (rotation, debris, hail)", icon="flag")
+        sev.addSeparator()
+        self._act(sev, "Severe model maps (CAPE, helicity, shear, STP)",
+                  lambda: self.open_model_set(["cape_ml", "srh01", "shear06", "stp"], "hrrr"), None, icon="models")
+        self._act(sev, "Severe panel", lambda: self.show_panel("severe"), None)
+        win = self._submenu(m, "Winter", "snow")
+        self._menu_winter(win)
+        win.addSeparator()
+        self._act(win, "Winter model maps (type, snow, ice, temperature)",
+                  lambda: self.open_model_set(["ptype", "snow10", "frzr", "t2m"]), None, icon="models")
+        self._act(win, "Winter panel", lambda: self.show_panel("winter"), None)
+        tro = self._submenu(m, "Tropical", "hurricane")
+        self._menu_tropical(tro)
+        tro.addSeparator()
+        self._act(tro, "Tropical model maps (GFS)",
+                  lambda: self.open_model_set(["mslp", "wind10", "pwat", "qpf"], "gfs", "Atlantic tropics"), None,
+                  icon="models")
+        self._header(m, "Any weather")
+        w = self._submenu(m, "Warnings", "warning")
+        self._overlay_act(w, "warnings", "NWS warnings")
+        self._overlay_act(w, "watches", "Tornado && severe thunderstorm watches")
+        w.addSeparator()
+        self._act(w, "Refresh warnings now", lambda: self.warnings.refresh(force=True), None, icon="refresh")
+        ro = self._submenu(m, "Radar overlays", "radar")
+        self._overlay_act(ro, "melting_layer", "Melting layer (Level III N0M)")
+        sat = self._submenu(m, "Satellite, MRMS && observations", "satellite")
+        self._menu_data_layers(sat)
         mp = self._submenu(m, "Map", "layers")
         self.cities_act = self._act(mp, "City labels", self._toggle_cities, None, checkable=True,
                                     checked=bool(self.settings["map_layers"].get("cities", True)))
@@ -602,9 +636,29 @@ class MenusMixin:
         self.maps_under_act.setToolTip("Roads, borders and lakes beneath the radar data, so echoes cover them "
                                        "(off: drawn on top)")
         self._act(mp, "Map colours && fonts…", lambda: self.open_settings("Map style"), None)
-        self._act(m, "Placefiles…", self.open_placefiles, "Ctrl+P")
         m.addSeparator()
-        self._act(m, "Quick panel (every switch in one place)", lambda: self.show_panel("quick"), None, icon="quick")
+        self._act(m, "Placefiles…", self.open_placefiles, "Ctrl+P")
+        self._act(m, "Layers panel", lambda: self.show_panel("quick"), None, icon="quick")
+
+    def _menu_models(self, m):
+        self._act(m, "Models view", lambda: self.set_view_mode("models"), None, icon="models",
+                  tip="HRRR, NAM, RAP and GFS forecast maps (F6 switches between Radar and Models)")
+        self._act(m, "Radar view", lambda: self.set_view_mode("radar"), None, icon="radar")
+        self._header(m, "Model")
+        self.model_acts = self._radio(m, [(mid, md.name) for mid, md in models_mod.MODELS.items()],
+                                      self.settings["model_id"] or "hrrr",
+                                      lambda mid: (self.set_view_mode("models"), self.models.set_model(mid)))
+        self._header(m, "Area")
+        area = self._submenu(m, "Jump to a region", "layers")
+        self._act(area, "Around the radar", lambda: (self.set_view_mode("models"), self.set_model_region("radar")), None)
+        for name in models_mod.REGIONS:
+            self._act(area, name, lambda _=False, n=name: (self.set_view_mode("models"), self.set_model_region(n)), None)
+        self._header(m, "Run")
+        self._act(m, "Newest run", lambda: (self.models.set_run(None), self.models.refresh_runs()), None, icon="refresh")
+        self._act(m, "Next forecast hour", lambda: self.models_step(1), None)
+        self._act(m, "Previous forecast hour", lambda: self.models_step(-1), None)
+        m.addSeparator()
+        self._act(m, "Models panel (fields and what they mean)", lambda: self.show_panel("models"), None)
 
     def _menu_tools(self, m):
         self._header(m, "Mouse tools")
@@ -612,20 +666,18 @@ class MenusMixin:
             m.addAction(a)
         self._header(m, "Storm analysis")
         self._menu_storm_tools(m)
-        m.addSeparator()
         self._act(m, "Storm cell table", lambda: self.show_panel("cells"), None)
         self._act(m, "Level III storm table (text)", self.show_storm_table, None)
+        self._header(m, "My location && places")
+        self._menu_location(m)
 
     def _menu_location(self, m):
         self._act(m, "Search places…", self.focus_search, "Ctrl+F")
-        m.addSeparator()
         self._act(m, "Go to my location", self.go_to_my_location, "Ctrl+L", icon="pin")
         self._act(m, "Set my location…", self.set_my_location_dialog, None)
         self._act(m, "Remove my location", lambda: self.set_my_location(None, None), None)
-        m.addSeparator()
         self.warn_loc_act = self._act(m, "Alert me when a warning covers my location", self._toggle_warn_loc, None,
                                       checkable=True, checked=bool(self.settings["warn_at_location"]))
-        m.addSeparator()
         self._act(m, "Saved locations && alerts…", lambda: self.open_locations(), "Ctrl+Shift+L", icon="star")
         self._act(m, "Save the map centre as a location…",
                   lambda: self.save_location_here(*self.view.world_to_latlon(self.view.cx, self.view.cy)), None)
@@ -751,7 +803,9 @@ class MenusMixin:
                          ("Ctrl+T", "Σ max value trail on / off")]),
             ("Map", [("wheel / drag", "zoom / pan"), ("double-click", "centre here"), ("Home", "reset view"),
                      ("right-click", "product, colour table, sounding, storm tools, nearest radar")]),
-            ("Window", [("F8", "Quick panel"), ("F9", "show / hide the side panel"), ("F11", "full screen"),
+            ("Views", [("F6", "switch between the Radar and Models views"),
+                       ("← / → (Models)", "previous / next forecast hour; Space plays them")]),
+            ("Window", [("F8", "Layers panel"), ("F9", "show / hide the side panel"), ("F11", "full screen"),
                         ("F1", "this list")]),
             ("Data & files", [("F5", "reload live data"), ("Ctrl+O", "open files"), ("Ctrl+A", "archive"),
                               ("Ctrl+R", "choose radar"), ("Ctrl+D", "add / remove favourite radar"),

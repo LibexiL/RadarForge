@@ -215,7 +215,7 @@ _PRODUCT_FAMILY = {
     "VIL": "VIL", "DVL": "VIL", "ET": "ET", "EET": "ET", "HC": "HCA", "HCA": "HCA", "HHC": "HCA",
     "N0H": "HCA", "MESH": "MESH", "MEHS": "MESH", "POSH": "POSH", "VILD": "VILD", "DPR": "PRATE",
     "DAA": "PACC", "DTA": "PACC", "DU3": "PACC", "OHA": "PACC", "STP": "PACC", "DSD": "PDIFF",
-    "DOD": "PDIFF", "AZSHEAR": "SHEAR", "AZSH": "SHEAR", "SHEAR": "SHEAR", "DIV": "SHEAR",
+    "DOD": "PDIFF", "PTYPE": "PTYPE", "AZSHEAR": "SHEAR", "AZSH": "SHEAR", "SHEAR": "SHEAR", "DIV": "SHEAR",
 }
 _UNIT_FAMILY = {"DBZ": "REF", "KDP": "KDP", "DEG/KM": "KDP", "KG/M2": "VIL", "KFT": "ET"}
 
@@ -223,7 +223,7 @@ FAMILY_NAMES = {"REF": "reflectivity", "VEL": "velocity", "SW": "spectrum width"
                 "CC": "correlation coefficient", "KDP": "KDP", "PHI": "differential phase", "CFP": "CFP",
                 "VIL": "VIL", "ET": "echo tops", "HCA": "hydrometeor class", "MESH": "MESH", "POSH": "POSH",
                 "VILD": "VIL density", "PRATE": "precip rate", "PACC": "precip accumulation",
-                "PDIFF": "precip difference", "SHEAR": "shear"}
+                "PDIFF": "precip difference", "SHEAR": "shear", "PTYPE": "precipitation type"}
 
 
 def table_family(ct: ColorTable):

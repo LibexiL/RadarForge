@@ -1,0 +1,32 @@
+; RadarForge precipitation type: reflectivity coded 100 x type + dBZ
+; rain 5-99, snow 105-199, sleet 205-299, freezing rain 305-399
+Product: PTYPE
+Units: dBZ
+Color4: 5 120 200 120 140
+Color: 15 60 190 70
+Color: 30 15 110 25
+Color: 35 245 230 60
+Color: 45 240 140 30
+Color: 55 210 30 30
+Color: 65 120 10 20
+SolidColor: 99 120 10 20
+Color4: 105 190 220 250 150
+Color: 115 120 175 240
+Color: 125 50 110 225
+Color: 140 20 40 170
+SolidColor: 160 20 30 120
+SolidColor: 199 20 30 120
+Color4: 205 250 205 165 160
+Color: 220 245 150 90
+Color: 235 225 100 40
+SolidColor: 255 170 60 20
+SolidColor: 299 170 60 20
+Color4: 305 245 185 235 160
+Color: 320 220 110 210
+Color: 335 170 40 170
+SolidColor: 355 100 10 110
+SolidColor: 399 100 10 110
+Label: 22 Rain
+Label: 128 Snow
+Label: 228 Sleet
+Label: 328 Freezing rain

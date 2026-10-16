@@ -46,7 +46,7 @@ def test_chasers_parse():
 def test_report_kinds_and_lsr():
     for text, kind in (("TORNADO", "tornado"), ("FUNNEL CLOUD", "funnel"), ("WALL CLOUD", "wall"), ("HAIL", "hail"),
                        ("TSTM WND DMG", "wind_damage"), ("TSTM WND GST", "wind_gust"), ("FLASH FLOOD", "flood"),
-                       ("EXTR WIND CHILL", "other"), ("SNOW", "other"), ("WATERSPOUT", "tornado")):
+                       ("EXTR WIND CHILL", "other"), ("SNOW", "snow"), ("WATERSPOUT", "tornado")):
         assert feeds.report_kind(text) == kind, text
     js = {"features": [
         {"properties": {"typetext": "HAIL", "magf": 1.75, "unit": "Inch", "city": "3 N Norman", "st": "OK",

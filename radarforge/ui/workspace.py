@@ -1240,9 +1240,9 @@ class Workspace(QWidget):
 
     def apply_default(self, total_w=1500, total_h=900):
         # what a new user needs first; Placefiles opens when used (Layers → Placefiles…, or the Panels menu)
-        later = {"placefiles"}
+        later = {"placefiles", "inspector"}
         side = [k for k in self._panels if self.group(k) == "side" and k not in later]
-        groups = [["quick", "products"], ["warnings", "inspector", "cells"]]
+        groups = [["quick", "severe", "winter", "tropical"], ["products", "models", "warnings", "cells"]]
         groups = [[k for k in g if k in side] for g in groups]
         extra = [k for k in side if not any(k in g for g in groups)]
         if extra:

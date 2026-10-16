@@ -144,6 +144,8 @@ class RadarView(QOpenGLWindow):
         self.tool = "pan"
         self.overlays: list = []          # objects with paint(painter, view_transform, panel, widget)
         self.underlays: list = []         # objects with paint_below(...) drawn beneath the radar data
+        self.mode = "radar"               # "radar" | "models" (the Models view draws model maps instead)
+        self.model_layer = None           # the Models view's layer (paint_below + paint)
         self.hover_providers: list = []   # objects with hover(x, y, tolerance_km) -> str|None
         self.cursor_world = None
         self.cursor_panel = -1
@@ -307,7 +309,7 @@ class RadarView(QOpenGLWindow):
 
     def site_at(self, pos, radius_px=11.0):
         """Radar site id under a screen position (or None)."""
-        if not self.show_sites:
+        if not self.show_sites or self.mode == "models":
             return None
         i = self.panel_at(pos)
         if i < 0:
@@ -635,7 +637,10 @@ class RadarView(QOpenGLWindow):
     def _paint_scene(self, painter):
         # 1) background   2) layers that go *under* the radar   3) radar + maps   4) overlays
         self._native(painter, self._gl_clear)
-        under = [u for u in self.underlays if getattr(u, "has_below", lambda: True)()]
+        if self.mode == "models":
+            under = [self.model_layer] if self.model_layer is not None else []
+        else:
+            under = [u for u in self.underlays if getattr(u, "has_below", lambda: True)()]
         if under:
             painter.setRenderHint(QPainter.Antialiasing, True)
             for p in self.panels:
@@ -657,8 +662,10 @@ class RadarView(QOpenGLWindow):
         layers = {}
         for p in self.panels:
             key = (round(p.rect.width()), round(p.rect.height()))
+            if self.mode == "models":
+                key = key + (p.index,)            # each panel has its own isolines and barbs
             if key not in layers:
-                layers[key] = self._overlay_layer(p, *key)
+                layers[key] = self._overlay_layer(p, *key[:2])
             painter.save()
             painter.setClipRect(p.rect)
             painter.drawImage(QPointF(round(p.rect.left()), round(p.rect.top())), layers[key])
@@ -747,7 +754,7 @@ class RadarView(QOpenGLWindow):
             GL.glScissor(x, y, w, h)
             view = (self.cx, self.cy, self.scale * dpr, 0.0)
             vp = (float(w), float(h))
-            has_image = p.image is not None and p.palette is not None
+            has_image = p.image is not None and p.palette is not None and self.mode != "models"
             if self.maps_under_radar:
                 self._draw_maps(view, vp, dpr)        # the echoes cover the roads and borders
             if has_image:
@@ -874,6 +881,14 @@ class RadarView(QOpenGLWindow):
                 fn(*args)
             finally:
                 painter.restore()
+        if self.mode == "models":
+            # model maps: isolines and barbs, towns, and the measuring line – none of the radar's layers
+            if self.model_layer is not None:
+                layer(self.model_layer.paint, painter, vt, p, self)
+            if self.show_cities:
+                layer(self._paint_cities, painter, p, vt)
+            self._paint_lines(painter, vt)
+            return
         if self.show_range_rings:
             layer(self._paint_rings, painter, vt)
         if self.show_cities:
@@ -1402,7 +1417,7 @@ class RadarView(QOpenGLWindow):
             kind = "TDWR" if s.type == "tdwr" else "WSR-88D"
             extra = "  (current radar)" if sid == self.site_id else "\nClick to load this radar"
             txt = f"{sid} – {s.place}, {s.state}  {kind}{extra}"
-        elif self.hover_text and self._drag is None:
+        elif self.hover_text and self._drag is None and self.mode != "models":
             for hp in self.hover_providers:
                 try:
                     txt = hp.hover(x, y, tol)

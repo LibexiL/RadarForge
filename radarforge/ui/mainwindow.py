@@ -38,6 +38,8 @@ from .main_export import ExportMixin
 from .main_layers import LayersMixin
 from .main_location import LocationMixin
 from .main_menus import MenusMixin
+from .main_models import ModelsMixin
+from .main_tropical import PresetsMixin, WinterTropicalMixin
 from .main_storm import StormToolsMixin
 from .updates import UpdatesMixin
 
@@ -105,8 +107,8 @@ class _Lazy3D(QWidget):
         super().showEvent(ev)
 
 
-class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, ExportMixin, DataLayersMixin, UpdatesMixin,
-                 QMainWindow):
+class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, LayersMixin, StormToolsMixin, LocationMixin,
+                 ExportMixin, DataLayersMixin, UpdatesMixin, QMainWindow):
     stateChanged = Signal()          # frame / panel / tilt / product changed (side panels refresh)
     cursorInfo = Signal(object)      # dict for the cursor inspector
 
@@ -166,6 +168,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.my_location = MyLocation(settings)
         self._notified = dict(settings["notified_warnings"] or {})
         self._init_data_layers()          # satellite, lightning, MRMS, obs, storm flags; sets the overlay lists
+        self._init_models()               # the Models view (its toolbar pickers are built with the toolbar)
         for sig in (self.warnings.changed, self.placefiles.changed, self.chasers.changed, self.spc.changed):
             sig.connect(self.view.update)
         for ov in (self.warnings, self.placefiles, self.chasers, self.spc):
@@ -227,7 +230,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 self.restoreGeometry(bytes.fromhex(g))
             except Exception:
                 pass
-        WS_VERSION = 2          # 1.10: Quick panel; one-time switch to the new default arrangement
+        WS_VERSION = 4          # 1.10: Quick panel; 1.20: Layers + Models, then Severe / Winter panels; one-time switch to the new default arrangement
         if int(settings["workspace_version"] or 0) < WS_VERSION or not self.ws.restore(settings["workspace"] or {}):
             self.ws.apply_default(self.width(), self.height())
             settings["workspace_version"] = WS_VERSION
@@ -246,7 +249,8 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
 
     # ================================================================== UI build
     # ================================================================== side panel / workspace
-    SIDE_PANELS = ("quick", "products", "warnings", "cells", "inspector", "placefiles")
+    SIDE_PANELS = ("quick", "severe", "winter", "tropical", "products", "models", "warnings", "cells", "inspector",
+                   "placefiles")
 
     def _build_panels(self):
         ws = self.ws
@@ -256,8 +260,19 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.inspector_panel = InspectorPanel(self)
         self.placefile_panel = PlacefilePanel(self.placefiles, compact=True)
         self.quick_panel = QuickPanel(self)
-        for key, title, w in (("quick", "Quick", self.quick_panel),
+        from .models_panel import ModelsPanel
+        from .tropical_panel import TropicalPanel
+        from .weather_panels import SeverePanel, WinterPanel
+        self.models_panel = ModelsPanel(self)
+        self.tropical_panel = TropicalPanel(self)
+        self.severe_panel = SeverePanel(self)
+        self.winter_panel = WinterPanel(self)
+        for key, title, w in (("quick", "Layers", self.quick_panel),
+                              ("severe", "Severe", self.severe_panel),
+                              ("winter", "Winter", self.winter_panel),
                               ("products", "Products", self.products_panel),
+                              ("models", "Models", self.models_panel),
+                              ("tropical", "Tropical", self.tropical_panel),
                               ("warnings", "Warnings", self.warnings_panel),
                               ("cells", "Storm cells", self.cells_panel),
                               ("inspector", "Inspector", self.inspector_panel),
@@ -276,7 +291,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         # the Quick panel's switch sits beside the side-panel switch in the menu bar corner (F8)
         qa = ws.action("quick")
         qa.setShortcut(QKeySequence("F8"))
-        qa.setToolTip("Quick panel: every radar, overlay and layer switch in one place (F8)")
+        qa.setToolTip("Layers panel: the map's layers, and the Severe, Winter and Tropical panels (F8)")
         self.addAction(qa)
         self._iconize(qa, "quick")
         qb = QToolButton()
@@ -441,6 +456,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
 
     def _toggle_live(self, on):
         if on:
+            self.tropical.set_replay(None)
             self.follow_latest = True
             self.warnings.set_live()
             self.data.start_live()
@@ -463,20 +479,8 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         files = d.selected_files()
         if not files:
             return
-        site = d.site.text().strip().upper()
-        self.live_act.blockSignals(True)
-        self.live_act.setChecked(False)
-        self.live_act.blockSignals(False)
-        if site != self.data.site_id and get_site(site):
-            self.data.site_id = site
-            self.settings["site"] = site
-            self._set_site_projection(site)
-        self.engine.clear()
-        self.frame_index = -1
-        self._shown_frame = None
-        self.follow_latest = False
-        self._update_l3_needs()
-        self.data.load_archive(files, l3=d.l3.isChecked())
+        self.tropical.set_replay(None)
+        self.start_archive(d.site.text().strip().upper(), files, l3=d.l3.isChecked())
 
     def open_files(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Open Level II / Level III files", os.path.expanduser("~"),
@@ -686,6 +690,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.time_label.setText(f" {frame.time:%Y-%m-%d %H:%M:%S}Z  [{self.frame_index + 1}/{n}]{live} ")
 
     def goto_frame(self, i):
+        if getattr(self, "view_mode", "radar") == "models":
+            self.models_goto_index(i)
+            return
         n = len(self.data.frames)
         if n == 0:
             return
@@ -698,6 +705,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._show_frame()
 
     def step_frame(self, d):
+        if getattr(self, "view_mode", "radar") == "models":
+            self.models_step(d)
+            return
         n = len(self.data.frames)
         if n:
             self.goto_frame((self.frame_index + d) % n)
@@ -710,12 +720,20 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.play_act.setIcon(icons.icon("pause" if self.playing else "play"))
         self.play_act.setToolTip("Pause loop (Space)" if self.playing else "Play loop (Space)")
         if self.playing:
-            self._prefetch()
+            if self.view_mode != "models":
+                self._prefetch()
             self.play_timer.start(int(1000 / max(0.5, float(self.settings["loop_fps"]))))
         else:
             self.play_timer.stop()
 
     def _play_step(self):
+        if self.view_mode == "models":
+            if self.models.busy_count() == 0 or getattr(self, "_wait", 0) >= 10:
+                self._wait = 0
+                self.models_step(1)
+            else:
+                self._wait = getattr(self, "_wait", 0) + 1
+            return
         n = len(self.data.frames)
         if n < 2:
             return
@@ -859,6 +877,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self._update_layout_btn()
         self.view.set_layout(n, list(self.settings["panels"]))
         self._update_l3_needs()
+        if getattr(self, "view_mode", "radar") == "models":
+            self.models.pictures.clear()
+            self.models.request_soon(0)
         self._show_frame()
 
     def set_panel_product(self, i, pid):
@@ -867,6 +888,7 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             panels.append("REF")
         panels[i] = pid
         self.settings["panels"] = panels
+        self._sync_ptype_act()
         self.view.panels[i].product = pid
         self.view.panels[i].image = None
         self._update_l3_needs()
@@ -893,6 +915,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
         self.data.set_l3_needed(codes)
 
     def _show_frame(self):
+        if getattr(self, "view_mode", "radar") == "models":
+            self._models_changed()
+            return
         frame = self.current_frame()
         self._shown_frame = frame
         self._update_l3_needs()
@@ -1052,6 +1077,8 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 tags += "  (scanning)"                # new radials over the volume before
             if img.extra.get("dealiased") and p.product in ("VEL", "L3G", "L3S"):
                 tags += "  dealiased"
+            if img.extra.get("ptype"):
+                tags += "  · " + img.extra['ptype'].replace(" analysis", "")
             if img.extra.get("trail"):
                 tags += f"  Σ {'min' if trail_mod.rule_for(p.product) == 'min' else 'max'} of {img.extra['trail']} frames"
             p.header = f"{site}  {pd.name}  {tl}  {t:%H:%M:%S}Z{stale}{tags}"
@@ -1129,6 +1156,9 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
     # ================================================================== panel menu
     def _panel_menu(self, idx, gpos):
         """Right-click on a panel: its product and colour table, then things to do at that spot."""
+        if self.view_mode == "models":
+            self._model_panel_menu(idx, gpos)
+            return
         menu = QMenu(self)
         cur = self.view.panels[idx].product
 
@@ -1210,6 +1240,16 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
             for p in self.view.panels:
                 p.readout = ""
             return
+        if self.view_mode == "models":
+            lat, lon = self.view.world_to_latlon(x, y)
+            parts = [f"{abs(lat):.3f}°{'N' if lat >= 0 else 'S'} {abs(lon):.3f}°{'W' if lon < 0 else 'E'}"]
+            for p in self.view.panels:
+                p.readout = self.models.value_text(p.index, x, y)
+            cur = self.view.panels[panel]
+            if cur.readout:
+                parts.append(f"{self.models.header(panel).split('  F')[0]}: {cur.readout}")
+            self.readout.setText("   |   ".join(parts))
+            return
         lat, lon, dist, az = self.view.describe_point(x, y)
         du = self.settings["distance_units"]
         s_km = dist * UNIT_F[du]
@@ -1231,7 +1271,10 @@ class MainWindow(MenusMixin, LayersMixin, StormToolsMixin, LocationMixin, Export
                 txt = "RF"
             else:
                 disp = v * p.palette.data_scale(pd.units) + p.palette.offset
-                if pd.categorical and p.palette.labels:
+                if p.product == "PTYPE":
+                    from ..features.winter import TYPE_NAMES
+                    txt = f"{disp % 100:.0f} dBZ {TYPE_NAMES[int(disp // 100) % 4]}"
+                elif pd.categorical and p.palette.labels:
                     txt = p.palette.labels.get(float(round(disp)), f"{disp:.0f}")
                 else:
                     dec = pd.decimals if p.palette.units.upper() not in ("KTS", "KT", "MPH") else 0

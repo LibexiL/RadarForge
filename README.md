@@ -39,9 +39,21 @@ keep the extracted files together – everything else is the program itself, sha
   tilt by tilt while the radar is still scanning; late or missing chunks are skipped and repaired from
   the archive automatically – plus Level III products.
 * **Archive data** for any date back to 1991, or open files from your computer (drag & drop works).
-* **Quick panel** (**F8**): every radar, overlay and map switch in one place as one-click buttons –
-  smoothing, dealiasing, Σ trail, warnings, SPC, satellite, lightning, MRMS, cameras, map layers and
-  storm tools – with opacity sliders, and sections that fold away.
+* **Models view** (**F6**): Pivotal-Weather-style forecast maps from the **HRRR, NAM 3 km, RAP and GFS** –
+  CAPE, CIN, helicity, shear, STP, supercell composite, updraft-helicity tracks, simulated radar, temperature,
+  dewpoint, wind barbs, isobars, 500 / 850 / 250 mb charts, precipitation, precipitation type, snowfall and
+  freezing rain – one field per panel, stepping or playing through the forecast hours, with model soundings
+  a right-click away. Only the fields on screen are downloaded.
+* **Winter weather**: precipitation type on the radar (rain / snow / sleet / freezing rain, from the HRRR for
+  each scan's hour), the freezing line, NOAA's 24–72 hour snowfall analysis, winter storm warnings and
+  advisories shaded by county, and snow / ice reports with snow totals.
+* **Hurricanes**: National Hurricane Center storms with forecast cone, track, wind field and coastal warnings;
+  hurricane and storm surge warnings; when tropical-storm winds reach you; model "spaghetti" tracks; the
+  tropical outlook; buoys; satellite following the storm; replays of any past landfall since 1950 and the
+  historic tracks near you.
+* **Weather panels**: **Severe**, **Winter** and **Tropical** each have their own side panel with a one-click
+  setup, that weather's layers, and buttons that open its model maps (e.g. Severe → *Severe set*: CAPE,
+  helicity, shear and STP side by side). **Layers** (**F8**) holds the rest – satellite, overlays, display, map.
 * **Always know how fresh the data is**: a status badge shows *scanning now*, or how many minutes old the
   newest live volume is (green, amber, red), and the window title names the radar and mode.
 * **1–6 linked panels**: pan, zoom and cursor move together; every panel shows its own product.
@@ -236,7 +248,10 @@ whether to delete your settings and downloaded data too.
 | Switch radar | click a radar square on the map, the radar button (top left), or **Ctrl+R** |
 | Live / archive / files | **Live**, **Archive** and **Open** on the toolbar. **F5** (Radar → Reload live data) restarts the live feed. The badge at the bottom right shows how old the newest live data is |
 | Live data from a polling server | **Radar → Live data source**: NOAA on AWS (the default), Iowa State's Level II polling server, or any GR2Analyst-style polling server you add in **Settings → Loop & live** (subscription servers: `https://user:password@server/path/`). Archive data always comes from AWS |
-| Quick panel | **F8** or **Quick** (top right): every on/off switch in one place – display, warnings & outlooks, Level III overlays, satellite & lightning (with opacity), MRMS, observations & cameras, map layers, storm tools, location alerts. Click a section title to fold it away; it says how many of its switches are on |
+| Weather panels and Layers | The side panel has a tab per kind of weather. **Severe**: warnings and watches, storm reports & chasers, SPC, storm tools, severe model maps. **Winter**: precipitation type, winter colours, freezing line, snowfall, winter warnings and reports, winter model maps. **Tropical**: storms, what's drawn, tropical model maps, past storms. Each starts with a **Set up the map for …** button (the presets). **Layers** (**F8**): warnings on/off, radar overlays, satellite & observations, radar display, map. Click a section title to fold it away |
+| Models view | **Models** at the top left, or **F6**. Pick the model, run and area on the toolbar and a field in the **Models** panel (or right-click a panel); every panel can show a different field. **← / →** step the forecast hours, **Space** plays them. Right-click → **sounding here** opens the model sounding for that hour |
+| Precipitation type | **Layers → Winter → Precipitation type on the radar** (or the Winter preset) puts it in panel 1; it's also the **Precipitation Type Reflectivity** product (Derived) for any panel |
+| Hurricanes | **Layers → Tropical**, the Tropical preset, or the **Tropical** side panel: active storms, arrival times at your location (set it first), links to the advisories, past storms to replay and historic tracks near you |
 | Smoothing / dealiasing / Σ trail | toolbar switches (also View menu): **S** smoothing, **D** dealiased velocity, **Ctrl+T** max value trail – each panel shows the highest value over the loop up to the frame shown (CC: the lowest), for hail swaths and rotation tracks |
 | Frames and loop | **← / →**, **Space** to play, **End** for the latest – or the timeline bar at the bottom. The **fps** and **frames** buttons at its right set the loop speed and length (10 frames unless you pick more, up to 60) |
 | Tilts | **↑ / ↓** or the tilt box |
@@ -244,13 +259,13 @@ whether to delete your settings and downloaded data too.
 | Cross section | **X**, then drag a line across a storm |
 | Distance / bearing | **M**, then drag (or Shift-drag at any time). The line stays until the next one or **Esc** |
 | Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
-| Storm reports / chasers / SPC | **Layers** menu (or the **Quick** panel): **Warnings & reports**, **Storm chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook there) |
-| Satellite / lightning / MRMS / surface obs | **Layers → Satellite** (IR, visible, water vapour, opacity), **Lightning** (GLM flashes, last 5–30 min; NLDN density), **MRMS swaths** (rotation tracks, hail size, rainfall; 30 min – 24 h), **Surface observations**. Hover any of them for values |
+| Storm reports / chasers / SPC | **Layers** menu (or the **Layers** panel): **Storm reports & chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook there) |
+| Satellite / lightning / MRMS / surface obs | **Layers → Satellite, MRMS & observations → Satellite** (IR, visible, water vapour, opacity), **Lightning** (GLM flashes, last 5–30 min; NLDN density), **MRMS swaths** (rotation tracks, hail size, rainfall; 30 min – 24 h), **Surface observations**. Hover any of them for values |
 | Street cameras | **Layers → Street cameras**: icons appear when zoomed in to about 250 miles across; click one for its live picture. **Camera sources & keys…** adds states' free 511 keys or a Windy key (California needs none) |
 | Map colours & fonts | **Settings → Map style**: roads, borders, radar sites, cities, line widths and the city / site / title fonts |
 | Model sounding | right-click the map → **Model sounding here…** (or **Tools → Model sounding at the map centre**). Pick the model and forecast hour; **Use right-mover as storm motion** sets SRV |
 | My location | right-click the map → **Set my location here**; **Ctrl+L** goes back to it |
-| Saved locations & alerts | **Location → Saved locations & alerts** (**Ctrl+Shift+L**), or right-click the map → **Save this location…**. Per place: tornado / severe / flash flood / other warnings, watches, storm reports within N mi, lightning within N mi; sound, desktop notification, pop-up. Live data only |
+| Saved locations & alerts | **Tools → Saved locations & alerts** (**Ctrl+Shift+L**), or right-click the map → **Save this location…**. Per place: tornado / severe / flash flood / other warnings, watches, storm reports within N mi, lightning within N mi; sound, desktop notification, pop-up. Live data only |
 | Storm flags | **Tools → Automatic storm flags**: ROT (rotation), TDS? (possible debris), HAIL markers on the lowest tilt; hover one to see why |
 | Follow a storm | right-click a storm → **Follow this storm**: the map recentres on it every frame (**Tools → Follow storm** to stop) |
 | Rotation history | right-click a storm → **Rotation history for this storm…**: azimuthal shear and rotational velocity through the loaded frames, copyable as CSV |
@@ -270,7 +285,11 @@ whether to delete your settings and downloaded data too.
 
 | Tab | What it does |
 |---|---|
-| **Quick** | every on/off switch in one place (see above) |
+| **Layers** | the general layers, with buttons for the Severe, Winter and Tropical panels (see above) |
+| **Severe** | one-click setup; warnings and watches, storm reports & chasers, SPC, storm tools; severe model maps |
+| **Winter** | one-click setup; precipitation type, freezing line, snowfall, winter warnings and reports; winter model maps |
+| **Models** | the model, its run, which panel you're changing, and the fields grouped with what each means |
+| **Tropical** | one-click setup; active storms with details, arrival times and links; what's drawn; tropical model maps; past storms and historic tracks |
 | **Products** | radar and volume info, which panel you're changing, product and tilt buttons, colour table and storm motion |
 | **Warnings** | active warnings for the time shown, time left and tags such as RADAR CONFIRMED. The buttons (tornado / severe / flood / other / watches) choose what is shown on the map and in the list. Click to highlight, double-click to go to it (switching to the nearest radar). **Reports** lists storm reports |
 | **Storm cells** | Level III cells sorted by threat: position, motion, hail probability and size, mesocyclone rank, TVS. Double-click to centre on a cell |
@@ -286,9 +305,9 @@ Every feature has one home:
 | **File** | open files, the archive, export pictures and loops, settings |
 | **View** | panel layout; *Radar display*: smoothing, dealiasing, Σ trail, velocity noise filter, colour tables; *Screen*: colour bars, linked cursor, hover details, theme, map colours, reset view, full screen |
 | **Radar** | *Radar*: choose a radar, favourites; *Data*: live data and reload, live data source, past data (archive), open files; *Loop & tilt*: loop length, frames, tilts, storm motion |
-| **Layers** | everything drawn on the map, in three groups: *warnings & outlooks*, *weather data* (satellite, lightning, MRMS, surface obs, cameras) and *radar & map* (Level III overlays, map layers, placefiles) |
-| **Tools** | mouse tools (pan, cross section, measure, track, 3-D) and storm analysis (flags, follow, rotation history, sounding, cell tables) |
-| **Location** | my location, saved places and their alerts |
+| **Models** | the Models / Radar views, the model, jump to a region, newest run, forecast hours |
+| **Layers** | presets; **Severe** (warning types, storm reports & chasers, SPC, storm tools, severe model maps), **Winter**, **Tropical**; then warnings, radar overlays, satellite / MRMS / observations, map; placefiles |
+| **Tools** | mouse tools (pan, cross section, measure, track, 3-D), storm analysis (flags, follow, rotation history, sounding, cell tables), and my location & saved places |
 | **Panels** | show or hide each side and tool panel, lock or reset the layout |
 | **Help** | Getting started (a one-page tour, also shown the first time RadarForge starts), shortcuts (**F1**), the radar guide, learn mode, the optional-components check, check for updates, about |
 

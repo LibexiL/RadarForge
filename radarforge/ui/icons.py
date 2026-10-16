@@ -453,8 +453,44 @@ def _sigma(p, col, pen):
     p.drawPath(path)
 
 
+def _snow(p, col, pen):
+    """A snowflake."""
+    for k in range(3):
+        a = math.radians(90 + 60 * k)
+        dx, dy = 8.5 * math.cos(a), 8.5 * math.sin(a)
+        p.drawLine(QPointF(12 - dx, 12 - dy), QPointF(12 + dx, 12 + dy))
+        for sgn in (1, -1):
+            ex, ey = 12 + sgn * dx * 0.62, 12 + sgn * dy * 0.62
+            for b in (-40, 40):
+                bb = a + math.radians(b) + (0 if sgn > 0 else math.pi)
+                p.drawLine(QPointF(ex, ey), QPointF(ex + 3.0 * math.cos(bb), ey + 3.0 * math.sin(bb)))
+
+
+def _hurricane(p, col, pen):
+    """The cyclone symbol: a ring with two curved arms."""
+    path = QPainterPath()
+    path.moveTo(12, 8.2)
+    path.cubicTo(12.8, 4.5, 16.5, 2.8, 19.5, 3.4)
+    path.moveTo(12, 15.8)
+    path.cubicTo(11.2, 19.5, 7.5, 21.2, 4.5, 20.6)
+    p.setPen(QPen(col, 2.2, Qt.SolidLine, Qt.RoundCap))
+    p.drawPath(path)
+    p.drawEllipse(QPointF(12, 12), 3.8, 3.8)
+
+
+def _models(p, col, pen):
+    """A model map: wavy isolines in a frame."""
+    p.drawRoundedRect(QRectF(3, 4, 18, 16), 2.5, 2.5)
+    for y in (9.0, 13.5):
+        path = QPainterPath()
+        path.moveTo(5, y)
+        path.cubicTo(9, y - 3.5, 13, y + 3.5, 19, y - 1)
+        p.drawPath(path)
+
+
 _DRAW = {
     "live": _live, "archive": _archive, "open": _open,
+    "snow": _snow, "hurricane": _hurricane, "models": _models,
     "up": _tri("up"), "down": _tri("down"), "play": _play, "pause": _pause,
     "first": _step(False, True), "prev": _step(False, False), "next": _step(True, False), "last": _step(True, True),
     "pan": _pan, "xsection": _xsection, "measure": _measure, "track": _track, "box3d": _cube, "motion": _motion,

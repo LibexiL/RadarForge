@@ -96,6 +96,7 @@ class LayersMixin:
     def _toggle_overlay(self, key, on):
         self.settings["overlays"][key] = on
         self.settings.save()
+        self._layer_switched()
         if key in ("warnings", "watches", "reports") and on:
             self.warnings.refresh(force=True)
         if key == "chasers" and on:
@@ -120,6 +121,7 @@ class LayersMixin:
             self.warnings_panel.sync_report_options()
 
     def set_report_type(self, group, on):
+        self._layer_switched()
         types = dict(self.settings["report_types"] or {})
         types[group] = on
         self.settings["report_types"] = types
