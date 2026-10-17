@@ -960,11 +960,13 @@ class DataManager(QObject):
                 if gen != self._gen:
                     return
                 self.progress.emit(i, total)
+                l2_err = None
                 try:
                     vol = VOLUMES.get(p)          # decoded once: the frame uses this same decode
                     ok = len(vol.sweeps) > 0
-                except Exception:
+                except Exception as exc:
                     ok = False
+                    l2_err = exc
                 if ok:
                     if vol.site and get_site(vol.site) and vol.site != self.site_id:
                         self.site_id = vol.site
@@ -978,6 +980,10 @@ class DataManager(QObject):
                             f.l2_rev += 1
                     self._emit_frames()
                     continue
+                if l2_err is not None and _looks_level2(p):
+                    # a Level II file that didn't decode: say why, rather than trying it as Level III
+                    self.status.emit(f"Could not read {os.path.basename(p)}: {l2_err}")
+                    continue
                 try:
                     prod = read_level3(p, awips_hint=_awips_from_name(p))
                     if prod.site and get_site("K" + prod.site[-3:]) and not self.frames:
@@ -989,6 +995,19 @@ class DataManager(QObject):
             self.progress.emit(total, total)
             self.status.emit(f"Opened {total} file(s): {len(self.frames)} frames")
         self._submit(work)
+
+
+def _looks_level2(path: str) -> bool:
+    """A Level II archive file by its name (KTLX20240501_221532_V06, with or without .gz / _MDM) or header."""
+    import re
+    name = os.path.basename(path).upper()
+    if re.match(r"^[A-Z]{4}\d{8}_\d{6}(_V\d\d)?", name):
+        return True
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(4) in (b"AR2V", b"ARCH")
+    except OSError:
+        return False
 
 
 def _awips_from_name(path: str) -> str:

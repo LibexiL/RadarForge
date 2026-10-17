@@ -268,6 +268,42 @@ CAT_NAME = {"TSTM": "General thunderstorms", "MRGL": "Marginal risk (1 of 5)", "
             "ENH": "Enhanced risk (3 of 5)", "MDT": "Moderate risk (4 of 5)", "HIGH": "High risk (5 of 5)"}
 MCD_RGB = (79, 143, 255)
 
+# outlook products: the categorical risk, or one hazard's probabilities (day 1 and 2: tornado / wind / hail;
+# day 3: any severe weather)
+OUTLOOK_PRODUCTS = {"cat": "Categorical", "tornado": "Tornado", "wind": "Wind", "hail": "Hail", "any": "Any severe"}
+PRODUCT_CATEGORY = {"tornado": ("TORNADO",), "wind": ("WIND",), "hail": ("HAIL",),
+                    "any": ("ANY SEVERE", "ANYSEVERE", "PROBABILISTIC")}
+# SPC's probability colours
+PROB_RGB = {"0.02": (0, 139, 0), "0.05": (139, 71, 38), "0.10": (255, 200, 0), "0.15": (255, 0, 0) ,
+            "0.30": (255, 0, 255), "0.45": (145, 44, 238), "0.60": (16, 78, 139)}
+PROB_RGB_SEVERE = {"0.05": (139, 71, 38), "0.15": (255, 200, 0), "0.30": (255, 0, 0), "0.45": (255, 0, 255),
+                   "0.60": (145, 44, 238)}
+
+
+def products_for_day(day: int) -> tuple:
+    """The products an outlook day has."""
+    return ("cat", "any") if day >= 3 else ("cat", "tornado", "wind", "hail")
+
+
+def prob_value(threshold: str):
+    try:
+        return float(threshold)
+    except (TypeError, ValueError):
+        return None
+
+
+def prob_rgb(product: str, threshold: str) -> tuple:
+    """Line colour for a probability contour (tornado has its own scale with 2 % and 10 %)."""
+    v = prob_value(threshold)
+    if v is None:
+        return (20, 20, 20)
+    key = f"{v:.2f}"
+    table = PROB_RGB if product == "tornado" else PROB_RGB_SEVERE
+    if key in table:
+        return table[key]
+    best = min(table, key=lambda k: abs(float(k) - v))
+    return table[best]
+
 
 def outlook_requests(now: datetime, limit: int = 4) -> list:
     """(valid date, cycle) of the day 1 outlooks that may be the newest at `now`, newest first.

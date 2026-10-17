@@ -8,7 +8,7 @@ import threading
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup
 
-from ..features import alerts, mrms, satellite
+from ..features import alerts, feeds, mrms, satellite
 from ..features import stormtools as st
 from ..features.cameras import CamerasOverlay
 from ..features.captions import LayerCaptions
@@ -55,7 +55,7 @@ class DataLayersMixin:
         self._follow = None                    # {"x", "y", "t", "dx", "dy"} km, km/min
         self._follow_gen = 0
         self._init_winter_tropical()
-        self.captions.providers += [self.freezing, self.snowfall, self.tropical]
+        self.captions.providers += [self.freezing, self.snowfall, self.tropical, self.spc]
         self.view.overlays = [self.mrms, self.ltg_density, self.snowfall, self.spc, self.tropical, self.warnings,
                               self.freezing, self.placefiles, self.l3ov, self.obs, self.cameras, self.lightning,
                               self.chasers, self.storm_flags, self.my_location, self.captions]
@@ -119,7 +119,7 @@ class DataLayersMixin:
             self.cameras.refresh(force=True)
             if not self.cameras.all_cameras():
                 self._status_msg("Street cameras: California works out of the box; other states need a free key – "
-                                 "Layers → Street cameras → Camera sources")
+                                 "Layers → Satellite, MRMS & observations → Street cameras → Camera sources & keys")
 
     # ---------------------------------------------------------------- menus
     SAT_OPACITY = (0.4, 0.6, 0.85, 1.0)
@@ -182,6 +182,42 @@ class DataLayersMixin:
         spc.addSeparator()
         self.spc_day_acts = self._radio(spc, [(1, "Outlook: day 1 (today)"), (2, "Outlook: day 2 (tomorrow)"),
                                               (3, "Outlook: day 3")], self.spc.day(), self.set_spc_day)
+        spc.addSeparator()
+        self.spc_product_acts = self._radio(
+            spc, [("cat", "Categorical (thunderstorm … high risk)"), ("tornado", "Tornado probabilities (days 1–2)"),
+                  ("wind", "Wind probabilities (days 1–2)"), ("hail", "Hail probabilities (days 1–2)"),
+                  ("any", "Any severe probabilities (day 3)")], self.spc.product(), self.set_spc_product)
+        self._sync_spc_products()
+
+    def set_spc_product(self, product):
+        if product not in feeds.products_for_day(self.spc.day()):
+            # e.g. tornado asked for while day 3 is shown: go to day 1, which has it
+            self.set_spc_day(1)
+        self.spc.set_product(product)
+        if not self.settings["overlays"].get("spc_outlook"):
+            self.overlay_acts["spc_outlook"].setChecked(True)
+        self._sync_spc_products()
+
+    def _sync_spc_products(self):
+        """Tick the product shown, and grey out what the day doesn't have."""
+        avail = feeds.products_for_day(self.spc.day())
+        cur = self.spc.product()
+        for a in getattr(self, "spc_product_acts", []):
+            a.setEnabled(a.data() in avail)
+            if a.isChecked() != (a.data() == cur):
+                a.blockSignals(True)
+                a.setChecked(a.data() == cur)
+                a.blockSignals(False)
+        if hasattr(self, "severe_panel"):
+            self.severe_panel.sync_spc()
+        self._resync_chips()
+
+    def _resync_chips(self):
+        """The Layers / Severe / Winter chips follow actions changed with their signals blocked."""
+        for name in ("quick_panel", "severe_panel", "winter_panel"):
+            page = getattr(self, name, None)
+            if page is not None and hasattr(page, "resync"):
+                page.resync()
 
     def _menu_storm_tools(self, m):
         m.addAction(self.overlay_acts["storm_flags"])
@@ -234,6 +270,8 @@ class DataLayersMixin:
                 a.blockSignals(False)
         if hasattr(self, "quick_panel"):
             self.quick_panel.sync_mrms()
+        if hasattr(self, "severe_panel"):
+            self.severe_panel.sync_mrms()
         if not self.settings["overlays"].get("mrms"):
             self.overlay_acts["mrms"].setChecked(True)        # picking a product shows it
         self.mrms.refresh(force=True)
@@ -243,6 +281,7 @@ class DataLayersMixin:
         self._sync_radio(getattr(self, "spc_day_acts", []), day)
         if not self.settings["overlays"].get("spc_outlook"):
             self.overlay_acts["spc_outlook"].setChecked(True)
+        self._sync_spc_products()
 
     def _toggle_learn(self, on):
         self.settings["learn_mode"] = on

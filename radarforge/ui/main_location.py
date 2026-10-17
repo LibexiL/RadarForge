@@ -174,7 +174,7 @@ class LocationMixin:
         self.settings["saved_locations"] = list(self.settings["saved_locations"] or []) + [loc]
         self.settings.save()
         self.view.update()
-        self._status_msg(f"Saved \"{loc['name']}\" – set its alerts in Location → Saved locations & alerts")
+        self._status_msg(f"Saved \"{loc['name']}\" – set its alerts in Tools → Saved locations & alerts")
         self.open_locations(loc["id"])
 
     def _lightning_needed(self):

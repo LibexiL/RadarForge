@@ -119,13 +119,12 @@ class MenusMixin:
 
     @staticmethod
     def _sync_radio(acts, value):
-        """Tick the radio item whose value matches (none when nothing matches, for optional groups)."""
+        """Tick the radio item whose value matches (none when nothing matches, for optional groups).
+        (The items act on triggered, so setChecked here only updates what mirrors them: the panel chips.)"""
         for a in acts:
             on = a.data() == value
             if a.isChecked() != on:
-                a.blockSignals(True)
                 a.setChecked(on)
-                a.blockSignals(False)
 
     def _overlay_act(self, menu, key, label, icon=None, tip=None):
         self.overlay_acts[key] = self._act(menu, label, lambda checked, k=key: self._toggle_overlay(k, checked),
@@ -305,21 +304,30 @@ class MenusMixin:
         sm = tb.widgetForAction(self.sm_act)
         labels = getattr(self, "_site_label", (self.site_btn.text(), self.site_btn.text()))
 
+        chips = getattr(self, "_wbar_chips", [])
+
         def apply(level):
             for w in wids:
                 w.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 1 else Qt.ToolButtonTextBesideIcon)
             if isinstance(sm, QToolButton):
                 sm.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 2 else Qt.ToolButtonTextBesideIcon)
             self.site_btn.setText(labels[0] if level >= 2 else labels[1])
+            # the warning toggles: full names, then short codes, then just the coloured dots
+            for b, full, short in chips:
+                b.setText(full if level < 2 else short)
+                b.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 4 else Qt.ToolButtonTextBesideIcon)
+                b.setToolTip(f"{full}: show on the map and in the Warnings panel")
+            if hasattr(self, "_wbar_label"):
+                self._wbar_label.setVisible(level < 3)
 
         def need():
-            items = [w for w in (tb.widgetForAction(a) for a in tb.actions()) if w is not None]
+            items = [w for w in (tb.widgetForAction(a) for a in tb.actions() if a.isVisible()) if w is not None]
             m = tb.contentsMargins()
             sp = tb.layout().spacing() if tb.layout() is not None else 4
             return sum(w.sizeHint().width() for w in items) + sp * len(items) + m.left() + m.right() + 16
 
-        level = 2
-        for lv in (0, 1, 2):
+        level = 4
+        for lv in (0, 1, 2, 3, 4):
             apply(lv)
             if need() <= tb.width():
                 level = lv

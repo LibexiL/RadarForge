@@ -311,7 +311,7 @@ class CamerasOverlay(BackgroundLayer):
         if n and vt_km > SHOW_BELOW_KM:
             return f"Cameras: {n} loaded – zoom in to see them"
         if not n and not self.busy():
-            return "Cameras: none here (Layers → Street cameras → Camera sources)"
+            return "Cameras: none here (Layers → Satellite, MRMS & observations → Street cameras → Camera sources & keys)"
         return None
 
     def near(self, x, y, tol):

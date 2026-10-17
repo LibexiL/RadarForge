@@ -276,7 +276,10 @@ class WarningsPanel(QWidget):
             cb.toggled.connect(lambda on, k=key: self._filter_changed(k, on))
             self.filters[key] = cb
             frow.addWidget(cb, i // 4, i % 4)
-        wl.addLayout(frow)
+        # (the main window moves these buttons into the toolbar, top right; they stay here if it doesn't)
+        self._filter_box = QWidget()
+        self._filter_box.setLayout(frow)
+        wl.addWidget(self._filter_box)
         row2 = QHBoxLayout()
         self.in_view = QCheckBox("Only in view")
         self.in_view.setChecked(bool(main.settings["warnings_in_view"]))

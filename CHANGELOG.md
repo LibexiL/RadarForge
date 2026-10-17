@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.20.2 – 2026-10-16
+
+### New
+- **SPC outlook products:** pick the day, then **Risk** (categorical), **Tornado**, **Wind** or **Hail** for days
+  1 and 2, or **Any severe** for day 3. Probabilities are drawn in SPC's colours with % labels, and
+  significant-severe areas are hatched. Hover a line for what it means. In the **Severe** panel and
+  **Layers → Severe → Storm Prediction Center**.
+- **Warning toggles in the toolbar:** Tornado, Severe, Flood, Winter, Tropical, Other and Watches sit at the
+  right end of the toolbar, each with a dot in its line colour. They shorten (TOR, SVR…) when the window is
+  narrower. The Warnings panel no longer spends room on them.
+
+### Fixed
+- **Rotation tracks and Hail swath** (Severe panel) are on / off buttons that show which one is on. When MRMS has
+  no rotation or hail near the radar, the status bar and the map caption now say so, instead of showing nothing.
+- A model whose newest runs can't be found (often the GFS between runs) no longer searches NOAA again and again:
+  it tries once a minute and says so in the Models view.
+- Settings saved from two places at once could fail ("could not save … settings.tmp").
+- A Level II file that can't be decoded now gets its own error, instead of being tried as Level III with
+  confusing warnings.
+- The toolbar no longer squeezes its buttons when there's room (hidden buttons were being counted).
+- Menu paths in messages and dialogs match the reorganised menus (street cameras, location tools, storm tracks).
+- Preset messages keep "SPC" and "MRMS" in capitals.
+
 ## 1.20.1 – 2026-10-15
 
 - **Severe, Winter and Tropical have their own side panels.** The Layers panel was getting crowded, so each kind

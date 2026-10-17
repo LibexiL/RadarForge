@@ -60,6 +60,7 @@ class WinterTropicalMixin:
             act.blockSignals(False)
         if hasattr(self, "warnings_panel"):
             self.warnings_panel.sync_filters()
+        self._resync_chips()
         if hasattr(self, "tropical_panel"):
             self.tropical_panel.sync()
         self.view.update()
@@ -147,7 +148,7 @@ PRESETS = {
     "tropical": dict(on=("warnings", "watches", "reports", "tropical", "tropical_wind", "tropical_outlook",
                          "tropical_spaghetti", "buoys"),
                      off=("spc_outlook", "spc_mcd", "freezing_line", "snowfall"),
-                     ptype=False, label="Tropical", tip="Hurricanes: cones, tracks, wind fields, model tracks, the "
+                     ptype=False, label="Tropical", tip="Hurricane cones, tracks, wind fields, model tracks, the "
                                                          "outlook, buoys, hurricane and storm surge warnings"),
     "clean": dict(on=("warnings",),
                   off=("watches", "reports", "spc_outlook", "spc_mcd", "chasers", "storm_tracks", "hail",
@@ -191,7 +192,9 @@ class PresetsMixin:
         if name in ("severe", "winter", "tropical"):
             self.show_panel(name)
         self._sync_preset_buttons()
-        self._status_msg(f"{p['label']} preset: {p['tip'].lower()}. Change any switch you like.")
+        tip = p['tip']
+        tip = tip[:1].lower() + tip[1:] if tip[1:2].islower() else tip      # (keeps "SPC", "MRMS" as they are)
+        self._status_msg(f"{p['label']} map: {tip.rstrip('.')}. Change any switch you like.")
 
     def _layer_switched(self, *_):
         """A layer changed by hand: no preset is current any more."""
@@ -207,6 +210,8 @@ class PresetsMixin:
             a.blockSignals(True)
             a.setChecked(name == cur)
             a.blockSignals(False)
+        if hasattr(self, "_resync_chips"):
+            self._resync_chips()
 
     # ---------------------------------------------------------------- precipitation type on the radar
     def toggle_ptype(self, on):
@@ -231,6 +236,7 @@ class PresetsMixin:
                 a.blockSignals(True)
                 a.setChecked(on)
                 a.blockSignals(False)
+                self._resync_chips()
 
     def toggle_winter_colours(self, on):
         from ..products.colortable import PALETTE_DIR
@@ -257,7 +263,7 @@ class PresetsMixin:
         grp = QActionGroup(self)
         grp.setExclusionPolicy(QActionGroup.ExclusionPolicy.ExclusiveOptional)
         for name, p in PRESETS.items():
-            a = QAction(p["label"], self, checkable=True)
+            a = QAction("Clean map" if name == "clean" else f"Set up for {p['label'].lower()} weather", self, checkable=True)
             a.setToolTip(p["tip"])
             a.setStatusTip(p["tip"])
             a.setChecked(self.settings["layer_preset"] == name)

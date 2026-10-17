@@ -143,7 +143,7 @@ class StormToolsMixin:
         prod = f.l3.get("NST") if f else None
         if prod is None or not prod.text_pages:
             QMessageBox.information(self, "Storm table", "No Level III storm-structure table (NST) for this frame. "
-                                    "Enable Overlays → Storm tracks to download it.")
+                                    "Turn on Layers → Severe → Storm tracks to download it.")
             return
         box = QMessageBox(self)
         box.setWindowTitle(f"NST {prod.time:%H:%M:%S}Z")

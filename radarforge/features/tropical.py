@@ -14,7 +14,6 @@ Sources (all public):
 from __future__ import annotations
 
 import gzip
-import io
 import math
 import re
 import threading

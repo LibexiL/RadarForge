@@ -170,6 +170,7 @@ class Section(QWidget):
                 b.setChecked(a.isChecked())
             b.clicked.connect(clicked)
             a.toggled.connect(b.setChecked)
+            self.__dict__.setdefault("seg_chips", []).append((b, a))
             grp.addButton(b)
             h.addWidget(b)
         return self.label_row(text, box)
@@ -244,6 +245,16 @@ class ChipPage(QWidget):
 
     def build(self, lay):
         raise NotImplementedError
+
+    def resync(self):
+        """Match every chip to its action (for changes made with the action's signals blocked)."""
+        for sec in self.sections:
+            for b, a in list(sec.chips) + list(getattr(sec, "seg_chips", [])):
+                if b.isChecked() != a.isChecked():
+                    b.setChecked(a.isChecked())
+                if b.isEnabled() != a.isEnabled():
+                    b.setEnabled(a.isEnabled())
+            sec.update_header()
 
     def section(self, key, title):
         sec = Section(self, key, title)

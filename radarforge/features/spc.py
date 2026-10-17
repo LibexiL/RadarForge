@@ -74,6 +74,28 @@ class SpcOverlay(QObject):
             d = 1
         return d if d in (1, 2, 3) else 1
 
+    def product(self) -> str:
+        """The outlook product shown (one the day has: day 3 has no tornado / wind / hail split)."""
+        p = self.settings["spc_outlook_product"] or "cat"
+        avail = feeds.products_for_day(self.day())
+        if p not in avail:
+            p = "any" if p in ("tornado", "wind", "hail") and "any" in avail else "cat"
+        return p
+
+    def set_product(self, product):
+        self.settings["spc_outlook_product"] = product
+        self.settings.save()
+        self.changed.emit()
+
+    def caption(self):
+        if not self._on("spc_outlook"):
+            return None
+        p = self.product()
+        name = "categorical outlook" if p == "cat" else f"{feeds.OUTLOOK_PRODUCTS[p].lower()} probabilities"
+        if not self.outlook:
+            return f"SPC day {self.day()} {name} · loading…"
+        return f"SPC day {self.outlook_day} {name}"
+
     def set_day(self, day):
         self.settings["spc_outlook_day"] = day
         self.settings.save()
@@ -137,7 +159,9 @@ class SpcOverlay(QObject):
     def paint(self, painter, vt, panel, view):
         bounds = vt.world_bounds(pad=10)
         font = ui_font(8, True)
-        if self._on("spc_outlook"):
+        if self._on("spc_outlook") and self.product() != "cat":
+            self._paint_probs(painter, vt, view, bounds, font)
+        elif self._on("spc_outlook"):
             cats = [a for a in self.outlook if a["category"] == "CATEGORICAL" and a["threshold"] in feeds.CATEGORIES]
             cats.sort(key=lambda a: feeds.CATEGORIES.index(a["threshold"]))
             painter.setBrush(Qt.NoBrush)
@@ -163,6 +187,45 @@ class SpcOverlay(QObject):
                     i = int(np.argmax(xy[:, 1]))
                     lx, ly = vt.to_screen(float(xy[i, 0]), float(xy[i, 1]))
                     view._halo_text(painter, lx - 22, ly - 6, f"MD {m['number']}", QColor(*feeds.MCD_RGB), font)
+
+    def prob_areas(self, product=None):
+        """The shown product's areas, lowest probability first, significant (hatched) areas last."""
+        product = product or self.product()
+        cats = feeds.PRODUCT_CATEGORY.get(product, ())
+        areas = [a for a in self.outlook if a["category"] in cats]
+        return sorted(areas, key=lambda a: (a["threshold"] == "SIGN", feeds.prob_value(a["threshold"]) or 0.0))
+
+    def _paint_probs(self, painter, vt, view, bounds, font):
+        from PySide6.QtGui import QBrush, QPen
+        product = self.product()
+        areas = self.prob_areas(product)
+        painter.setBrush(Qt.NoBrush)
+        for a in areas:
+            sig = a["threshold"] == "SIGN"
+            rgb = (0, 0, 0) if sig else feeds.prob_rgb(product, a["threshold"])
+            for xy in self._proj(a, view):
+                poly = self._poly(vt, xy, bounds)
+                if poly is None:
+                    continue
+                if sig:
+                    # significant severe (EF2+ tornadoes, 65 kt+ wind, 2 in+ hail): black hatching
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(QColor(0, 0, 0, 200), Qt.BDiagPattern))
+                    painter.drawPolygon(poly)
+                    painter.setBrush(QBrush(QColor(255, 255, 255, 90), Qt.FDiagPattern))
+                    painter.drawPolygon(poly)
+                    painter.setBrush(Qt.NoBrush)
+                    painter.setPen(QPen(QColor(0, 0, 0), 2.0, Qt.DashLine))
+                    painter.drawPolygon(poly)
+                else:
+                    draw_line(painter, poly, rgb, 2.2, "solid", halo=True)
+                if (xy[:, 0].max() - xy[:, 0].min()) * vt.scale > 50:
+                    i = int(np.argmax(xy[:, 1]))
+                    lx, ly = vt.to_screen(float(xy[i, 0]), float(xy[i, 1]))
+                    v = feeds.prob_value(a["threshold"])
+                    text = "Significant" if sig else f"{round(v * 100)}%"
+                    view._halo_text(painter, lx - 10, ly + 16, text,
+                                    QColor(230, 230, 230) if sig else QColor(*rgb), font)
 
     # ---------------------------------------------------------------- hover / lookup
     def mcd_at(self, lat, lon):
@@ -237,10 +300,20 @@ class SpcOverlay(QObject):
                 out.append(m)
         return out
 
+    def prob_line_at(self, x, y, tol, view=None):
+        """The probability contour (shown product) under a point, highest first, or None."""
+        view = view or self._view
+        if view is None or not self._on("spc_outlook") or self.product() == "cat":
+            return None
+        for a in reversed(self.prob_areas()):
+            if a.get("_p") == (view.lat0, view.lon0) and any(near_edge(x, y, xy, tol) for xy in a["xy"]):
+                return a
+        return None
+
     def outlook_line_at(self, x, y, tol, view=None):
         """The outlook category whose outline is under a point (the highest), or None."""
         view = view or self._view
-        if view is None or not self._on("spc_outlook"):
+        if view is None or not self._on("spc_outlook") or self.product() != "cat":
             return None
         hit = None
         for a in self.outlook:
@@ -259,6 +332,18 @@ class SpcOverlay(QObject):
         lat, lon = view.world_to_latlon(x, y)
         for m in self.mcds_at(x, y, tol * 1.5, view, inside=False):
             return self.describe_mcd(m)
+        pa = self.prob_line_at(x, y, tol, view)
+        if pa is not None:
+            name = feeds.OUTLOOK_PRODUCTS[self.product()].lower()
+            if pa["threshold"] == "SIGN":
+                what = {"tornado": "EF2 or stronger tornadoes", "wind": "gusts of 65 kt or more",
+                        "hail": "hail 2 inches or larger"}.get(self.product(), "significant severe weather")
+                head = f"SPC day {self.outlook_day} {name} outlook: significant ({what})"
+            else:
+                head = (f"SPC day {self.outlook_day} {name} outlook: {round(feeds.prob_value(pa['threshold']) * 100)}% "
+                        "chance within 25 miles of a point")
+            more = self.describe_outlook(lat, lon)
+            return head + ("\n" + more if more else "")
         cat = self.outlook_line_at(x, y, tol, view)
         return self.describe_outlook(lat, lon, cat) if cat else None
 

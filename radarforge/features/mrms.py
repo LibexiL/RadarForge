@@ -51,6 +51,18 @@ PRODUCTS = {
     "qpe72": ("Rainfall – 72 hours (tropical totals)", "MultiSensor_QPE_72H_Pass2_00.00", "qpe", 4320, 60),
     "ltg5": ("Lightning density – 5 min (NLDN)", "NLDN_CG_005min_AvgDensity_00.00", "ltg", 5, 2),
 }
+NOTHING = {"rot": "no rotation", "mesh": "no hail", "qpe": "no rain", "ltg": "no lightning"}
+
+
+def visible_from(kind):
+    """The lowest value that shows a colour (the first stop is fully transparent)."""
+    stops = STOPS[kind]
+    for v, rgba in stops:
+        if rgba[3] > 0:
+            return v
+    return stops[-1][0]
+
+
 UNITS = {"rot": "/s", "mesh": "in", "qpe": "in", "ltg": "flashes/km²/min"}
 STOPS = {"rot": ROT_STOPS, "mesh": MESH_STOPS, "qpe": QPE_STOPS, "ltg": LTG_STOPS}
 HALF_KM = 600.0
@@ -169,7 +181,12 @@ class MrmsOverlay(BackgroundLayer):
             if r is None or r.fkey != fk or r.center != center:
                 ras = build_raster(aws.fetch(BUCKET, fk, cache=False), kind, center[0], center[1], label, ft)
                 ras.pkey, ras.fkey, ras.kind = key, fk, kind
+                vals = ras.values
+                ras.empty = vals is None or not np.any(np.nan_to_num(vals, nan=-1.0) >= visible_from(kind))
                 self.raster = ras
+                if ras.empty:
+                    self.status.emit(f"MRMS {label.lower()} ({ft:%H:%MZ}): {NOTHING[kind]} within "
+                                     f"{HALF_KM * 0.621:.0f} mi of the radar")
             self._loaded = want
         return [(name, work, 30)]
 
@@ -188,7 +205,8 @@ class MrmsOverlay(BackgroundLayer):
         r = self.raster
         if not self.enabled() or r is None:
             return None
-        return f"MRMS {r.label.lower()} · {r.time:%H:%MZ}"
+        return f"MRMS {r.label.lower()} · {r.time:%H:%MZ}" + (f" · {NOTHING[r.kind]} nearby" if getattr(r, "empty", False)
+                                                               else "")
 
     def hover(self, x, y, tol):
         r = self.raster

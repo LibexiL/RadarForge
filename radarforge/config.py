@@ -5,6 +5,7 @@ import copy
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 
 APP_NAME = "RadarForge"
@@ -68,6 +69,7 @@ DEFAULTS = {
     "notified_warnings": {},       # warning key -> [priority, expiry epoch s] already shown for my location
     "track_minutes": 60,           # storm track tool: minutes the arrow covers
     "spc_outlook_day": 1,          # SPC convective outlook shown: day 1, 2 or 3
+    "spc_outlook_product": "cat",  # cat, tornado, wind, hail (days 1-2) or any (day 3)
     "satellite_channel": "ir",     # ir | vis | wv (GOES via IEM, live)
     "satellite_opacity": 0.85,
     "satellite_enhance": True,     # colour-enhanced infrared / water vapour
@@ -140,6 +142,8 @@ DEFAULTS = {
 }
 
 
+_SAVE_LOCK = threading.Lock()
+
 class Settings:
     def __init__(self, path: Path | None = None):
         self.path = path or (CONFIG_DIR / "settings.json")
@@ -187,14 +191,24 @@ class Settings:
             self.data["settings_version"] = 5
 
     def save(self):
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self.data, fh, indent=2)
-            os.replace(tmp, self.path)
-        except Exception as exc:
-            print("settings: could not save", exc)
+        # (saves can come from worker threads too: one at a time, each through its own temp file, and the JSON
+        # is made in memory first so a half-written file never replaces a good one)
+        with _SAVE_LOCK:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                for attempt in range(3):
+                    try:
+                        text = json.dumps(self.data, indent=2)
+                        break
+                    except RuntimeError:          # changed by another thread mid-dump: try again
+                        if attempt == 2:
+                            raise
+                tmp = self.path.with_name(f"{self.path.stem}.{os.getpid()}.{threading.get_ident()}.tmp")
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+                os.replace(tmp, self.path)
+            except Exception as exc:
+                print("settings: could not save", exc)
 
     def __getitem__(self, k):
         return self.data.get(k, DEFAULTS.get(k))

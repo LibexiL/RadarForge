@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import QComboBox, QLabel, QMenu, QToolButton, QWidget, QHBoxLayout
 
 from ..features import models
 from ..features.model_layer import ModelLayer
-from ..products.geometry import aeqd_forward
 
 
 class ModelsMixin:
@@ -171,6 +170,8 @@ class ModelsMixin:
             a.setVisible(models_on)
         self._tidy_separators(tb)
         self._frames_btn_act.setVisible(not models_on)
+        if hasattr(self, "_wbar_act"):
+            self._wbar_act.setVisible(not models_on)      # no warnings on the model maps
         if models_on:
             self.set_tool("pan") if self.view.tool not in ("pan", "measure") else None
             self._radar_view_state = (self.view.cx, self.view.cy, self.view.scale)

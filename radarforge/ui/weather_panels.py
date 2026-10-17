@@ -2,7 +2,7 @@
 the radar layers it needs, and buttons that open its model maps."""
 from __future__ import annotations
 
-from .quick_panel import ChipPage, _hint, _setup_button
+from .quick_panel import ChipPage, _chip, _hint, _setup_button
 
 
 def _caption(lay, text):
@@ -46,13 +46,26 @@ class SeverePanel(ChipPage):
         s.chip(ov.get("spc_outlook"), "Severe outlook", "The convective outlook (marginal … high risk)")
         s.chip(ov.get("spc_mcd"), "Discussions", "Mesoscale discussions (they often come before a watch)")
         s.segment("Outlook", m.spc_day_acts, ["Day 1", "Day 2", "Day 3"])
+        self._spc_box = s.segment("Product", m.spc_product_acts, ["Risk", "Tornado", "Wind", "Hail", "Any"])
+        self.sync_spc()
 
         s = self.section("sev_tools", "Storm tools on the radar")
         s.chip(ov.get("storm_tracks"), "Storm tracks", "Level III storm cell tracks and forecast positions (NST)")
         s.chip(ov.get("hail"), "Hail markers", "Level III hail index (NHI)")
         s.chip(ov.get("storm_flags"), "Storm flags", "Automatic flags for rotation, possible debris and hail")
-        s.button("Rotation tracks", lambda: m.set_mrms_product("rot60"), "MRMS rotation tracks over the last hour")
-        s.button("Hail swath", lambda: m.set_mrms_product("mesh60"), "MRMS hail size (MESH) over the last hour")
+        # MRMS swaths: on / off chips (one MRMS product is shown at a time; Layers has the full choice)
+        self._mrms_chips = {}
+        for key, label, tip in (("rot60", "Rotation tracks", "MRMS rotation tracks over the last hour (a strong, "
+                                                             "long track is a likely tornado path)"),
+                                ("mesh60", "Hail swath", "MRMS maximum hail size (MESH) over the last hour")):
+            b = _chip(label, tip)
+            b.clicked.connect(lambda _=False, k=key: self._mrms_clicked(k))
+            s._place(b)
+            self._mrms_chips[key] = b
+        act = m.overlay_acts.get("mrms")
+        if act is not None:
+            act.toggled.connect(lambda _on: self.sync_mrms())
+        self.sync_mrms()
 
         s = self.section("sev_models", "Severe model maps")
         self.model_buttons(s, [
@@ -71,6 +84,35 @@ class SeverePanel(ChipPage):
         self._model_hint = _hint("The buttons open the Models view (F6 switches back). The sets use several panels; "
                                  "single maps use the model you last picked.")
         s._place_row(self._model_hint)
+
+    def sync_spc(self):
+        """Grey out the outlook products the shown day doesn't have (day 3: risk and any severe only)."""
+        from PySide6.QtWidgets import QToolButton
+        box = getattr(self, "_spc_box", None)
+        if box is None:
+            return
+        for b, a in zip(box.findChildren(QToolButton), self.main.spc_product_acts):
+            b.setEnabled(a.isEnabled())
+            b.setChecked(a.isChecked())
+
+    # ---------------------------------------------------------------- MRMS chips
+    def _mrms_clicked(self, key):
+        m = self.main
+        on = bool(m.settings["overlays"].get("mrms")) and m.settings["mrms_product"] == key
+        if on:
+            m.overlay_acts["mrms"].setChecked(False)          # a second click hides it
+        else:
+            m.set_mrms_product(key)
+            m._status_msg(f"Loading MRMS {'rotation tracks' if key.startswith('rot') else 'hail swath'} for the "
+                          "last hour…")
+        self.sync_mrms()
+
+    def sync_mrms(self):
+        m = self.main
+        on = bool(m.settings["overlays"].get("mrms"))
+        cur = m.settings["mrms_product"]
+        for key, b in getattr(self, "_mrms_chips", {}).items():
+            b.setChecked(on and cur == key)
 
 
 class WinterPanel(ChipPage):

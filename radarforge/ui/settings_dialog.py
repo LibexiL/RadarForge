@@ -233,7 +233,7 @@ class SettingsDialog(QDialog):
     def _page_alerts(self):
         from ..features import alerts
         w, lay = _page("Alerts", "Sounds and notifications for your saved locations (live data, while RadarForge is "
-                                 "open). Each place's rules are set in Location → Saved locations & alerts.")
+                                 "open). Each place's rules are set in Tools → Saved locations & alerts.")
         f = _form()
         s = self.s
         self.alert_sound = QComboBox()

@@ -65,7 +65,8 @@ keep the extracted files together – everything else is the program itself, sha
 * **GRLevelX compatible**: your GR2Analyst `.pal` colour tables and placefiles work as they are.
   Drop a `.pal` onto a panel to use it; placefiles can be drawn above or below the radar data.
 * **Warnings & storm reports** from the NWS (live) and the Iowa Environmental Mesonet (archive),
-  with a warning list you can sort, filter and zoom to. Every warning type and threat level (TOR,
+  with a warning list you can sort, filter and zoom to. The warning types on the map (Tornado, Severe, Flood,
+  Winter, Tropical, Other, Watches) switch on and off at the right end of the toolbar. Every warning type and threat level (TOR,
   TORR, TORP, TORE, SVR, SVRC, SVRD, FFW, FFWC, FFWE…) has its own line – colour, width and style –
   with the classic colours by default (green flash flood, yellow severe, red tornado, magenta confirmed /
   PDS tornado; the NWS colours are one click away). Going to a warning switches to the radar nearest it.
@@ -74,7 +75,8 @@ keep the extracted files together – everything else is the program itself, sha
 * **Storm reports**: NWS local storm reports plus Spotter Network reports for the last 1–24 hours,
   with type filters. Live reports fade as they get older.
 * **Storm chasers**: live Spotter Network positions with the direction they're driving.
-* **SPC**: the day 1, 2 or 3 convective outlook (hover for tornado / wind / hail chances) and
+* **SPC**: the day 1, 2 or 3 convective outlook – categorical risk, or the tornado, wind and hail
+  probabilities (days 1–2; day 3 has the any-severe probability), with significant-severe areas hatched – and
   mesoscale discussions (click inside one to read it).
 * **Satellite**: GOES infrared, visible or water vapour under the radar (live), reprojected onto the map.
 * **Lightning**: GOES lightning mapper flashes coloured by age (live and archive), and an NLDN
@@ -259,8 +261,8 @@ whether to delete your settings and downloaded data too.
 | Cross section | **X**, then drag a line across a storm |
 | Distance / bearing | **M**, then drag (or Shift-drag at any time). The line stays until the next one or **Esc** |
 | Storm track | **T** (or **Track**), click a storm, drag the yellow arrowhead to where it's going. The status bar lists the towns it reaches and when; right-click for **Use for SRV**, track length and clear |
-| Storm reports / chasers / SPC | **Layers** menu (or the **Layers** panel): **Storm reports & chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook there) |
-| Satellite / lightning / MRMS / surface obs | **Layers → Satellite, MRMS & observations → Satellite** (IR, visible, water vapour, opacity), **Lightning** (GLM flashes, last 5–30 min; NLDN density), **MRMS swaths** (rotation tracks, hail size, rainfall; 30 min – 24 h), **Surface observations**. Hover any of them for values |
+| Storm reports / chasers / SPC | **Layers** menu (or the **Layers** panel): **Storm reports & chasers**, **Storm Prediction Center** (pick the day 1, 2 or 3 outlook and the product: Risk, Tornado, Wind, Hail or Any severe) |
+| Satellite / lightning / MRMS / surface obs | **Layers → Satellite, MRMS & observations → Satellite** (IR, visible, water vapour, opacity), **Lightning** (GLM flashes, last 5–30 min; NLDN density), **MRMS swaths** (rotation tracks, hail size, rainfall; 30 min – 24 h; the status bar says so when there's nothing near the radar), **Surface observations**. Hover any of them for values. **Rotation tracks** and **Hail swath** are also in the **Severe** panel |
 | Street cameras | **Layers → Street cameras**: icons appear when zoomed in to about 250 miles across; click one for its live picture. **Camera sources & keys…** adds states' free 511 keys or a Windy key (California needs none) |
 | Map colours & fonts | **Settings → Map style**: roads, borders, radar sites, cities, line widths and the city / site / title fonts |
 | Model sounding | right-click the map → **Model sounding here…** (or **Tools → Model sounding at the map centre**). Pick the model and forecast hour; **Use right-mover as storm motion** sets SRV |

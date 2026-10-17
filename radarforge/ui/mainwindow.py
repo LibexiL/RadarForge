@@ -7,8 +7,8 @@ import numpy as np
 
 from PySide6.QtCore import QEvent, QObject, QPointF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QKeySequence
-from PySide6.QtWidgets import (QApplication, QFileDialog, QMainWindow, QMenu, QMessageBox, QToolButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox,
+                               QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from .. import themes
 from ..config import APP_NAME
@@ -185,6 +185,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self._build_status()
         self._init_updates()             # after the status bar: the "Update to …" button lives there
         self._build_panels()
+        self._build_warning_bar()        # the warning type toggles, right end of the toolbar
         self._build_search()             # the place search box, left of Quick in the menu bar's corner
         self._shortcuts()
         self._show_menu_checks()
@@ -316,6 +317,65 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         pm.addSeparator()
         tip = pm.addAction("Tip: drag a panel's tab – drop zones show where it will go")
         tip.setEnabled(False)
+
+    # the warning-type toggles live at the right end of the main toolbar (they were a block in the Warnings panel)
+    WBAR = (("TOR", "Tornado", "TOR", "TOR"), ("SVR", "Severe", "SVR", "SVR"), ("FFW", "Flood", "FFW", "FFW"),
+            ("WIN", "Winter", "WIN", "WSW"), ("TRO", "Tropical", "TRO", "HUW"), ("OTH", "Other", "OTH", "SPS"),
+            ("WAT", "Watches", "WAT", "TOA"))
+
+    def _build_warning_bar(self):
+        tb = self.main_tb
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        spacer.setMinimumWidth(8)
+        self._wbar_spacer_act = tb.addWidget(spacer)
+        bar = QWidget()
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(0, 0, 4, 0)
+        h.setSpacing(3)
+        lab = QLabel("Warnings")
+        lab.setProperty("role", "hint")
+        lab.setToolTip("Which warnings are drawn on the map and listed in the Warnings panel")
+        h.addWidget(lab)
+        self._wbar_label = lab
+        self._wbar_chips = []
+        self._wbar_codes = []
+        filters = getattr(self.warnings_panel, "filters", {})
+        for key, full, short, code in self.WBAR:
+            b = filters.get(key)
+            if b is None:
+                continue
+            b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            b.setMinimumWidth(0)
+            b.setParent(bar)
+            h.addWidget(b)
+            self._wbar_chips.append((b, full, short))
+            self._wbar_codes.append(code)
+        if self._wbar_chips:
+            self.warnings_panel._filter_box.hide()
+        self._wbar_act = tb.addWidget(bar)
+        self._wbar = bar
+        self._wbar_colours()
+
+    def _wbar_colours(self):
+        """A dot in each warning chip, in that warning type's line colour (Settings → Warnings can change it)."""
+        from PySide6.QtGui import QPixmap, QPainter as _P, QIcon, QColor as _C
+        from ..features.warnings import line_style
+        for (b, _full, _short), code in zip(getattr(self, "_wbar_chips", []), getattr(self, "_wbar_codes", [])):
+            try:
+                rgb = line_style(self.settings, code)[0]
+            except Exception:
+                continue
+            pm = QPixmap(10, 10)
+            pm.fill(Qt.transparent)
+            p = _P(pm)
+            p.setRenderHint(_P.Antialiasing)
+            p.setPen(Qt.NoPen)
+            p.setBrush(_C(*rgb[:3]))
+            p.drawEllipse(1, 1, 8, 8)
+            p.end()
+            b.setIcon(QIcon(pm))
 
     def _panel_closed(self, key):
         if key == "xsection":
@@ -1334,6 +1394,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
                 if f"{which}_opacity" in changed:
                     self._set_opacity(which, s[f"{which}_opacity"])
             self._palettes.clear()
+            self._wbar_colours()
             self._apply_view_settings()
             self.legend_act.setChecked(bool(self.settings["show_legend"]))
             self.link_act.setChecked(bool(self.settings["cursor_link"]))

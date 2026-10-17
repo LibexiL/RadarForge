@@ -21,7 +21,7 @@ from PySide6.QtGui import QColor, QFont, QPainterPath, QPen
 
 from . import grib2, models
 from .bglayer import BackgroundLayer
-from ..products.geometry import aeqd_forward, aeqd_inverse
+from ..products.geometry import aeqd_inverse
 
 PTYPE_HALF_KM = 480.0
 PTYPE_N = 480                       # 2 km cells around the radar

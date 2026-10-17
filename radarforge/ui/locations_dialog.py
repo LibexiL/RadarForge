@@ -23,7 +23,7 @@ class LocationsDialog(QDialog):
         lay = QVBoxLayout(self)
         intro = QLabel("Places you care about. With live data RadarForge watches each one and alerts you when a "
                        "warning covers it, a storm report comes in nearby or lightning gets close. "
-                       "\"My location\" follows the blue dot (Location → Set my location).")
+                       "\"My location\" follows the blue dot (Tools → Set my location).")
         intro.setWordWrap(True)
         lay.addWidget(intro)
         body = QHBoxLayout()
@@ -171,7 +171,7 @@ class LocationsDialog(QDialog):
         self.lon.setValue(ll[1])
         for w in (self.lat, self.lon):
             w.setEnabled(ok and not mine)
-            w.setToolTip("Set with Location → Set my location" if mine else "")
+            w.setToolTip("Set with Tools → Set my location" if mine else "")
         self.enabled.setChecked(loc.get("enabled", True))
         for k, cb in self.warn.items():
             cb.setChecked(bool(loc["warn"].get(k)))
@@ -244,7 +244,7 @@ class LocationsDialog(QDialog):
             return
         if self.locs[r].get("mine"):
             QMessageBox.information(self, "Saved locations", "\"My location\" can't be removed – untick "
-                                    "\"Alerts on for this place\" to silence it, or use Location → Remove my location.")
+                                    "\"Alerts on for this place\" to silence it, or use Tools → Remove my location.")
             return
         del self.locs[r]
         self._fill()

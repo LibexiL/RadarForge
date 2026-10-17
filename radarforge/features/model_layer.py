@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import math
 import threading
+import time
 from collections import OrderedDict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 
 from . import models
 from ..products.geometry import aeqd_forward, aeqd_inverse
@@ -220,6 +221,9 @@ class ModelLayer(QObject):
         self._runs_timer.timeout.connect(lambda: self.refresh_runs(quiet=True))
         self._runs_timer.start(5 * 60_000)
         self._sem = threading.Semaphore(3)
+        self._runs_busy = set()
+        self._runs_failed = {}                # model id -> time of the last search that found nothing
+        self._runs_error = {}                 # model id -> why
 
     # ---------------------------------------------------------------- state
     @property
@@ -317,6 +321,11 @@ class ModelLayer(QObject):
     # ---------------------------------------------------------------- runs
     def refresh_runs(self, quiet=False):
         mid = self.model_id
+        # one search at a time per model, and after a failed one not again for a minute (no hammering the bucket)
+        now = time.time()
+        if mid in self._runs_busy or now - self._runs_failed.get(mid, 0.0) < 60:
+            return
+        self._runs_busy.add(mid)
         if not quiet:
             self.status.emit(f"Looking for the newest {self.model.name} runs…")
 
@@ -416,8 +425,17 @@ class ModelLayer(QObject):
     def _done(self, msg):
         if msg[0] == "runs":
             _k, mid, rl, err = msg
+            self._runs_busy.discard(mid)
             if rl:
                 self.runs[mid] = rl
+                self._runs_failed.pop(mid, None)
+                self._runs_error.pop(mid, None)
+            else:
+                self._runs_failed[mid] = time.time()
+                if not err:
+                    err = "no recent runs found on NOAA's server"
+                self._runs_error[mid] = err
+                QTimer.singleShot(61_000, lambda: self.active and self.refresh_runs(quiet=True))
             if err and not rl:
                 self.status.emit(f"{models.MODELS[mid].name}: {err}")
             elif mid == self.model_id and rl:
@@ -426,7 +444,8 @@ class ModelLayer(QObject):
             self._clamp_hour()
             self.runsChanged.emit()
             self.changed.emit()
-            self.request_soon(0)
+            if rl:
+                self.request_soon(0)
             return
         _k, gen, panel, pic, err = msg
         self._busy = max(0, self._busy - 1)
@@ -458,6 +477,9 @@ class ModelLayer(QObject):
             return self.errors[panel_index]
         if panel_index not in self.pictures:
             if not self.run_list():
+                if self.model_id in self._runs_error and self.model_id not in self._runs_busy:
+                    return (f"Couldn't find a recent {self.model.name} run: {self._runs_error[self.model_id]}. "
+                            "Trying again every minute.")
                 return f"Finding the newest {self.model.name} run…"
             return "Loading…"
         return ""
