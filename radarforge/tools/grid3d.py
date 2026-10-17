@@ -252,3 +252,51 @@ def _ref_base(ref_tilts, xs, ys):
     AZ, S = az_range(X, Y)
     v, _h, _c = sample_tilt(tilts[0][1], AZ, S, tilts[0][0], REF_RANGE[0], nearest=True)
     return v
+
+
+def stats(grid) -> dict:
+    """Storm numbers for the 3-D view's readout: the strongest value and where it is, echo tops, VIL (reflectivity)
+    and the storm's centre. Positions are km from the box centre; heights km above the radar."""
+    v = np.asarray(grid.values, np.float32)
+    nz, ny, nx = v.shape
+    x0, y0, x1, y1 = grid.box
+    xs = np.linspace(x0, x1, nx) - (x0 + x1) / 2
+    ys = np.linspace(y0, y1, ny) - (y0 + y1) / 2
+    zs = np.linspace(0.0, grid.top, nz)
+    rule = RULES.get(grid.pid, RULES["REF"])
+    out = {}
+
+    def at(i):
+        k, j, m = np.unravel_index(int(i), v.shape)
+        return float(v[k, j, m]), float(xs[m]), float(ys[j]), float(zs[k])
+    if rule.direction >= 0:
+        out["max"] = at(np.argmax(v))
+    if rule.direction <= 0:
+        out["min"] = at(np.argmin(v))
+    if grid.pid == "REF":
+        col = v.max(axis=0)
+        tops = {}
+        for thr in (18.0, 30.0, 50.0):
+            any_z = (v >= thr).any(axis=(1, 2))
+            if any_z.any():
+                tops[thr] = float(zs[np.nonzero(any_z)[0][-1]])
+        out["tops"] = tops
+        dz_m = (zs[1] - zs[0]) * 1000.0 if nz > 1 else 250.0
+        zlin = 10.0 ** (np.clip(v, -30.0, 56.0) / 10.0)
+        vil = 3.44e-6 * (zlin ** (4.0 / 7.0)).sum(axis=0) * dz_m
+        out["vil"] = float(vil.max())
+        w = np.clip(col - 30.0, 0.0, None)
+        if w.sum() > 0:
+            X, Y = np.meshgrid(xs, ys)
+            out["centre"] = (float((X * w).sum() / w.sum()), float((Y * w).sum() / w.sum()))
+        # where lightning would be: strong echo in the mixed-phase layer
+        k = np.nonzero((zs >= 3.0) & (zs <= 10.0))[0]
+        if len(k):
+            sub = v[k[0]:k[-1] + 1:2, ::2, ::2]
+            idx = np.argwhere(sub >= 42.0)
+            if len(idx):
+                rng = np.random.default_rng(5)
+                pick = idx[rng.choice(len(idx), size=min(300, len(idx)), replace=False)]
+                out["flash"] = np.c_[xs[::2][pick[:, 2]], ys[::2][pick[:, 1]],
+                                     zs[k[0]:k[-1] + 1:2][pick[:, 0]]].astype(np.float32)
+    return out

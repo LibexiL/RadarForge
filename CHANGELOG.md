@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.21.1 – 2026-10-17
+
+- **3-D view: the storm no longer vanishes at some angles.** A cut left on from Surfaces or Volume was cutting the
+  realistic picture away. Realistic now never cuts, and its options hide the Cut section.
+- **Cut open** in Surfaces and Volume behaves predictably:
+  - **Depth** is how far the cut reaches in from your side, and it never removes everything.
+  - The cut side only swaps when you rotate past the middle of the box, not every time you cross the cut line.
+
+## 1.21.0 – 2026-10-17
+
+### 3-D view, rebuilt
+- **Realistic style (new):** what the storm would look like to your eyes.
+  - Clouds where the radar sees echo, reaching a little beyond it (cloud droplets are too small for the radar),
+    with billowed edges. Rain shafts fall below the cloud base where the radar shows rain.
+  - Lit by the sun where it really was at the scan time and place, worked out from the radar's position. You can
+    also pick morning, midday, afternoon, sunset or your own sun.
+  - Light scatters through the cloud: sunlit tops, dark bases, silver edges against the sun and warm light at
+    sunset.
+  - A real sky, and fields with section roads below. The storm casts its shadow on the ground, rain wets it, and
+    haze thickens with distance.
+  - Lightning flickers in the strongest cores, with a cloud-to-ground stroke now and then. At night it's the
+    only light.
+  - It opens on the ground, a storm chaser's distance away with the sun behind you (**G** goes back there). Drag
+    up into the sky or zoom out for the view from a plane.
+  - It starts in true proportions (height × 1). Cloud base, visibility, rain shafts and lightning are adjustable.
+- **Shadows** for Surfaces and Volume: the storm shades itself and its inside is darker, so the shape reads at a
+  glance. You can turn them off in the options.
+- **Storm numbers on the view:** strongest echo and its height (marked in 3-D), echo tops (18 and 50 dBZ) and
+  VIL.
+- **Hover anywhere** for the value the eye meets there, and the strongest value behind it.
+- **Smoother camera:** views glide into place. There's a new **From the ground** view, **Spin slowly** for a
+  turntable, and **Copy image**.
+- **Cleaner panel:** one bar along the top (Area, product, Surfaces / Volume / Realistic, Follow, View, ⚙).
+  The options sit in a column beside the view, in sections: Surfaces or Volume, Sun & sky, Cut open, Scene.
+  - The column folds away with ⚙, and starts folded when the panel is narrow.
+  - Common surface levels are one click away (▾ next to Levels).
+- Labels stay readable over a bright sky. The map and the labels can each be switched off.
+
 ## 1.20.2 – 2026-10-16
 
 ### New

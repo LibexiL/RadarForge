@@ -100,9 +100,12 @@ keep the extracted files together – everything else is the program itself, sha
 * **Export**: loops as **GIF or MP4**, pictures with the colour bars and a title / details bar, and a
   **briefing view** (map + warnings, reports, SPC and storm motion beside it) you can save or copy.
 * **Storm cell table** (hail, mesocyclone rank, TVS), a **cursor inspector**, **cross sections** and a
-  **3-D storm view** drawn on the graphics card: lit surfaces (30 / 50 / 65 dBZ …) or a see-through volume,
-  for reflectivity, velocity, SRV, CC, ZDR, KDP, spectrum width or azimuthal shear, with the lowest tilt and
-  the map on the floor, a cut plane to look inside, and the loop played in 3-D.
+  **3-D storm view** drawn on the graphics card: lit, shadowed surfaces (30 / 50 / 65 dBZ …) or a see-through
+  volume, for reflectivity, velocity, SRV, CC, ZDR, KDP, spectrum width or azimuthal shear, with the lowest tilt
+  and the map on the floor, a cut plane to look inside, storm numbers (strongest echo, echo tops, VIL), the value
+  under the mouse, and the loop played in 3-D. **Realistic** shows what the storm would look like to the eye:
+  clouds and rain shafts lit by the sun where it really was at the scan time (or any time of day), over fields
+  and section roads with the storm's shadow, haze and lightning, seen from the ground or from the air.
 * **Movable panels with drop zones**: drag any tool panel to a new spot, stack panels as tabs, or float them.
 * **Themes**: six built-in themes (including a light one and a GR-style classic), theme files you can
   share, and an editor to make your own.
@@ -273,7 +276,7 @@ whether to delete your settings and downloaded data too.
 | Rotation history | right-click a storm → **Rotation history for this storm…**: azimuthal shear and rotational velocity through the loaded frames, copyable as CSV |
 | Learning radar | **Help → Learn mode** explains the values under the mouse in the Inspector; **Help → Radar & dual-pol guide** is the cheat sheet |
 | Favourite radars | **Ctrl+D** adds the current radar; **Radar → Favourite radars**, or ☆ in the radar list |
-| 3-D view | **B** (or **3D**), then drag a box around a storm. Drag to rotate, right-drag to move, wheel to zoom, double-click to centre, **R** to reset. **Volume** / **Surfaces** switch the style; **Cut** opens the storm up (north–south, east–west or at a height); **Height ×** sets the vertical exaggeration; **Follow loop** plays it along with the loop; **View** has preset angles and **Save image…** |
+| 3-D view | **B** (or **3D**), then drag a box around a storm. Drag to rotate, right-drag to move, wheel to zoom, double-click to centre, **R** to reset, **G** to stand on the ground. **Surfaces** / **Volume** / **Realistic** switch the style; hover for the value under the mouse. **⚙** shows the options: levels or threshold, sun & sky (Realistic: sun at the scan time or a time of day, cloud base, visibility, rain shafts, lightning), **Cut open**, height ×, shadows, map and labels. **Follow** plays it along with the loop; **View** has preset angles, **Spin slowly**, **Save image…** and **Copy image** |
 | Colour table | drag a `.pal` file onto a panel |
 | Storm motion (for SRV) | click **SM …** on the toolbar – it can use the average motion of the tracked storms |
 | Placefiles | side panel → **Placefiles** (or **Ctrl+P**): add a URL or file; **On** shows it, **Below** draws it under the radar |
