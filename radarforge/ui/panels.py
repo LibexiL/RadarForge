@@ -28,7 +28,7 @@ def _swatch(rgb, size=12):
 
 
 def _section(text):
-    lab = QLabel(text.upper())
+    lab = QLabel(text[:1].upper() + text[1:].lower() if text.isupper() else text)
     lab.setProperty("role", "section")
     return lab
 
@@ -309,8 +309,8 @@ class WarningsPanel(QWidget):
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._tree_menu)
         wl.addWidget(self.tree, 1)
-        wl.addWidget(_hint("Click a warning to highlight it, double-click to go to it (switches to the nearest radar). "
-                           "Right-click for its details, or click its outline on the map."))
+        self.tree.setToolTip("Click a warning to highlight it, double-click to go to it (switches to the nearest "
+                             "radar). Right-click for its details, or click its outline on the map.")
         self.tabs.addTab(w, "Warnings")
         # --- reports tab
         r = QWidget()
@@ -349,8 +349,8 @@ class WarningsPanel(QWidget):
         self.rtree.header().setSectionResizeMode(2, QHeaderView.Stretch)
         self.rtree.itemDoubleClicked.connect(self._zoom_report)
         repl.addWidget(self.rtree, 1)
-        repl.addWidget(_hint("Double-click a report to go to it. T tornado, FC funnel cloud, WC wall cloud, H hail, "
-                             "W wind damage, G wind gust, F flooding. Older reports are fainter."))
+        self.rtree.setToolTip("Double-click a report to go to it. T tornado, FC funnel cloud, WC wall cloud, H hail, "
+                              "W wind damage, G wind gust, F flooding. Older reports are fainter.")
         self.rstack.addWidget(off)
         self.rstack.addWidget(rep)
         self.sync_report_options()
@@ -633,7 +633,7 @@ class CellsPanel(QWidget):
         lay.setContentsMargins(6, 6, 6, 6)
         lay.addWidget(self.hint)
         lay.addWidget(self.tree, 1)
-        lay.addWidget(_hint("Sorted by threat. Double-click a cell to centre on it."))
+        self.tree.setToolTip("Sorted by threat. Double-click a cell to centre on it.")
         self._prod = None
         self._key = None
         main.stateChanged.connect(self.refresh)

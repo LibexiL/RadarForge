@@ -1461,7 +1461,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
             self.setWindowTitle(title)
 
     def _status_msg(self, msg):
-        self.status_lbl.setText(msg[:160])
+        self.status_lbl.setText(msg[:400])
 
     def _progress(self, done, total):
         busy = 0 < total and done < total

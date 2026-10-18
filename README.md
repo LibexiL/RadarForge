@@ -107,7 +107,7 @@ keep the extracted files together – everything else is the program itself, sha
   clouds and rain shafts lit by the sun where it really was at the scan time (or any time of day), over fields
   and section roads with the storm's shadow, haze and lightning, seen from the ground or from the air.
 * **Movable panels with drop zones**: drag any tool panel to a new spot, stack panels as tabs, or float them.
-* **Themes**: six built-in themes (including a light one and a GR-style classic), theme files you can
+* **Themes**: seven built-in themes (including a light one, a GR-style classic and the pre-1.22 RadarForge Classic), theme files you can
   share, and an editor to make your own.
 * **Radar sites on the map**: click any radar to switch to it.
 

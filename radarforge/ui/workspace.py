@@ -20,8 +20,8 @@ from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QImage, QPainter
 from PySide6.QtWidgets import (QApplication, QMenu, QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout,
                                QWidget)
 
-HEADER_H = 27
-GRIP_W = 12           # dotted handle at the left of a tab bar: drags the whole group
+HEADER_H = 25
+GRIP_W = 10           # dotted handle at the left of a tab bar: drags the whole group
 EDGE_PX = 22          # window-edge drop strip
 ZONE = 0.30           # outer fraction of a panel that splits instead of tabbing
 MAP_ZONE = 0.24       # outer fraction of the map that docks next to it
@@ -88,11 +88,9 @@ class StackHeader(QWidget):
         keys = self.stack.keys
         if not keys:
             return []
-        bold = QFont(self.font())
-        bold.setBold(True)
-        fm = QFontMetrics(bold)          # size for the bold (active) look so text never jumps
-        avail = max(40, self._buttons()["float"].left() - 6 - GRIP_W)
-        want = [fm.horizontalAdvance(self.stack.ws.title(k)) + 26 for k in keys]
+        fm = QFontMetrics(self._tab_font(True))     # size for the active look so text never jumps
+        avail = max(40, self._buttons()["float"].left() - 4 - GRIP_W)
+        want = [fm.horizontalAdvance(self.stack.ws.title(k)) + 18 for k in keys]
         total = sum(want)
         if total > avail:
             f = avail / total
@@ -115,45 +113,55 @@ class StackHeader(QWidget):
                 return k
         return None
 
+    def _tab_font(self, active):
+        f = QFont(self.font())
+        f.setPointSizeF(max(7.5, f.pointSizeF() - 0.5))
+        f.setWeight(QFont.DemiBold if active else QFont.Normal)
+        return f
+
     # painting -----------------------------------------------------------------
     def paintEvent(self, _ev):
         pal = _pal()
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing, True)
         win = pal.color(QPalette.Window)
-        base = pal.color(QPalette.Base)
         text = pal.color(QPalette.WindowText)
         dim = QColor(text)
         dim.setAlpha(150)
         acc = _accent()
         dark = win.lightness() < 128
-        bar = win.darker(118) if dark else win.darker(106)
+        bar = win.darker(112) if dark else win.darker(104)
         p.fillRect(self.rect(), bar)
         p.setPen(QPen(pal.color(QPalette.Mid), 1))
         p.drawLine(0, HEADER_H - 1, self.width(), HEADER_H - 1)
         # grip dots
+        grip = QColor(text)
+        grip.setAlpha(70)
         p.setPen(Qt.NoPen)
-        p.setBrush(dim)
-        for gy in (9, 13, 17):
-            for gx in (4, 8):
-                p.drawEllipse(QPointF(gx, gy + 0.5), 1.1, 1.1)
+        p.setBrush(grip)
+        mid = HEADER_H / 2
+        for gy in (mid - 4, mid, mid + 4):
+            for gx in (3.5, 7):
+                p.drawEllipse(QPointF(gx, gy), 1.0, 1.0)
         cur = self.stack.current()
         for i, (k, r) in enumerate(zip(self.stack.keys, self._tab_rects())):
             active = k == cur
             if active:
-                p.fillRect(r.adjusted(0, 3, 0, 0), base)
-                p.fillRect(QRect(r.left(), HEADER_H - 3, r.width(), 3), acc)
+                p.setPen(Qt.NoPen)
+                p.setBrush(acc)
+                p.drawRoundedRect(QRectF(r.left() + 7, HEADER_H - 3, r.width() - 14, 2.5), 1.2, 1.2)
             elif i == self._hover_tab:
                 hv = QColor(text)
-                hv.setAlpha(22)
-                p.fillRect(r.adjusted(0, 3, 0, -1), hv)
-            f = QFont(self.font())
-            f.setBold(active)
+                hv.setAlpha(18)
+                p.setPen(Qt.NoPen)
+                p.setBrush(hv)
+                p.drawRoundedRect(QRectF(r.adjusted(2, 4, -2, -4)), 5, 5)
+            f = self._tab_font(active)
             p.setFont(f)
             fm = QFontMetrics(f)
             p.setPen(text if active else dim)
-            p.drawText(r.adjusted(11, 1, -9, 0), Qt.AlignVCenter | Qt.AlignLeft,
-                       fm.elidedText(self.stack.ws.title(k), Qt.ElideRight, r.width() - 20))
+            p.drawText(r.adjusted(9, 0, -7, 0), Qt.AlignVCenter | Qt.AlignLeft,
+                       fm.elidedText(self.stack.ws.title(k), Qt.ElideRight, r.width() - 16))
         # buttons
         for name, r in self._buttons().items():
             hov = name == self._hover_btn

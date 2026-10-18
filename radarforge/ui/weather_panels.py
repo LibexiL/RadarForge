@@ -2,13 +2,13 @@
 the radar layers it needs, and buttons that open its model maps."""
 from __future__ import annotations
 
-from .quick_panel import ChipPage, _chip, _hint, _setup_button
+from .quick_panel import ChipPage, _chip, _setup_button
 
 
 def _caption(lay, text):
     from PySide6.QtWidgets import QLabel
     cap = QLabel(text)
-    cap.setProperty("role", "qsection")
+    cap.setProperty("role", "section")
     f = cap.font()
     f.setBold(True)
     cap.setFont(f)
@@ -21,10 +21,11 @@ class SeverePanel(ChipPage):
     def build(self, lay):
         m = self.main
         ov = m.overlay_acts
-        lay.addWidget(_setup_button(m, "severe", "Set up the map for severe weather"))
-        lay.addWidget(_hint("Turns on warnings, watches, storm reports, the SPC outlook and discussions, and storm "
-                            "tracks. Change any switch below afterwards."))
-        lay.addSpacing(4)
+        b = _setup_button(m, "severe", "Set up the map for severe weather")
+        b.setToolTip("Turns on warnings, watches, storm reports, the SPC outlook and discussions, and storm tracks. "
+                     "Change any switch below afterwards.")
+        lay.addWidget(b)
+        lay.addSpacing(2)
 
         s = self.section("sev_warn", "Warnings & watches")
         s.chip(ov.get("warnings"), "Warnings", "NWS warnings on the map")
@@ -80,10 +81,8 @@ class SeverePanel(ChipPage):
             ("uh25", "Updraft hel.", "hrrr", None), ("lapse75", "Lapse rates", None, None),
             ("td2m", "Dewpoint", None, None), ("cin_sb", "CIN", None, None),
         ])
-        s.newline()
-        self._model_hint = _hint("The buttons open the Models view (F6 switches back). The sets use several panels; "
-                                 "single maps use the model you last picked.")
-        s._place_row(self._model_hint)
+        s.header.setToolTip("The buttons open the Models view (F6 switches back). The sets use several panels; "
+                            "single maps use the model you last picked.")
 
     def sync_spc(self):
         """Grey out the outlook products the shown day doesn't have (day 3: risk and any severe only)."""
@@ -121,10 +120,11 @@ class WinterPanel(ChipPage):
     def build(self, lay):
         m = self.main
         ov = m.overlay_acts
-        lay.addWidget(_setup_button(m, "winter", "Set up the map for winter weather"))
-        lay.addWidget(_hint("Turns on precipitation type in panel 1, the freezing line, winter warnings and snow "
-                            "and ice reports. Change any switch below afterwards."))
-        lay.addSpacing(4)
+        b = _setup_button(m, "winter", "Set up the map for winter weather")
+        b.setToolTip("Turns on precipitation type in panel 1, the freezing line, winter warnings and snow and ice "
+                     "reports. Change any switch below afterwards.")
+        lay.addWidget(b)
+        lay.addSpacing(2)
 
         s = self.section("win_radar", "On the radar")
         s.chip(m.ptype_act, "Precip type", "Panel 1 shows reflectivity coloured by rain, snow, sleet and freezing "
@@ -155,6 +155,5 @@ class WinterPanel(ChipPage):
             ("frzr", "Freezing rain", None, None), ("t2m", "2 m temp", None, None), ("t850", "850 mb temp", None, None),
             ("snod", "Snow depth", None, None), ("qpf", "Total precip", None, None), ("mslp", "Radar + MSLP", None, None),
         ])
-        s.newline()
-        s._place_row(_hint("The NAM goes out 60 hours and the GFS 16 days for storms further ahead (pick the model in "
-                           "the Models panel)."))
+        s.header.setToolTip("The buttons open the Models view (F6 switches back). The NAM goes out 60 hours and "
+                            "the GFS 16 days for storms further ahead (pick the model in the Models panel).")

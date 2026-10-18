@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.22.0 – 2026-10-17
+
+### A cleaner, slimmer interface
+- **New look:** a cool graphite theme with one calm blue accent. The previous look is still there as the
+  **RadarForge Classic** theme (Settings → Themes).
+- **Softer switches:** a switch that's on is a soft blue tint with blue text, one that's off a faint tile. No more
+  walls of solid blue buttons.
+- **Slimmer everywhere:**
+  - thinner menu bar, toolbar, panel tabs and switches; less padding in fields, lists and menus;
+  - a 9 pt interface font on desktops that default to bigger;
+  - thin scroll bars, small round slider handles, proper checkboxes and radio buttons, rounded menus and lists.
+- **One bar at the bottom:** the loop controls, time, speed and frame count share the bar with the status
+  messages. Long messages end in "…", and hovering shows the whole text.
+- **Organised toolbar:** the buttons sit in groups on faint trays (data, layout, tilt, mouse tools, storm motion,
+  display switches). Radar / Models is a single segmented switch. The warning toggles are small pills.
+  - At narrow widths Radar / Models shrink to icons first, so every button still fits at 1280 px.
+- **Panel tabs fit:** "Products · Models · Warnings · Storm cells" are no longer cut short. The active tab is
+  underlined.
+- **Tidier side panels:**
+  - section headers in sentence case, e.g. "Warnings (3 on)";
+  - explanations moved from paragraphs into tooltips;
+  - Severe, Winter, Tropical and Clean share one row;
+  - the tropical checkboxes are in one column, so long names aren't cut off.
+- The side-panel switch in the menu bar is icon-only. The map's panel titles have rounder corners.
+
 ## 1.21.1 – 2026-10-17
 
 - **3-D view: the storm no longer vanishes at some angles.** A cut left on from Surfaces or Volume was cutting the

@@ -29,8 +29,8 @@ class ModelsPanel(QWidget):
         lay.setSpacing(6)
 
         def caption(text):
-            lab = QLabel(text.upper())
-            lab.setProperty("role", "qsection")
+            lab = QLabel(text[:1].upper() + text[1:].lower() if text.isupper() else text)
+            lab.setProperty("role", "section")
             f = lab.font()
             f.setBold(True)
             lab.setFont(f)

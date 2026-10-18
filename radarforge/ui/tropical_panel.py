@@ -12,8 +12,8 @@ from ..features import tropical as tr
 
 
 def _caption(text):
-    lab = QLabel(text.upper())
-    lab.setProperty("role", "qsection")
+    lab = QLabel(text[:1].upper() + text[1:].lower() if text.isupper() else text)
+    lab.setProperty("role", "section")
     f = lab.font()
     f.setBold(True)
     lab.setFont(f)
@@ -38,9 +38,10 @@ class TropicalPanel(QWidget):
         lay.setSpacing(6)
 
         from .quick_panel import _setup_button
-        lay.addWidget(_setup_button(main, "tropical", "Set up the map for tropical weather"))
-        lay.addWidget(_hint("Turns on storms with their cones, wind fields, model tracks, the outlook, buoys and "
-                            "hurricane / surge warnings."))
+        sb = _setup_button(main, "tropical", "Set up the map for tropical weather")
+        sb.setToolTip("Turns on storms with their cones, wind fields, model tracks, the outlook, buoys and "
+                      "hurricane / surge warnings.")
+        lay.addWidget(sb)
         lay.addWidget(_caption("Active storms"))
         self.list = QListWidget()
         self.list.currentItemChanged.connect(lambda cur, _o: self._select(cur))
@@ -69,7 +70,7 @@ class TropicalPanel(QWidget):
 
         lay.addWidget(_caption("Show"))
         grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(5)
         self.checks = {}
         items = [("tropical", "Storms, cones && tracks"), ("tropical_wind", "Wind field"),
                  ("tropical_spaghetti", "Model tracks"), ("tropical_outlook", "Outlook (areas to watch)"),
@@ -77,12 +78,13 @@ class TropicalPanel(QWidget):
         for i, (key, label) in enumerate(items):
             cb = QCheckBox(label)
             cb.toggled.connect(lambda on, k=key: self._toggle(k, on))
-            grid.addWidget(cb, i // 2, i % 2)
+            grid.addWidget(cb, i, 0)              # (one column: long names never get cut off)
             self.checks[key] = cb
         lay.addLayout(grid)
-        lay.addWidget(_hint("Model tracks: the official forecast (white) with GFS, HAFS, Canadian, UK and others. "
-                            "Hurricane / surge warnings shade the counties under them; the coast is outlined in "
-                            "NHC's colours when 'Storms' is on."))
+        self.checks["tropical_spaghetti"].setToolTip("The official forecast (white) with GFS, HAFS, Canadian, UK and "
+                                                     "others")
+        self.checks["TRO"].setToolTip("Shades the counties under hurricane and storm surge warnings; the coast is "
+                                      "outlined in NHC's colours when 'Storms' is on")
 
         lay.addWidget(_caption("Tropical model maps"))
         mgrid = QGridLayout()

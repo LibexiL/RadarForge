@@ -135,11 +135,11 @@ class MenusMixin:
 
     # ------------------------------------------------------------------ toolbar
     def _build_toolbar(self):
-        tb = QToolBar("Main", self)
+        tb = _TrayToolBar("Main", self)
         tb.setObjectName("main_toolbar")
         tb.setMovable(False)
         tb.setFloatable(False)
-        tb.setIconSize(QSize(18, 18))
+        tb.setIconSize(QSize(16, 16))
         tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.addToolBar(tb)
         self.main_tb = tb
@@ -274,7 +274,7 @@ class MenusMixin:
         self.addAction(self.side_act)
         self.side_btn = QToolButton()
         self.side_btn.setDefaultAction(self.side_act)
-        self.side_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.side_btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.side_btn.setAutoRaise(True)
         self.side_btn.setIconSize(QSize(16, 16))
         self.corner = QWidget()
@@ -319,6 +319,8 @@ class MenusMixin:
                 b.setToolTip(f"{full}: show on the map and in the Warnings panel")
             if hasattr(self, "_wbar_label"):
                 self._wbar_label.setVisible(level < 3)
+            for _a, vb in getattr(self, "view_btns", {}).values():      # Radar / Models: just the icons
+                vb.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 3 else Qt.ToolButtonTextBesideIcon)
 
         def need():
             items = [w for w in (tb.widgetForAction(a) for a in tb.actions() if a.isVisible()) if w is not None]
@@ -343,13 +345,13 @@ class MenusMixin:
 
     # ------------------------------------------------------------------ timeline (bottom)
     def _build_timeline(self):
-        """Frame / loop controls along the bottom, above the status bar."""
+        """Frame / loop controls: the left part of the one bar along the bottom (the status bar, see
+        _build_status)."""
         tb = QToolBar("Timeline", self)
         tb.setObjectName("timeline_toolbar")
         tb.setMovable(False)
         tb.setFloatable(False)
-        tb.setIconSize(QSize(16, 16))
-        self.addToolBar(Qt.BottomToolBarArea, tb)
+        tb.setIconSize(QSize(14, 14))
         self.timeline_tb = tb
         for name, tip, fn in (("first", "First frame (Home)", lambda: self.goto_frame(0)),
                               ("prev", "Previous frame (Left)", lambda: self.step_frame(-1))):
@@ -371,13 +373,13 @@ class MenusMixin:
             self._tb_button(tb, act, text_beside=False)
             self._icon_targets.append((act, name))
         self.frame_slider = QSlider(Qt.Horizontal)
-        self.frame_slider.setMinimumWidth(160)
+        self.frame_slider.setMinimumWidth(90)
         self.frame_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.frame_slider.setToolTip("Drag to scrub through the loaded frames")
         self.frame_slider.valueChanged.connect(self._slider_moved)
         tb.addWidget(self.frame_slider)
         self.time_label = QLabel(" --:--:--Z ")
-        self.time_label.setMinimumWidth(230)
+        self.time_label.setMinimumWidth(196)
         self.time_label.setAlignment(Qt.AlignCenter)
         f = self.time_label.font()
         f.setBold(True)
@@ -748,9 +750,15 @@ class MenusMixin:
     # ------------------------------------------------------------------ status bar
     def _build_status(self):
         sb = self.statusBar()
+        sb.setSizeGripEnabled(False)
+        sb.addWidget(self.timeline_tb, 5)          # loop controls and messages share one bar
+        # (never squeezed below its buttons, time and loop settings: messages give way instead)
+        tb = self.timeline_tb
+        need = sum(w.sizeHint().width() for w in (tb.widgetForAction(a) for a in tb.actions()) if w is not None)
+        tb.setMinimumWidth(need + 8 * len(tb.actions()) + 20)
         self.readout = QLabel("")
-        self.readout.setMinimumWidth(300)
-        sb.addWidget(self.readout, 1)
+        self.readout.setMinimumWidth(0)
+        sb.addWidget(self.readout, 2)
         self.prog = QProgressBar()
         self.prog.setMaximumWidth(140)
         self.prog.setVisible(False)
@@ -759,8 +767,9 @@ class MenusMixin:
         self.track_lbl.setStyleSheet("color:#ffd23c;font-weight:bold;")
         self.track_lbl.setVisible(False)
         sb.addPermanentWidget(self.track_lbl)
-        self.status_lbl = QLabel("")
-        self.status_lbl.setMaximumWidth(620)
+        self.status_lbl = _ElideLabel("")
+        self.status_lbl.setMaximumWidth(460)
+        self.status_lbl.setMinimumWidth(200)
         sb.addPermanentWidget(self.status_lbl)
         self.data_lbl = QLabel("")             # LIVE · 25 s ago / ARCHIVE / FILES
         self.data_lbl.setToolTip("How fresh the data on screen is")
@@ -850,3 +859,78 @@ class MenusMixin:
             "Maps: US Census county boundaries, Natural Earth, GeoNames.<br>"
             "Level III decoding and sounding maths by MetPy.<br><br>"
             f"OpenGL: {self.view.gl_info}"))
+
+
+class _ElideLabel(QLabel):
+    """A one-line label that shortens its text with … when there isn't room (the whole text in its tooltip)."""
+
+    def __init__(self, text=""):
+        super().__init__()
+        self._full = ""
+        self.setMinimumWidth(40)
+        self.setText(text)
+
+    def setText(self, text):
+        self._full = str(text or "")
+        self.setToolTip(self._full if len(self._full) > 40 else "")
+        self._fit()
+
+    def text(self):
+        return self._full
+
+    def sizeHint(self):
+        h = super().sizeHint()
+        return QSize(min(self.fontMetrics().horizontalAdvance(self._full) + 14, self.maximumWidth()), h.height())
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._fit()
+
+    def _fit(self):
+        w = max(10, self.width() - 12)
+        QLabel.setText(self, self.fontMetrics().elidedText(self._full, Qt.ElideRight, w))
+        self.updateGeometry()
+
+
+class _TrayToolBar(QToolBar):
+    """The main toolbar: each group of buttons (between separators) sits on its own faint rounded tray, so the
+    toolbar reads as a few tidy groups instead of a long row of icons. The separators themselves are just gaps."""
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+        runs, cur = [], []
+        for a in self.actions():
+            if not a.isVisible():
+                continue
+            if a.isSeparator():
+                runs.append(cur)
+                cur = []
+                continue
+            w = self.widgetForAction(a)
+            if w is None or not w.isVisible():
+                continue
+            if w.property("tray") is False or not isinstance(w, (QToolButton, QComboBox)):
+                runs.append(cur)
+                cur = []
+                continue
+            cur.append(w)
+        runs.append(cur)
+        text = self.palette().color(QPalette.WindowText)
+        fill = QColor(text)
+        fill.setAlpha(9)
+        edge = QColor(text)
+        edge.setAlpha(22)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(edge, 1))
+        p.setBrush(fill)
+        for run in runs:
+            if len(run) < 2:
+                continue
+            r = run[0].geometry()
+            for w in run[1:]:
+                r = r.united(w.geometry())
+            p.drawRoundedRect(QRectF(r).adjusted(-2.5, -1.5, 2.5, 1.5), 7, 7)
+        p.end()

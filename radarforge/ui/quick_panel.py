@@ -64,8 +64,8 @@ class Section(QWidget):
         self.body = QWidget()
         self.grid = QGridLayout(self.body)
         self.grid.setContentsMargins(2, 0, 2, 4)
-        self.grid.setHorizontalSpacing(4)
-        self.grid.setVerticalSpacing(4)
+        self.grid.setHorizontalSpacing(3)
+        self.grid.setVerticalSpacing(3)
         self.cols = COLS
         for c in range(COLS):
             self.grid.setColumnStretch(c, 1)
@@ -178,8 +178,8 @@ class Section(QWidget):
     def update_header(self):
         n = sum(1 for _b, a in self.chips if a.isChecked())
         arrow = "▸" if self.collapsed else "▾"
-        title = self.title.upper().replace("&", "&&")
-        self.header.setText(f"{arrow}  {title}" + (f"   ·  {n} on" if n else ""))
+        title = self.title.replace("&", "&&")
+        self.header.setText(f"{arrow}  {title}" + (f"   ({n} on)" if n else ""))
         self.header.setToolTip("Click to " + ("open" if self.collapsed else "fold away") + " this section")
 
     def toggle(self):
@@ -201,7 +201,7 @@ def _setup_button(main, name, text):
     f = b.font()
     f.setBold(True)
     b.setFont(f)
-    b.setMinimumHeight(32)
+    b.setMinimumHeight(26)
     b.setCursor(Qt.PointingHandCursor)
     if act is not None:
         b.setToolTip(act.toolTip() + ". Change any switch afterwards.")
@@ -309,15 +309,15 @@ class QuickPanel(ChipPage):
     def build(self, lay):
         m = self.main
         ov = m.overlay_acts
-        cap = QLabel("WEATHER PANELS")
-        cap.setProperty("role", "qsection")
+        cap = QLabel("Weather panels")
+        cap.setProperty("role", "section")
         f = cap.font()
         f.setBold(True)
         cap.setFont(f)
         lay.addWidget(cap)
         prow = QGridLayout()
-        prow.setHorizontalSpacing(4)
-        prow.setVerticalSpacing(4)
+        prow.setHorizontalSpacing(3)
+        prow.setVerticalSpacing(3)
         for i, (key, label, tip) in enumerate((
                 ("severe", "Severe ›", "Warnings, storm reports, SPC outlooks, storm tools and severe model maps"),
                 ("winter", "Winter ›", "Precipitation type, freezing line, snowfall, winter warnings and winter "
@@ -326,24 +326,20 @@ class QuickPanel(ChipPage):
                                            "model maps"))):
             b = QPushButton(label)
             b.setToolTip(tip)
-            b.setMinimumHeight(30)
-            bf = b.font()
-            bf.setBold(True)
-            b.setFont(bf)
+            b.setMinimumHeight(24)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(lambda _=False, k=key: m.show_panel(k))
             prow.addWidget(b, 0, i)
         clean = m.preset_acts.get("clean")
         if clean is not None:
-            cb = _chip("Clean map", clean.toolTip())
+            cb = _chip("Clean", clean.toolTip() or "Just the radar, the map and warnings")
             cb.setChecked(clean.isChecked())
             cb.clicked.connect(lambda _=False, a=clean, b=cb: (a.trigger(), b.setChecked(a.isChecked())))
             clean.toggled.connect(cb.setChecked)
-            prow.addWidget(cb, 1, 0, 1, 3)
+            cb.setMinimumHeight(24)
+            prow.addWidget(cb, 0, 3)                # one row: the three weather panels and a clean map
         lay.addLayout(prow)
-        lay.addWidget(_hint("Each weather panel has a one-click setup and its own model maps. Below: layers for "
-                            "any weather."))
-        lay.addSpacing(4)
+        lay.addSpacing(2)
 
         s = self.section("warnings", "Warnings")
         s.chip(ov.get("warnings"), "Warnings", "NWS warnings on the map (rest the mouse on one for a summary, "

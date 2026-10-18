@@ -1230,10 +1230,10 @@ class RadarView(QOpenGLWindow):
         painter.setFont(self.font_header)
         fm = QFontMetricsF(self.font_header)
         text = p.header or p.product
-        box = QRectF(p.rect.left() + 4, p.rect.top() + 4, self._header_width(p), fm.height() + 6)
+        box = QRectF(p.rect.left() + 6, p.rect.top() + 6, self._header_width(p), fm.height() + 7)
         painter.setPen(Qt.NoPen)
         painter.setBrush(self.colors["label_bg"])
-        painter.drawRoundedRect(box, 4, 4)
+        painter.drawRoundedRect(box, 6, 6)
         painter.setPen(self.colors["label_text"])
         painter.drawText(box.adjusted(7, 0, -4, 0), Qt.AlignVCenter | Qt.AlignLeft,
                          fm.elidedText(text, Qt.ElideRight, box.width() - 11))

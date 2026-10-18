@@ -57,7 +57,7 @@ class ModelsMixin:
             b.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             b.setProperty("role", "viewswitch")
             b.setProperty("side", "left" if mode == "radar" else "right")
-            b.setMinimumWidth(78)
+            b.setMinimumWidth(0)
             h.addWidget(b)
             self.view_btns[mode] = (a, b)
             self._icon_targets.append((a, "radar" if mode == "radar" else "models"))
