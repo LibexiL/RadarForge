@@ -93,8 +93,17 @@ class StackHeader(QWidget):
         want = [fm.horizontalAdvance(self.stack.ws.title(k)) + 18 for k in keys]
         total = sum(want)
         if total > avail:
-            f = avail / total
-            want = [max(44, int(w * f)) for w in want]
+            # the panel you're looking at keeps its whole name; the others share what's left
+            cur = self.stack.current()
+            ia = keys.index(cur) if cur in keys else -1
+            rest = total - (want[ia] if ia >= 0 else 0)
+            room = avail - (want[ia] if ia >= 0 else 0)
+            if ia >= 0 and rest > 0 and room >= 36 * (len(keys) - 1):
+                f = room / rest
+                want = [w if i == ia else max(36, int(w * f)) for i, w in enumerate(want)]
+            else:
+                f = avail / total
+                want = [max(36, int(w * f)) for w in want]
         rects, x = [], GRIP_W
         for w in want:
             rects.append(QRect(x, 0, w, HEADER_H))

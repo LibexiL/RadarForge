@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.22.1 – 2026-10-18
+
+- **Nothing overlaps in the bottom bar any more.** With a larger desktop font, or a long live time, the cursor
+  readout used to run over the loop speed and frame count. The loop controls now always keep their room, and the
+  readout and messages shorten with "…".
+- **Toolbar groups no longer crowd the buttons:** quieter trays sit exactly behind their buttons, with more space
+  between groups.
+- **Panel tabs:** when there are many tabs in one group, the one you're on keeps its whole name, and the others
+  share the rest.
+- **Desktops that set their font size in pixels** (some KDE setups) now get the same compact 9 pt interface too.
+- **Map panel titles, readouts and messages stay sharp with display scaling** (125 %, 150 %…): before, their
+  letters could come out jumbled and overlapping.
+
 ## 1.22.0 – 2026-10-17
 
 ### A cleaner, slimmer interface

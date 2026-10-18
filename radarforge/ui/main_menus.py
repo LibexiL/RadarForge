@@ -347,7 +347,7 @@ class MenusMixin:
     def _build_timeline(self):
         """Frame / loop controls: the left part of the one bar along the bottom (the status bar, see
         _build_status)."""
-        tb = QToolBar("Timeline", self)
+        tb = _FullToolBar("Timeline", self)
         tb.setObjectName("timeline_toolbar")
         tb.setMovable(False)
         tb.setFloatable(False)
@@ -751,13 +751,9 @@ class MenusMixin:
     def _build_status(self):
         sb = self.statusBar()
         sb.setSizeGripEnabled(False)
-        sb.addWidget(self.timeline_tb, 5)          # loop controls and messages share one bar
-        # (never squeezed below its buttons, time and loop settings: messages give way instead)
-        tb = self.timeline_tb
-        need = sum(w.sizeHint().width() for w in (tb.widgetForAction(a) for a in tb.actions()) if w is not None)
-        tb.setMinimumWidth(need + 8 * len(tb.actions()) + 20)
-        self.readout = QLabel("")
-        self.readout.setMinimumWidth(0)
+        sb.addWidget(self.timeline_tb, 5)          # loop controls and messages share one bar; the controls
+        self.readout = _ElideLabel("")             # never shrink (_FullToolBar), the texts shorten with … instead
+        self.readout.setMaximumWidth(16777215)
         sb.addWidget(self.readout, 2)
         self.prog = QProgressBar()
         self.prog.setMaximumWidth(140)
@@ -769,7 +765,7 @@ class MenusMixin:
         sb.addPermanentWidget(self.track_lbl)
         self.status_lbl = _ElideLabel("")
         self.status_lbl.setMaximumWidth(460)
-        self.status_lbl.setMinimumWidth(200)
+        self.status_lbl.setMinimumWidth(110)
         sb.addPermanentWidget(self.status_lbl)
         self.data_lbl = QLabel("")             # LIVE · 25 s ago / ARCHIVE / FILES
         self.data_lbl.setToolTip("How fresh the data on screen is")
@@ -861,13 +857,21 @@ class MenusMixin:
             f"OpenGL: {self.view.gl_info}"))
 
 
+class _FullToolBar(QToolBar):
+    """A toolbar that is never squeezed below its contents (in the bottom bar: the loop controls keep their room
+    and the messages beside them give way)."""
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+
 class _ElideLabel(QLabel):
     """A one-line label that shortens its text with … when there isn't room (the whole text in its tooltip)."""
 
     def __init__(self, text=""):
         super().__init__()
         self._full = ""
-        self.setMinimumWidth(40)
+        self.setMinimumWidth(30)
         self.setText(text)
 
     def setText(self, text):
@@ -899,7 +903,7 @@ class _TrayToolBar(QToolBar):
     def paintEvent(self, ev):
         super().paintEvent(ev)
         from PySide6.QtCore import QRectF
-        from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+        from PySide6.QtGui import QColor, QPainter, QPalette
         runs, cur = [], []
         for a in self.actions():
             if not a.isVisible():
@@ -919,12 +923,10 @@ class _TrayToolBar(QToolBar):
         runs.append(cur)
         text = self.palette().color(QPalette.WindowText)
         fill = QColor(text)
-        fill.setAlpha(9)
-        edge = QColor(text)
-        edge.setAlpha(22)
+        fill.setAlpha(10)
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(QPen(edge, 1))
+        p.setPen(Qt.NoPen)
         p.setBrush(fill)
         for run in runs:
             if len(run) < 2:
@@ -932,5 +934,5 @@ class _TrayToolBar(QToolBar):
             r = run[0].geometry()
             for w in run[1:]:
                 r = r.united(w.geometry())
-            p.drawRoundedRect(QRectF(r).adjusted(-2.5, -1.5, 2.5, 1.5), 7, 7)
+            p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
         p.end()

@@ -362,6 +362,9 @@ def apply_ui(app, theme: dict):
     if f.pointSizeF() > 9.0:
         f.setPointSizeF(9.0)
         app.setFont(f)
+    elif f.pointSizeF() <= 0 and f.pixelSize() > 12:      # (desktops that give the font size in pixels)
+        f.setPixelSize(12)
+        app.setFont(f)
     app.setStyleSheet(stylesheet(t))
 
 
@@ -487,7 +490,7 @@ QMenuBar QLineEdit { padding: 1px 8px; margin: 2px 6px; border-radius: 7px; }
 QToolBar { background: %(header)s; border: none; border-bottom: 1px solid %(border)s; spacing: 2px;
     padding: 2px 6px; }
 QToolBar::separator { background: %(border)s; width: 1px; margin: 6px 5px; }
-QToolBar#main_toolbar::separator { background: transparent; width: 9px; margin: 0; }
+QToolBar#main_toolbar::separator { background: transparent; width: 12px; margin: 0; }
 QToolBar QToolButton { padding: 2px 4px; border-radius: 5px; border: 1px solid transparent; }
 QToolBar QToolButton:hover { background: %(hover)s; }
 QToolBar QToolButton:checked { background: %(acc_soft)s; color: %(acc_fg)s; }

@@ -1211,41 +1211,62 @@ class RadarView(QOpenGLWindow):
             painter.setBrush(Qt.NoBrush)
             painter.drawEllipse(QPointF(sx, sy), 2.5, 2.5)
         if p.readout:
-            painter.setFont(self.font_header)
             fm = QFontMetricsF(self.font_header)
-            w = fm.horizontalAdvance(p.readout) + 12
             y = p.rect.bottom() - (LEGEND_H + 10 if self.show_legend and p.palette is not None else 6) - fm.height() - 4
-            box = QRectF(p.rect.left() + 6, y, w, fm.height() + 4)
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(self.colors["label_bg"])
-            painter.drawRoundedRect(box, 3, 3)
-            painter.setPen(self.colors["label_text"])
-            painter.drawText(box, Qt.AlignCenter, p.readout)
+            img = self._badge(p.readout, self.font_header, fm.horizontalAdvance(p.readout) + 12, fm.height() + 4, 3,
+                              Qt.AlignCenter)
+            painter.drawImage(QPointF(round(p.rect.left() + 6), round(y)), img)
 
     def _header_width(self, p):
         fm = QFontMetricsF(self.font_header)
         return min(fm.horizontalAdvance(p.header or p.product) + 14, p.rect.width() - 8)
 
+    def _badge(self, text, font, w, h, radius, align, pad=7):
+        """A rounded label (map panel title, readout, message) drawn once into an image and reused. (Text drawn
+        straight onto the OpenGL surface can come out with jumbled letters on some drivers when the desktop is
+        scaled; an image always looks right.)"""
+        dpr = self.devicePixelRatioF()
+        key = ("badge", text, font.key(), int(w), int(h), radius, int(align), dpr,
+               self.colors["label_bg"].rgba(), self.colors["label_text"].rgba())
+        cache = self._legend_cache
+        img = cache.get(key)
+        if img is not None:
+            return img
+        if len(cache) > 400:
+            for k in [k for k in cache if isinstance(k, tuple) and k and k[0] == "badge"]:
+                del cache[k]
+        W, H = max(1, int(round(w))), max(1, int(round(h)))
+        img = QImage(max(1, int(W * dpr)), max(1, int(H * dpr)), QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(dpr)
+        img.fill(0)
+        qp = QPainter(img)
+        qp.setRenderHint(QPainter.Antialiasing, True)
+        qp.setRenderHint(QPainter.TextAntialiasing, True)
+        qp.setPen(Qt.NoPen)
+        qp.setBrush(self.colors["label_bg"])
+        qp.drawRoundedRect(QRectF(0, 0, W, H), radius, radius)
+        qp.setPen(self.colors["label_text"])
+        qp.setFont(font)
+        fm = QFontMetricsF(font)
+        if align & Qt.AlignLeft:
+            r = QRectF(pad, 0, W - pad - 4, H)
+        else:
+            r = QRectF(0, 0, W, H)
+        qp.drawText(r, align | Qt.AlignVCenter, fm.elidedText(text, Qt.ElideRight, r.width()))
+        qp.end()
+        cache[key] = img
+        return img
+
     def _paint_header(self, painter, p):
-        painter.setFont(self.font_header)
         fm = QFontMetricsF(self.font_header)
         text = p.header or p.product
-        box = QRectF(p.rect.left() + 6, p.rect.top() + 6, self._header_width(p), fm.height() + 7)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(self.colors["label_bg"])
-        painter.drawRoundedRect(box, 6, 6)
-        painter.setPen(self.colors["label_text"])
-        painter.drawText(box.adjusted(7, 0, -4, 0), Qt.AlignVCenter | Qt.AlignLeft,
-                         fm.elidedText(text, Qt.ElideRight, box.width() - 11))
+        img = self._badge(text, self.font_header, self._header_width(p), fm.height() + 7, 6, Qt.AlignLeft)
+        painter.drawImage(QPointF(round(p.rect.left() + 6), round(p.rect.top() + 6)), img)
         if p.message:
-            painter.setFont(self.font_label)
             fm2 = QFontMetricsF(self.font_label)
-            mb = QRectF(p.rect.center().x() - fm2.horizontalAdvance(p.message) / 2 - 10,
-                        p.rect.center().y() - 14, fm2.horizontalAdvance(p.message) + 20, 28)
-            painter.setBrush(self.colors["label_bg"])
-            painter.drawRoundedRect(mb, 5, 5)
-            painter.setPen(self.colors["label_text"])
-            painter.drawText(mb, Qt.AlignCenter, p.message)
+            mw = fm2.horizontalAdvance(p.message) + 20
+            img = self._badge(p.message, self.font_label, mw, 28, 5, Qt.AlignCenter)
+            painter.drawImage(QPointF(round(p.rect.center().x() - mw / 2), round(p.rect.center().y() - 14)), img)
 
     def _legend_image(self, ct, width):
         """The whole colour bar (background, gradient, ticks, units) as one cached image."""
