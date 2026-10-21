@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.23.0 – 2026-10-21
+
+- **Street cameras show which way they look.** A small cone points out from each camera icon in the direction it
+  faces; a camera with several views gets a cone per view.
+  - **Solid cones** come from the agency itself: 511 view names like "Looking North", or the direction of travel a
+    camera covers ("Northbound", "I-90 EB", California's direction field).
+  - **Dashed cones** are a best guess for Windy webcams, which don't report a direction: they're read from the
+    title when it says one ("Albany › South-West", "Harbor (SE)", "view to the east"). Street names like
+    "North Main St" are never taken as a direction.
+  - Hovering a camera and the camera window say which it is: "Faces north", "Eastbound lanes" or "Probably faces
+    south (going by its title)".
+  - Turn the cones off in Camera sources & keys → "Show which way cameras look".
+
 ## 1.22.1 – 2026-10-18
 
 - **Nothing overlaps in the bottom bar any more.** With a larger desktop font, or a long live time, the cursor

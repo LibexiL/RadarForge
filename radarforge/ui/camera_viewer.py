@@ -109,7 +109,8 @@ class CameraViewer(QDialog):
             return
         self._pix = QPixmap.fromImage(img)
         self._fit()
-        self.info.setText(f"{c.source} · picture loaded {datetime.now():%H:%M:%S} · refreshes every minute"
+        ft = c.facing_text(max(0, self.view_pick.currentIndex()))
+        self.info.setText(f"{c.source}{' · ' + ft if ft else ''} · picture loaded {datetime.now():%H:%M:%S} · refreshes every minute"
                           + (" · Webcams provided by windy.com" if c.source.startswith("Windy") else ""))
 
     def _fit(self):

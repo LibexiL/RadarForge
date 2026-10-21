@@ -7,10 +7,13 @@ Sources:
 * Windy Webcams (worldwide, many traffic cameras) – free API key: https://api.windy.com/webcams/api/v3/webcams
 
 Cameras are drawn only when zoomed in, one small icon per patch of screen, so they don't bury the radar.
+Where a camera says which way it looks (Caltrans and 511 give a direction or "Looking North"-style view names;
+Windy titles sometimes end "› South"), a small view cone shows it - dashed for Windy, where it is a guess.
 """
 from __future__ import annotations
 
 import math
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -53,6 +56,96 @@ class Camera:
     views: list = field(default_factory=list)    # [(label, image url)]
     page: str = ""                               # web page for the camera, if any
     expires: float = 0.0                         # image URLs stop working after this (Windy), 0 = never
+    facing: list = field(default_factory=list)   # per view: (degrees from north, "look" | "road") or None
+    guess: bool = False                          # facing worked out from a title rather than given
+
+    def headings(self) -> list:
+        """The different directions this camera's views look (degrees), at most four."""
+        out = []
+        for f in self.facing:
+            if f is not None and all(abs((f[0] - h + 180) % 360 - 180) > 10 for h in out):
+                out.append(f[0])
+        return out[:4]
+
+    def facing_text(self, view: int = 0) -> str:
+        """'Faces north', 'Northbound lanes' or 'Probably faces south (going by its title)'; '' when unknown."""
+        f = self.facing[view] if 0 <= view < len(self.facing) else None
+        if f is None:
+            f = next((x for x in self.facing if x is not None), None)
+        if f is None:
+            return ""
+        word = compass_word(f[0])
+        if f[1] == "road":
+            txt = f"{word.capitalize()}bound lanes" if word in ("north", "south", "east", "west") else \
+                f"Traffic heading {word}"
+        else:
+            txt = f"Faces {word}"
+        return f"Probably {txt[0].lower()}{txt[1:]} (going by its title)" if self.guess else txt
+
+
+# --------------------------------------------------------------------------- which way a camera looks
+_DIRS = {"n": 0.0, "nne": 22.5, "ne": 45.0, "ene": 67.5, "e": 90.0, "ese": 112.5, "se": 135.0, "sse": 157.5,
+         "s": 180.0, "ssw": 202.5, "sw": 225.0, "wsw": 247.5, "w": 270.0, "wnw": 292.5, "nw": 315.0, "nnw": 337.5}
+_WORD = r"(?:north|south|east|west)"
+# a compass direction written out ("north", "north-east", "south west", "north-northwest") or abbreviated (NE, SSW)
+_DIR = rf"(?:{_WORD}(?:[\s-]?{_WORD}){{0,2}}|[NSEW]{{1,3}})"
+_LOOK = [
+    rf"(?:looking|facing|look|faces|view(?:ing)?|pointing|aimed|towards?|toward)\s+(?:to(?:wards?)?\s+)?(?:the\s+)?({_DIR})\b",
+    rf"[›»>|:–-]\s*({_DIR})\s*(?:view|side|facing)?\s*(?:$|[:,;()–-])",   # "Sölden › North-West: Glacier"
+    rf"\b({_DIR})[\s-]+(?:view|facing|looking|camera|cam)\b",
+    rf"\(({_DIR})\)",
+]
+_ROAD = [rf"\b({_WORD})[\s-]?bound\b", r"\b([NSEW])/?B\b"]
+
+
+def _dir_degrees(word: str):
+    w = word.lower().replace("-", " ").split()
+    if len(w) == 1 and w[0] in _DIRS:
+        return _DIRS[w[0]]
+    if all(x in ("north", "south", "east", "west") for x in w) and 1 <= len(w) <= 3:
+        key = "".join(x[0] for x in w)
+        if len(key) == 2 and key in ("ns", "sn", "ew", "we"):
+            return None
+        if len(key) == 2 and key[0] in "ew":           # "east north" reads as north-east
+            key = key[::-1]
+        return _DIRS.get(key)
+    return None
+
+
+def heading_from_text(text: str):
+    """(degrees from north, "look" | "road") from a camera or view name, or None.
+
+    "Looking North", "facing SE", "› North-West", "(NE)", "west view" -> look; "Northbound", "I-95 NB" -> road.
+    A lone direction inside a name ("North Main St", "N 5th Ave") is not read as one."""
+    if not text:
+        return None
+    whole = text.strip().rstrip(".")
+    if re.fullmatch(_DIR, whole, re.IGNORECASE) and (len(whole) > 3 or whole.isupper()):   # a view called "North"
+        d = _dir_degrees(whole)
+        if d is not None:
+            return d, "look"
+    for pat in _LOOK:
+        for m in re.finditer(pat, text, re.IGNORECASE):
+            raw = m.group(1)
+            if raw.isalpha() and len(raw) <= 3 and not raw.isupper():     # "to the e..." - abbreviations in capitals only
+                continue
+            d = _dir_degrees(raw)
+            if d is not None:
+                return d, "look"
+    for pat in _ROAD:
+        m = re.search(pat, text, re.IGNORECASE if "bound" in pat else 0)
+        if m:
+            d = _dir_degrees(m.group(1))
+            if d is not None:
+                return d, "road"
+    return None
+
+
+def compass_word(deg: float) -> str:
+    names = ("north", "north-northeast", "northeast", "east-northeast", "east", "east-southeast", "southeast",
+             "south-southeast", "south", "south-southwest", "southwest", "west-southwest", "west",
+             "west-northwest", "northwest", "north-northwest")
+    return names[int(((deg % 360) + 11.25) // 22.5) % 16]
 
 
 def _f(v):
@@ -78,8 +171,13 @@ def parse_caltrans(js: dict, district: int) -> list:
             continue
         name = loc.get("locationName") or loc.get("nearbyPlace") or "Caltrans camera"
         route = loc.get("route")
+        facing = heading_from_text(name)
+        if facing is None or facing[1] == "road":
+            d = _dir_degrees(str(loc.get("direction") or "").strip())       # the direction of travel it covers
+            if d is not None:
+                facing = (d, "road")
         out.append(Camera(f"ca{district}-{c.get('index', len(out))}", f"{route} – {name}" if route else name,
-                          lat, lon, "Caltrans", [("Camera", url)]))
+                          lat, lon, "Caltrans", [("Camera", url)], facing=[facing]))
     return out
 
 
@@ -90,17 +188,24 @@ def parse_ibi(js, state: str) -> list:
         lat, lon = _f(rec.get("Latitude")), _f(rec.get("Longitude"))
         if lat is None or lon is None:
             continue
-        views = []
+        name = rec.get("Location") or rec.get("Name") or "Camera"
+        # the camera's own direction of travel ("Northbound"; "Both Directions" / "Unknown" say nothing)
+        cam_dir = heading_from_text(str(rec.get("Direction") or "")) or heading_from_text(name)
+        if cam_dir is None:
+            d = _dir_degrees(str(rec.get("Direction") or "").strip())
+            cam_dir = (d, "road") if d is not None else None
+        views, facing = [], []
         for v in rec.get("Views") or []:
             if v.get("Url") and str(v.get("Status", "Enabled")).lower() != "disabled":
-                views.append((v.get("Description") or f"View {len(views) + 1}", v["Url"]))
+                label = v.get("Description") or f"View {len(views) + 1}"
+                views.append((label, v["Url"]))
+                facing.append(heading_from_text(label) or cam_dir)
         if not views:
             continue
-        name = rec.get("Location") or rec.get("Name") or "Camera"
         road = rec.get("Roadway")
         out.append(Camera(f"{state}-{rec.get('Id', len(out))}", f"{road} – {name}" if road and road not in name
                           else name, lat, lon, f"511 {IBI_STATES.get(state, (state,))[0]}", views,
-                          page=f"https://{host}/map" if host else ""))
+                          page=f"https://{host}/map" if host else "", facing=facing))
     return out
 
 
@@ -116,8 +221,10 @@ def parse_windy(js: dict, fetched_at: float) -> list:
         if not url:
             continue
         wid = w.get("webcamId") or w.get("id")
-        out.append(Camera(f"windy-{wid}", w.get("title") or "Webcam", lat, lon, "Windy Webcams", [("Webcam", url)],
-                          page=f"https://www.windy.com/webcams/{wid}", expires=fetched_at + 9 * 60))
+        title = w.get("title") or "Webcam"
+        out.append(Camera(f"windy-{wid}", title, lat, lon, "Windy Webcams", [("Webcam", url)],
+                          page=f"https://www.windy.com/webcams/{wid}", expires=fetched_at + 9 * 60,
+                          facing=[heading_from_text(title)], guess=True))
     return out
 
 
@@ -271,10 +378,45 @@ class CamerasOverlay(BackgroundLayer):
         idx, counts = declutter(sx - vt.rect.left(), sy - vt.rect.top())
         one, many = self._sprites(view)
         w, h = one.width() / one.devicePixelRatio(), one.height() / one.devicePixelRatio()
+        cones = bool(self.settings["camera_facing"])
         for i, n in zip(idx, counts):
             cx, cy = float(sx[i]), float(sy[i])
-            self._shown.append((float(x[sel[i]]), float(y[sel[i]]), cams[sel[i]], n))
+            cam = cams[sel[i]]
+            self._shown.append((float(x[sel[i]]), float(y[sel[i]]), cam, n))
+            if cones and n == 1:
+                self._draw_cones(painter, cx, cy, cam)
             painter.drawImage(QPointF(cx - w / 2, cy - h / 2), many if n > 1 else one)
+
+    @staticmethod
+    def _draw_cones(painter, cx, cy, cam):
+        """A small view cone per direction the camera looks: solid when the agency says so, dashed for a guess."""
+        heads = cam.headings()
+        if not heads:
+            return
+        from PySide6.QtGui import QPainterPath
+        r0, r1, half = 5.0, 19.0, 24.0
+        painter.save()
+        painter.setRenderHint(painter.RenderHint.Antialiasing, True)
+        if cam.guess:
+            pen = QPen(QColor(255, 214, 120, 235), 1.3, Qt.DashLine)
+            fill = QColor(255, 214, 120, 45)
+        else:
+            pen = QPen(QColor(255, 196, 64, 245), 1.2)
+            fill = QColor(255, 196, 64, 110)
+        painter.setPen(pen)
+        painter.setBrush(fill)
+        for hdg in heads:
+            path = QPainterPath()
+            a0, a1 = math.radians(hdg - half), math.radians(hdg + half)
+            # screen y points down; heading 0 = up (north)
+            path.moveTo(cx + r0 * math.sin(a0), cy - r0 * math.cos(a0))
+            path.lineTo(cx + r1 * math.sin(a0), cy - r1 * math.cos(a0))
+            # Qt arcs: 0 deg = 3 o'clock, counter-clockwise positive
+            path.arcTo(QRectF(cx - r1, cy - r1, 2 * r1, 2 * r1), 90 - (hdg - half), -2 * half)
+            path.lineTo(cx + r0 * math.sin(a1), cy - r0 * math.cos(a1))
+            path.closeSubpath()
+            painter.drawPath(path)
+        painter.restore()
 
     def _sprites(self, view):
         """Camera icons drawn once (one camera / several at one spot) and stamped onto the map."""
@@ -337,6 +479,9 @@ class CamerasOverlay(BackgroundLayer):
         if not group:
             return None
         txt = f"📷 {group[0].name}\n{group[0].source}"
+        ft = group[0].facing_text()
+        if ft:
+            txt += f" · {ft}"
         if len(group) > 1:
             txt += f"\n+{len(group) - 1} more camera{'s' if len(group) > 2 else ''} here"
         return txt + "\nClick to view"

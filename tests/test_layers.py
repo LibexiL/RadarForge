@@ -337,12 +337,42 @@ def test_camera_parsers_and_declutter():
            {"Id": 6, "Latitude": None, "Longitude": -74.0, "Views": [{"Url": "u"}]}]
     c = cam.parse_ibi(ibi, "NY")
     assert len(c) == 1 and c[0].views == [("North", "https://511ny.org/map/Cctv/5")] and c[0].source == "511 New York"
+    assert c[0].headings() == [0.0] and c[0].facing_text() == "Faces north" and not c[0].guess
     w = cam.parse_windy({"webcams": [{"webcamId": 11, "title": "Bridge", "status": "active",
                                       "location": {"latitude": 41.0, "longitude": -75.0},
                                       "images": {"current": {"preview": "https://img/p.jpg"}}},
                                      {"webcamId": 12, "status": "inactive", "location": {"latitude": 1, "longitude": 1},
                                       "images": {"current": {"preview": "x"}}}]}, 1000.0)
     assert len(w) == 1 and w[0].expires == 1000 + 540 and "windy.com/webcams/11" in w[0].page
+    assert w[0].headings() == []
+
+
+def test_camera_facing():
+    from radarforge.features import cameras as cam
+    h = cam.heading_from_text
+    assert h("Looking North") == (0.0, "look") and h("Camera facing SE") == (135.0, "look")
+    assert h("Sölden › North-West: Glacier") == (315.0, "look") and h("Harbor (NE)") == (45.0, "look")
+    assert h("View to the east") == (90.0, "look") and h("Seattle › S: Space Needle") == (180.0, "look")
+    assert h("I-95 NB") == (0.0, "road") and h("Westbound") == (270.0, "road") and h("South") == (180.0, "look")
+    for name in ("North Main St", "N 5th Ave", "Miami Beach", "Zermatt › Matterhorn", "US-1 at North Ave",
+                 "NE 45th St at I-5", "Both Directions", "Mountain view", "Downtown East", ""):
+        assert h(name) is None, name
+    ct = {"data": [{"cctv": {"index": "1", "inService": "true",
+                             "location": {"latitude": "34", "longitude": "-118", "locationName": "Elm",
+                                          "direction": "South"},
+                             "imageData": {"static": {"currentImageURL": "https://x.jpg"}}}}]}
+    c = cam.parse_caltrans(ct, 7)[0]
+    assert c.headings() == [180.0] and c.facing_text() == "Southbound lanes"
+    ibi = [{"Id": 1, "Latitude": 40.7, "Longitude": -74.0, "Location": "Exit 4", "Direction": "Eastbound",
+            "Views": [{"Url": "a", "Description": "Looking West"}, {"Url": "b", "Description": "Cam 2"},
+                      {"Url": "c", "Description": "Looking W"}]}]
+    c = cam.parse_ibi(ibi, "NY")[0]
+    assert c.headings() == [270.0, 90.0] and c.facing_text(1) == "Eastbound lanes"
+    w = cam.parse_windy({"webcams": [{"webcamId": 3, "title": "Kitzbühel › South", "status": "active",
+                                      "location": {"latitude": 47, "longitude": 12},
+                                      "images": {"current": {"preview": "p"}}}]}, 0.0)[0]
+    assert w.guess and w.headings() == [180.0]
+    assert w.facing_text() == "Probably faces south (going by its title)"
     assert cam.box_near(cam.CA_BOX, 33.0, -117.0, 10) and not cam.box_near(cam.CA_BOX, 40.0, -90.0, 300)
     sx = np.array([5.0, 10.0, 50.0, 52.0, 200.0])
     sy = np.array([5.0, 12.0, 50.0, 51.0, 5.0])

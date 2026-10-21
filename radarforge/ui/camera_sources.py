@@ -27,6 +27,12 @@ class CameraSourcesDialog(QDialog):
         self.caltrans = QCheckBox("California (Caltrans) – no key needed")
         self.caltrans.setChecked(bool(s["camera_caltrans"]))
         form.addRow(self.caltrans)
+        self.facing = QCheckBox("Show which way cameras look (dashed = guessed from a Windy title)")
+        self.facing.setChecked(bool(s["camera_facing"]))
+        self.facing.setToolTip("A small cone points the way a camera faces when its agency says so, e.g. "
+                               "\"Looking North\" or \"Northbound\". Windy doesn't give a direction, so for "
+                               "Windy cameras it's read from the title (\"› South\") and drawn dashed.")
+        form.addRow(self.facing)
         keys = dict(s["camera_keys"] or {})
         self.edits = {}
         e = QLineEdit(keys.get("windy", ""))
@@ -61,6 +67,7 @@ class CameraSourcesDialog(QDialog):
     def accept(self):
         s = self.main.settings
         s["camera_caltrans"] = self.caltrans.isChecked()
+        s["camera_facing"] = self.facing.isChecked()
         s["camera_keys"] = {k: e.text().strip() for k, e in self.edits.items() if e.text().strip()}
         s.save()
         super().accept()

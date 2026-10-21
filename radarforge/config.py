@@ -103,6 +103,7 @@ DEFAULTS = {
                                    # the specialist ones; 1.20 renamed the sections)
     "workspace_version": 0,        # bumped when the default panel arrangement changes (applied once)
     "camera_caltrans": True,       # street cameras: California DOT (open data, no key)
+    "camera_facing": True,         # street cameras: a view cone showing which way each one looks
     "camera_keys": {},             # street cameras: state code (NY, GA...) or "windy" -> free API key
     "loop_frames": 10,             # (1.14: 12 -> 10) frames a radar's loop loads; more can be chosen (up to 60)
     "loop_fps": 6.0,
