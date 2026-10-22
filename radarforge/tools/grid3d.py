@@ -169,8 +169,10 @@ def sample_tilt(img, AZ, S, elevation, floor: float, nearest: bool = False):
     return v.astype(np.float32), h, covered
 
 
-def grid_tilts(tilts, xs, ys, zs, floor: float):
-    """[(elevation, SweepImage)] -> float32 (nz, ny, nx) grid and the lowest tilt's (ny, nx) map."""
+def grid_tilts(tilts, xs, ys, zs, floor: float, beam0: list | None = None):
+    """[(elevation, SweepImage)] -> float32 (nz, ny, nx) grid and the lowest tilt's (ny, nx) map. [beam0]: if
+    given, the lowest beam's height above each column (km) is appended to it (below it the grid is the lowest
+    tilt carried down, not a measurement)."""
     tilts = sorted([t for t in tilts if t[1] is not None], key=lambda t: t[0])
     # one image per elevation (keep the first of near-duplicates)
     uniq = []
@@ -189,6 +191,8 @@ def grid_tilts(tilts, xs, ys, zs, floor: float):
     for k, (el, img) in enumerate(uniq):
         V[k], H[k], _cov = sample_tilt(img, AZ, S, el, floor)
     base, _h, _c = sample_tilt(uniq[0][1], AZ, S, uniq[0][0], floor, nearest=True)
+    if beam0 is not None:
+        beam0.append(H[0].copy())
     # top of the highest beam: its centre plus half a beamwidth
     el_top = uniq[-1][0]
     r_top = slant_range(S, el_top)
@@ -218,7 +222,8 @@ def build(tilts, ref_tilts, box, top_km, pid, detail="normal", rule=None, key=()
     t0 = time.perf_counter()
     rule = rule or RULES.get(pid, RULES["REF"])
     xs, ys, zs = plan(box, top_km, detail)
-    vals, base = grid_tilts(tilts, xs, ys, zs, rule.floor)
+    b0 = []
+    vals, base = grid_tilts(tilts, xs, ys, zs, rule.floor, beam0=b0)
     ctx = None
     if ref_tilts is not None:
         ref, _ = grid_tilts(ref_tilts, xs, ys, zs, REF_RANGE[0])
@@ -241,7 +246,8 @@ def build(tilts, ref_tilts, box, top_km, pid, detail="normal", rule=None, key=()
     return Grid3D(values=vals.astype(np.float16), context=None if ctx is None else ctx.astype(np.float16),
                   base=base, box=tuple(float(b) for b in box), top=float(top_km), pid=pid, elevations=els,
                   build_s=time.perf_counter() - t0, key=key,
-                  info={"res_km": float(xs[1] - xs[0]), "dz_km": float(zs[1] - zs[0])})
+                  info={"res_km": float(xs[1] - xs[0]), "dz_km": float(zs[1] - zs[0]),
+                        "beam0": b0[0].astype(np.float16) if b0 else None})
 
 
 def _ref_base(ref_tilts, xs, ys):
@@ -266,13 +272,24 @@ def stats(grid) -> dict:
     rule = RULES.get(grid.pid, RULES["REF"])
     out = {}
 
+    # the strongest value where the radar actually measured it: below the lowest beam the grid only repeats the
+    # lowest tilt, so "max 66 dBZ at 0 ft" really means "at the lowest beam's height"
+    meas = v
+    b0 = grid.info.get("beam0") if isinstance(getattr(grid, "info", None), dict) else None
+    b0 = np.asarray(b0, np.float32) if b0 is not None and b0.shape == v.shape[1:] else None
+    if b0 is not None:
+        below = zs[:, None, None] < (b0[None] - 0.5 * (zs[1] - zs[0] if nz > 1 else 0.25))
+        if not below.all():
+            meas = np.where(below, np.nan, v)
+
     def at(i):
         k, j, m = np.unravel_index(int(i), v.shape)
-        return float(v[k, j, m]), float(xs[m]), float(ys[j]), float(zs[k])
+        z = float(zs[k]) if b0 is None else max(float(zs[k]), float(b0[j, m]))
+        return float(v[k, j, m]), float(xs[m]), float(ys[j]), z
     if rule.direction >= 0:
-        out["max"] = at(np.argmax(v))
+        out["max"] = at(np.nanargmax(meas))
     if rule.direction <= 0:
-        out["min"] = at(np.argmin(v))
+        out["min"] = at(np.nanargmin(meas))
     if grid.pid == "REF":
         col = v.max(axis=0)
         tops = {}

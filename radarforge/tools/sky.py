@@ -147,6 +147,7 @@ def noise_volume(n: int = 64, seed: int = 11) -> np.ndarray:
 
 SUN_PRESETS = {               # (label, azimuth, elevation)
     "scan": ("At scan time", None, None),
+    "time": ("Time of day", None, None),
     "morning": ("Morning", 105.0, 18.0),
     "midday": ("Midday", 185.0, 62.0),
     "afternoon": ("Afternoon", 235.0, 35.0),

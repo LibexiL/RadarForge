@@ -70,7 +70,7 @@ class ChunkTracker:
         if ch and ch[0].stamp > ref:
             return nxt
         if now - self.last_progress > REFIND_S:
-            n = aws.find_latest_volume(self.site)
+            n = aws.find_latest_volume(self.site, hint=self.volume)
             if n is not None and n != self.volume:
                 ch = aws.list_chunks(self.site, n)
                 if ch and ch[0].stamp > ref:
@@ -85,7 +85,7 @@ class ChunkTracker:
         now = time.time()
         events = []
         if self.volume is None:
-            n = aws.find_latest_volume(self.site)
+            n = aws.find_latest_volume(self.site)          # (starts from the number seen last time: quick)
             if n is None:
                 return events
             self._start(n)

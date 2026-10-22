@@ -57,7 +57,7 @@ def env(monkeypatch):
     clock = {"t": 1000.0}
     monkeypatch.setattr(aws, "list_chunks", b.list_chunks)
     monkeypatch.setattr(aws, "fetch_many", b.fetch_many)
-    monkeypatch.setattr(aws, "find_latest_volume", lambda site: max(b.vols) if b.vols else None)
+    monkeypatch.setattr(aws, "find_latest_volume", lambda site, hint=None: max(b.vols) if b.vols else None)
     monkeypatch.setattr(live, "SweepBuilder", FakeBuilder)
     monkeypatch.setattr(live, "run_isolated", lambda fn, *a, **k: fn(*a))      # (no decoder processes here)
     monkeypatch.setattr(live.time, "time", lambda: clock["t"])
@@ -179,3 +179,51 @@ def test_new_frames_keep_level3_until_their_own_arrives(qtbot=None):
     f3 = Frame("KTLX", t0 + timedelta(minutes=20), l2_path="c")
     dm._insert_frame(f3)
     assert "N0G" not in f3.l3                       # too old to carry (12 minutes)
+
+
+def test_newest_volume_search_in_parallel_rounds():
+    """The circular numbering: stamps rise and drop once; the search finds the newest whatever the rotation,
+    in a few rounds of side-by-side listings."""
+    for n in (5, 40, 999):
+        nums = list(range(1, n + 1))
+        for newest in (1, n // 3, n // 2, n):
+            calls = []
+
+            def stamp(v, newest=newest, n=n, calls=calls):
+                calls.append(v)
+                age = (newest - v) % n                         # 0 for the newest, rising backwards
+                return f"20260520-{(10_000 - age):06d}"
+            assert aws.search_newest(nums, stamp) == newest
+            assert len(calls) <= 16 * 4 + 4
+
+
+def test_newest_volume_near_the_last_one(monkeypatch):
+    from datetime import datetime, timezone
+    now = datetime(2026, 5, 20, 20, 30, tzinfo=timezone.utc)
+    have = {998: "20260520-201000", 999: "20260520-201500", 1: "20260520-202000", 2: "20260520-202500"}
+    monkeypatch.setattr(aws, "_volume_stamp", lambda site, v: have.get(v, ""))
+    assert aws._near_volume("KTLX", 998, now) == 2                        # moved on by four, across the wrap
+    assert aws._near_volume("KTLX", 500, now) is None                     # nothing there: search properly
+    old = datetime(2026, 5, 21, 20, 30, tzinfo=timezone.utc)
+    assert aws._near_volume("KTLX", 998, old) is None                     # a day old: not the newest
+
+
+def test_latest_level2_lists_only_the_last_stretch(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    keys = [f"{(now - timedelta(minutes=m)):%Y/%m/%d}/KTLX/KTLX{(now - timedelta(minutes=m)):%Y%m%d_%H%M%S}_V06"
+            for m in range(400, -1, -5)]
+    asked = []
+
+    def fake_list(bucket, prefix="", delimiter=None, max_keys=1000, start_after=None, max_pages=20):
+        asked.append(start_after)
+        return [aws.S3Object(k, 1, "") for k in keys if k.startswith(prefix) and (start_after is None
+                                                                                   or k > start_after)], []
+    monkeypatch.setattr(aws, "list_objects", fake_list)
+    aws.forget_listings()
+    got = aws.latest_level2("KTLX", 3)
+    assert [f.key for f in got] == keys[-3:]
+    assert asked and asked[0] is not None and asked[0].startswith(keys[-1][:16])     # only after a recent time
+    n = len(asked)
+    assert [f.key for f in aws.latest_level2("KTLX", 2)] == keys[-2:] and len(asked) == n   # shared (memo)
+    aws.forget_listings()

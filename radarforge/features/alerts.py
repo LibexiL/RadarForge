@@ -14,6 +14,16 @@ from ..config import CACHE_DIR
 from ..products.geometry import aeqd_forward
 from . import feeds
 
+
+def _canon(key: str) -> str:
+    """One name per warning whatever the source (NWS 'KOUN.TO.W.0042' / Iowa State 'OUN.TO.W.42'), so a warning
+    first seen in one feed doesn't alert again when the other lists it."""
+    try:
+        office, ph, sig, etn = str(key).split("@")[0].split(".")[:4]
+        return f"{'' if sig == 'A' else office[-3:].upper()}.{ph}.{sig}.{int(etn)}"
+    except (ValueError, AttributeError):
+        return str(key)
+
 MI = 1.609344
 LIGHTNING_COOLDOWN_MIN = 30
 REPORT_LOOKBACK_MIN = 60
@@ -124,7 +134,7 @@ def evaluate(locs, my_ll, alerts, reports, flashes_near, now, notified, group_of
                 continue
             if not _inside(a.rings, lat, lon):
                 continue
-            key = f"{lid}|{a.key}"
+            key = f"{lid}|{_canon(a.key)}"
             pri = a.style[3]
             old = notified.get(key)
             if old is not None and pri <= old[0]:

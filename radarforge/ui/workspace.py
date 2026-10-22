@@ -828,6 +828,20 @@ class Workspace(QWidget):
         if st is None:
             return {}
         home = {"near": [k for k in st.keys if k != key], "floating": st.floating}
+        if not st.floating:
+            # how big it was and which side of the map it sat on (big panels go back to that size)
+            home["size"] = (st.width(), st.height())
+            try:
+                c = self.center.geometry()
+                g = QRect(st.mapTo(self, QPoint(0, 0)), st.size())
+                dx = g.center().x() - c.center().x()
+                dy = g.center().y() - c.center().y()
+                if abs(dx) * c.height() >= abs(dy) * c.width():
+                    home["map_side"] = "right" if dx > 0 else "left"
+                else:
+                    home["map_side"] = "bottom" if dy > 0 else "top"
+            except Exception:
+                pass
         parent = st.parentWidget()
         if not st.floating and isinstance(parent, QSplitter):
             i = parent.indexOf(st)
@@ -938,6 +952,19 @@ class Workspace(QWidget):
             if st is not None and not st.floating:
                 st.add(key)
                 return st
+        prefer = self._panels[key].get("prefer")
+        if prefer and home and not home.get("edge"):
+            # a big panel (3-D) that had a place of its own: beside the map again at about its old size, not
+            # squeezed into half of whatever panel it was next to
+            side = home.get("map_side") or prefer[0]
+            horiz = side in ("left", "right")
+            size = home.get("size")
+            ext = (self.center.width() if horiz else self.center.height()) or 1
+            share = prefer[1]
+            if size:
+                share = min(0.65, max(0.25, (size[0] if horiz else size[1]) / max(ext + (size[0] if horiz
+                                                                                      else size[1]), 1)))
+            return self._insert([key], Zone("center", side, self.center), share=share)
         beside = home.get("beside")
         if home.get("edge") and not beside:
             return self._insert([key], Zone("edge", home["edge"]))

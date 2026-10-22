@@ -223,8 +223,10 @@ in vec2 v_uv;
 out vec4 frag;
 """ + COMMON + SKYFN + """
 uniform mat4 u_inv;
-uniform vec3 u_sunp;           // towards the sun (real proportions)
-uniform vec3 u_sunw;           // ... in the exaggerated world
+uniform vec3 u_sunp;           // towards the sun (real proportions): the sky
+uniform vec3 u_lightp;         // towards what lights the storm (the sun, or the moon at night)
+uniform vec3 u_lightw;         // ... in the exaggerated world
+uniform float u_ground_sh;     // how dark cloud shadows on the ground are
 uniform vec3 u_sun_col;
 uniform vec3 u_sky_amb;
 uniform float u_vis;
@@ -257,15 +259,15 @@ vec3 ground(vec3 P, float dist) {
             amb = 0.25 + 0.75 * exp(-lightv(vec3(P.xy, 0.0)).y * 0.3);              // the storm hides the sky
         }
         // the cloud's shadow: where the path to the sun enters the box, the light volume has the rest
-        vec3 d = mix(u_sunw, vec3(1e-6), lessThan(abs(u_sunw), vec3(1e-6)));
+        vec3 d = mix(u_lightw, vec3(1e-6), lessThan(abs(u_lightw), vec3(1e-6)));
         vec3 inv = 1.0 / d;
         vec3 ta = (u_bmin - P) * inv, tb = (u_bmax - P) * inv;
         vec3 tn = min(ta, tb), tf = max(ta, tb);
         float t0 = max(max(tn.x, tn.y), max(tn.z, 0.0));
         float t1 = min(min(tf.x, tf.y), tf.z);
-        if (t1 > t0 && u_sunw.z > 0.0) T = exp(-lightv(P + u_sunw * (t0 + 1e-4)).x);
+        if (t1 > t0 && u_lightw.z > 0.0) T = mix(1.0, exp(-lightv(P + u_lightw * (t0 + 1e-4)).x), u_ground_sh);
     }
-    vec3 E = u_sun_col * max(u_sunp.z, 0.0) * T * 1.1 + u_sky_amb * amb * 0.9;
+    vec3 E = u_sun_col * max(u_lightp.z, 0.0) * T * 1.1 + u_sky_amb * amb * 0.9;
     if (u_flash.w > 0.0) {
         float r = length(vec3(P.xy - u_flash.xy, u_flash.z / u_zscale));
         E += vec3(0.75, 0.8, 1.0) * u_flash.w * 0.8 / (1.0 + r * r * 0.08);
@@ -315,9 +317,28 @@ uniform float u_step;          // world units between samples
 uniform int u_steps;
 uniform vec3 u_light;          // towards the light (analysis styles)
 uniform int u_shadow;
+uniform int u_caps;            // close surfaces where the box walls cut them
 uniform float u_cell;          // one grid cell, world units
+uniform float u_rest;          // how much of the storm shows around slices / a tilt (1: all of it)
+uniform int u_slice_v;         // a vertical slice ...
+uniform vec4 u_vplane;         // ... on this plane (normal, distance)
+uniform int u_slice_h;         // a horizontal slice ...
+uniform float u_hz;            // ... at this height (world units)
+uniform float u_slice_a;       // how opaque the slices are
+uniform int u_tilt_on;         // one radar tilt drawn as the cone it really is
+uniform float u_tilt_tan;      // tan(elevation)
+uniform vec2 u_radar;          // the radar's position, box coordinates (km)
+uniform int u_face_ref;        // slices show: 1 values from u_face_lo up (reflectivity), 0 anything but "none"
+uniform float u_face_lo;
+uniform float u_floorn;        // "no echo" (the product's floor value), 0..1
+uniform int u_colorby;         // surfaces coloured by another product ...
+uniform sampler3D u_col2;      // ... its grid (0..1 over its colour table)
+uniform sampler1D u_pal2;      // ... and colour table
 // realistic
 uniform vec3 u_sunp;
+uniform vec3 u_lightp;         // towards the light (sun or moon)
+uniform float u_g;             // forward scattering (silver linings)
+uniform float u_ms_a;          // how fast light fades going deeper into cloud (lower: softer, brighter insides)
 uniform vec3 u_sun_col;
 uniform vec3 u_sky_amb;
 uniform float u_vis;
@@ -365,6 +386,30 @@ void blend(inout vec4 acc, vec3 c, float a) {
     acc.a += (1.0 - acc.a) * a;
 }
 
+// the second product's colour at p (surfaces coloured by it); a dim grey where it has nothing
+vec3 color2(vec3 p, vec3 own) {
+    vec4 c2 = texture(u_pal2, textureLod(u_col2, to_tex(p), 0.0).r);
+    return c2.a > 0.04 ? c2.rgb : own * 0.25 + vec3(0.12);
+}
+
+// a flat face (slice, cut, tilt) showing the data: the colour table where there's echo, faint glass elsewhere
+void face(inout vec4 acc, vec3 p, vec3 n, vec3 rd, float alpha) {
+    float v = val(p);
+    if (dot(n, rd) > 0.0) n = -n;
+    float lit = 0.72 + 0.28 * max(dot(n, u_light), 0.0);
+    bool has = u_face_ref == 1 ? v >= u_face_lo : abs(v - u_floorn) > 0.002;
+    if (has) {
+        blend(acc, texture(u_pal, v).rgb * lit, alpha);
+    } else {
+        blend(acc, vec3(0.55, 0.62, 0.75) * 0.35, 0.10 * alpha);
+    }
+}
+
+float beam_h(vec2 xy) {                          // height of the tilt's beam centre over a point (km)
+    float s = length(xy - u_radar);
+    return s * u_tilt_tan + s * s / 16988.0;     // 4/3 earth: s^2 / (2 * 8494 km)
+}
+
 // a surface crossing between two samples: refine it, light it, add it
 void surface(inout vec4 acc, vec3 pa, vec3 pb, float va, float vb, float L, vec4 col, float side, vec3 rd,
              bool ctx) {
@@ -380,9 +425,33 @@ void surface(inout vec4 acc, vec3 pa, vec3 pb, float va, float vb, float L, vec4
     vec3 n = glen > 1e-6 ? -side * g / glen : -rd;
     if (dot(n, rd) > 0.0) n = -n;                 // seen from inside: light the side facing us
     float facing = abs(dot(n, rd));
-    float a = col.a;
-    if (a < 0.999) a = a + (1.0 - a) * pow(1.0 - facing, 3.0) * 0.65;   // glassy edges
-    blend(acc, shade(col.rgb, n, rd, ph), a);
+    float a = col.a * (ctx ? 1.0 : u_rest);
+    vec3 base = col.rgb;
+    if (u_colorby == 1 && !ctx) base = color2(ph, col.rgb);
+    vec3 c = shade(base, n, rd, ph);
+    if (a < 0.999) {
+        float rim = pow(1.0 - facing, 3.0);
+        a = a + (1.0 - a) * rim * 0.65;                                  // glassy edges
+        // glass in a dark colour (30 dBZ green) vanishes against the dark background: a lighter tint and a
+        // bright rim keep its shape readable
+        c = mix(c, c * 0.6 + vec3(0.35), 0.35) + mix(col.rgb, vec3(1.0), 0.55) * rim * 0.45;
+    }
+    blend(acc, c, a);
+}
+
+// where the ray enters the box already inside a surface (the box cuts the storm), close it with a flat cap
+void caps(inout vec4 acc, vec3 p, float v, vec3 n, vec3 rd) {
+    if (dot(n, rd) > 0.0) n = -n;
+    for (int k = 0; k < 6; k++) {
+        if (k >= u_nlev) break;
+        if (u_levside[k] * (v - u_lev[k]) <= 0.0) continue;
+        vec4 col = u_levcol[k];
+        vec3 base = u_colorby == 1 ? color2(p, col.rgb) : col.rgb;
+        vec3 c = shade(base, n, rd, p) * 0.92;
+        float a = (col.a < 0.999 ? min(1.0, col.a * 1.25) : 1.0) * u_rest;
+        if (col.a < 0.999) c = mix(c, c * 0.6 + vec3(0.35), 0.35);
+        blend(acc, c, a);
+    }
 }
 
 float hgp(float mu, float g) {               // Henyey-Greenstein, 1 for an even spread
@@ -394,12 +463,12 @@ float hgp(float mu, float g) {               // Henyey-Greenstein, 1 for an even
 void realistic(vec3 ro, vec3 rd, float t0, float t1, float jit) {
     vec3 rdp = normalize(vec3(rd.xy, rd.z / u_zscale));
     float rlen = length(vec3(rd.xy, rd.z / u_zscale));   // km per world unit along this ray
-    float mu = dot(rdp, u_sunp);
+    float mu = dot(rdp, u_lightp);
     // multiple scattering: a few octaves, each dimmer, less forward and seeing less of the cloud (Wrenninge)
     float ph[4];
     float c = 1.0;
     for (int o = 0; o < 4; o++) {
-        ph[o] = 0.72 * hgp(mu, 0.70 * c) + 0.28 * hgp(mu, -0.22 * c);
+        ph[o] = 0.72 * hgp(mu, u_g * c) + 0.28 * hgp(mu, -0.22 * c);
         c *= 0.5;
     }
     vec3 col = vec3(0.0);
@@ -425,7 +494,7 @@ void realistic(vec3 ro, vec3 rd, float t0, float t1, float jit) {
         float a = 1.0, b = 1.0;
         for (int o = 0; o < 4; o++) {
             sun += b * ph[o] * exp(-L.x * a);
-            a *= 0.45; b *= 0.5;
+            a *= u_ms_a; b *= 0.5;
         }
         sun *= u_sun_col;
         float k = p.z / u_zscale;
@@ -471,12 +540,32 @@ void main() {
     float t0 = max(max(tmin.x, tmin.y), max(tmin.z, 0.0));
     float t1 = min(min(tmax.x, tmax.y), tmax.z);
     if (t1 <= t0) discard;
+    // the face the ray comes in through (for caps): none when the camera is inside the box
+    vec3 entry_n = vec3(0.0);
+    if (t0 > 0.0) {
+        if (tmin.x >= tmin.y && tmin.x >= tmin.z) entry_n = vec3(1.0, 0.0, 0.0);
+        else if (tmin.y >= tmin.z) entry_n = vec3(0.0, 1.0, 0.0);
+        else entry_n = vec3(0.0, 0.0, 1.0);
+    }
 
     // a different start offset per pixel: no wood-grain banding
     float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
     if (u_mode == 2) { realistic(ro, rd, t0, t1, jit); return; }
     float t = t0 + jit * u_step;
     vec4 acc = vec4(0.0);
+    // where the ray crosses the slices (drawn when the march passes them, so they sit in the right order)
+    float tsv = -1.0, tsh = -1.0;
+    if (u_slice_v == 1) {
+        float den = dot(u_vplane.xyz, rd);
+        if (abs(den) > 1e-6) tsv = (u_vplane.w - dot(u_vplane.xyz, ro)) / den;
+        if (tsv < t0 || tsv > t1) tsv = -1.0;
+    }
+    if (u_slice_h == 1 && abs(rd.z) > 1e-6) {
+        tsh = (u_hz - ro.z) / rd.z;
+        if (tsh < t0 || tsh > t1) tsh = -1.0;
+    }
+    float tprev = t;
+    float fprev = u_tilt_on == 1 ? (ro + rd * t).z / u_zscale - beam_h((ro + rd * t).xy) : 0.0;
     vec3 pprev = ro + rd * t;
     float prev = val(pprev);
     float cprev = u_ctx_on == 1 ? cval(pprev) : 0.0;
@@ -486,7 +575,13 @@ void main() {
         if (i >= u_steps || t > t1) break;
         vec3 p = ro + rd * t;
         if (u_cut == 1) {
-            if (dot(u_plane.xyz, p) > u_plane.w) { removed_before = true; t += u_step; continue; }
+            if (dot(u_plane.xyz, p) > u_plane.w) {
+                removed_before = true; tprev = t; t += u_step;
+                if (u_tilt_on == 1) fprev = p.z / u_zscale - beam_h(p.xy);
+                if (tsv >= 0.0 && tsv <= t) tsv = -1.0;               // (slices in the cut-away part go too)
+                if (tsh >= 0.0 && tsh <= t) tsh = -1.0;
+                continue;
+            }
             if (removed_before) {
                 // came in through the cut: show the data on the cut face
                 removed_before = false;
@@ -506,17 +601,45 @@ void main() {
                 started = false;
             }
         }
+        // slices and the tilt cone the march just passed
+        if (tsv >= 0.0 && tsv <= t && tsv > tprev - 1e-6) {
+            face(acc, ro + rd * tsv, u_vplane.xyz, rd, u_slice_a);
+            tsv = -1.0;
+        }
+        if (tsh >= 0.0 && tsh <= t && tsh > tprev - 1e-6) {
+            face(acc, ro + rd * tsh, vec3(0.0, 0.0, 1.0), rd, u_slice_a);
+            tsh = -1.0;
+        }
+        if (u_tilt_on == 1) {
+            float fcur = p.z / u_zscale - beam_h(p.xy);
+            if (fprev * fcur < 0.0 && started) {
+                vec3 pc = mix(pprev, p, fprev / (fprev - fcur));
+                // the cone's normal: up, tilted away from the radar by the beam's slope
+                vec2 away = normalize(pc.xy - u_radar + vec2(1e-6));
+                vec3 n = normalize(vec3(-away * (u_tilt_tan + length(pc.xy - u_radar) / 8494.0), 1.0 / u_zscale));
+                face(acc, pc, n, rd, 0.94);
+            }
+            fprev = fcur;
+        }
+        if (acc.a > 0.985) break;
+        tprev = t;
         float cur = val(p);
         float ccur = u_ctx_on == 1 ? cval(p) : 0.0;
         if (!started) {                          // first sample inside: nothing to compare with yet
             started = true;
+            // came in through a side or the top of the box (not through the cut) already inside a surface
+            if (u_mode == 1 && u_caps == 1 && i == 0 && dot(entry_n, entry_n) > 0.5 && entry_n.z < 0.5) {
+                vec3 pe = ro + rd * t0;
+                caps(acc, pe, val(pe), entry_n, rd);
+                if (acc.a > 0.985) break;
+            }
             prev = cur; cprev = ccur; pprev = p; t += u_step;
             continue;
         }
         if (u_mode == 0) {
             vec4 s = texture(u_tf, cur);
             if (s.a > 0.002) {
-                float a = 1.0 - exp(-u_density * s.a * u_step);
+                float a = (1.0 - exp(-u_density * s.a * u_step)) * u_rest;
                 vec3 c = s.rgb;
                 vec3 g = grad(p, false);
                 float glen = length(g);

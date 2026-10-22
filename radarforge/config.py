@@ -65,6 +65,7 @@ DEFAULTS = {
     "chaser_names": True,
     "favorite_sites": [],
     "my_location": None,           # [lat, lon] set from the map's right-click menu
+    "warnings_iem": True,          # also watch Iowa State's live warning feed (often ahead of api.weather.gov)
     "warn_at_location": True,      # pop up a new warning that covers my location (live)
     "notified_warnings": {},       # warning key -> [priority, expiry epoch s] already shown for my location
     "track_minutes": 60,           # storm track tool: minutes the arrow covers
@@ -108,7 +109,7 @@ DEFAULTS = {
     "loop_frames": 10,             # (1.14: 12 -> 10) frames a radar's loop loads; more can be chosen (up to 60)
     "loop_fps": 6.0,
     "loop_dwell": 1.5,             # extra seconds on the last frame
-    "live_poll_seconds": 15,
+    "live_poll_seconds": 8,
     "l2_source": "aws",            # live Level II: "aws" (NOAA's buckets) or a polling server's address
     "polling_servers": [{"name": "Iowa State (IEM)",
                          "url": "https://mesonet-nexrad.agron.iastate.edu/level2/raw/"}],
@@ -124,7 +125,7 @@ DEFAULTS = {
     "view": None,                 # {cx, cy, scale}
     "gpu_smooth": True,
     "velocity_filter": 1,          # 0 off, 1 normal, 2 aggressive
-    "settings_version": 5,
+    "settings_version": 6,
     "invert_scroll": False,
     "cursor_link": True,
     "hover_text": True,
@@ -190,6 +191,14 @@ class Settings:
             # v5 (1.20): the Quick panel became the Layers panel, with new sections
             self.data["quick_collapsed"] = list(DEFAULTS["quick_collapsed"])
             self.data["settings_version"] = 5
+        if user_version < 6:
+            # v6 (1.24): live data is checked every 8 s by default; one still on the old 15 s default moves too
+            try:
+                if int(self.data.get("live_poll_seconds") or 15) == 15:
+                    self.data["live_poll_seconds"] = 8
+            except (TypeError, ValueError):
+                self.data["live_poll_seconds"] = 8
+            self.data["settings_version"] = 6
 
     def save(self):
         # (saves can come from worker threads too: one at a time, each through its own temp file, and the JSON

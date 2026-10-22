@@ -98,6 +98,15 @@ class Look:
         self.shadows = True            # surfaces / volume: shadows and ambient occlusion
         self.floor_map = True          # the lowest tilt and map lines on the floor (realistic: lines only)
         self.labels = True             # towns, heights, storm numbers
+        self.caps = True               # surfaces: closed where the box walls cut them
+        # slices and a tilt (Surfaces and Volume)
+        self.slice = "off"             # off | v | h | vh
+        self.slice_angle = 0.0         # vertical slice: the bearing it runs along (0: north-south)
+        self.slice_pos = 0.5           # ... where across the box
+        self.slice_z = 3.0             # horizontal slice: height, km
+        self.tilt = None               # elevation (degrees) of a tilt to draw as a cone, or None
+        self.rest = 1.0                # how much of the storm shows around slices / the tilt
+        self.colorby = None            # surfaces coloured by another product (its id), or None
         # realistic
         self.sun_az = 235.0            # degrees from north
         self.sun_el = 35.0
@@ -105,6 +114,17 @@ class Look:
         self.visibility = 80.0         # km
         self.rain = True
         self.lightning = True
+        # realistic lighting
+        self.ev = 0.0                  # exposure, stops brighter (+) or darker (-)
+        self.sun_k = 1.0               # sunlight strength
+        self.sky_k = 1.0               # sky (ambient) light
+        self.cloud_k = 1.0             # cloud thickness
+        self.rain_k = 1.0              # rain shaft thickness
+        self.silver = 1.0              # silver linings: how much light the cloud edges throw forward
+        self.soft = 1.0                # light reaching into the cloud (higher: softer, brighter insides)
+        self.ground_sh = 1.0           # cloud shadows on the ground
+        self.moon = 0.0                # moonlight at night
+        self.flash_rate = 1.0          # lightning: how often
 
 
 # --------------------------------------------------------------------------- the OpenGL view
@@ -115,7 +135,7 @@ class GLVolume(QOpenGLWindow):
     BG_TOP = (0.115, 0.135, 0.18)
     BG_BOTTOM = (0.02, 0.025, 0.035)
     FLOOR = (0.085, 0.095, 0.115, 1.0)
-    UNITS = {"vol": 0, "ctx": 1, "tf": 2, "pal": 3, "light": 4, "noise": 5}
+    UNITS = {"vol": 0, "ctx": 1, "tf": 2, "pal": 3, "light": 4, "noise": 5, "col2": 6, "pal2": 7}
 
     def __init__(self):
         super().__init__(QOpenGLWindow.NoPartialUpdate)
@@ -138,6 +158,10 @@ class GLVolume(QOpenGLWindow):
         self.busy = ""
         self.message = "Drag a box around a storm on the map (B, or “Select area”) to see it in 3-D."
         self.cities = []               # (x, y, name) relative to the box centre
+        self.pal2 = None               # colour table of the product the surfaces are coloured by
+        self.units2 = ""
+        self.column = None             # (x, y) of the pinned column profile, box coordinates
+        self._press = None
         self.lines = np.zeros((0, 7), np.float32)
         self.floor_rgba = None
         self.stats = {}
@@ -197,6 +221,8 @@ class GLVolume(QOpenGLWindow):
         if self.hi - self.lo < 1e-6:
             self.hi = self.lo + 1.0
         self.title = title
+        if first:
+            self.column = None
         self.stats = grid.info.get("stats") or {}
         self._dirty |= {"vol", "luts", "scene"}
         self._lv_state = None
@@ -206,6 +232,13 @@ class GLVolume(QOpenGLWindow):
         self.message = ""
         self._probe = None
         self._lightning_check()
+        self.update()
+
+    def set_colorby(self, palette, units):
+        """The colour table for the second product's grid (grid.info["col2"])."""
+        self.pal2 = palette
+        self.units2 = units
+        self._dirty |= {"vol", "luts"}
         self.update()
 
     def set_floor(self, rgba, lines, cities):
@@ -282,8 +315,12 @@ class GLVolume(QOpenGLWindow):
         if preset == "ground":
             cx, cy = self._centre()
             base_yaw = sun_side + 22.0 if sun_side is not None else 200.0
-            r = max(hx, hy) * 0.5 + 8.0                      # a storm chaser's distance
-            tz = min(top * 0.3, 4.5)
+            # a storm chaser's distance: far enough out to see the whole storm up to its top (not standing under
+            # the anvil looking at its underside)
+            tops = (self.stats or {}).get("tops") or {}
+            ztop = max([z for z in tops.values()] + [6.0])
+            r = max(max(hx, hy) * 0.5 + 8.0, ztop * self.zscale * 1.9)
+            tz = min(ztop * 0.3, 4.5)
             ez = EYE_MIN_KM * 1.5
             dist = math.hypot(r, (tz - ez) * self.zscale)
             pitch = math.degrees(math.atan2((ez - tz) * self.zscale, r))
@@ -388,9 +425,35 @@ class GLVolume(QOpenGLWindow):
         if self.look.cut == "height":
             top = g.top * self.zscale
             return np.array([0, 0, 1.0]), top - top * f        # everything above this height goes
+        if self.look.cut == "face":
+            # upright, square on to the camera (follows it round): the near part is cut away
+            n = np.array([eye[0], eye[1], 0.0])
+            if np.linalg.norm(n) < 1e-6:
+                n = np.array([0.0, -1.0, 0.0])
+            n = n / np.linalg.norm(n)
+            ext = abs(n[0]) * hx + abs(n[1]) * hy
+            return n, ext - 2 * ext * f
         return None
 
+    def _vplane(self):
+        """The vertical slice: (unit normal (3,), distance) in box coordinates, or None."""
+        if self.look.slice not in ("v", "vh") or self.grid is None:
+            return None
+        x0, y0, x1, y1 = self.grid.box
+        hx, hy = (x1 - x0) / 2, (y1 - y0) / 2
+        b = math.radians(self.look.slice_angle)
+        n = np.array([math.cos(b), -math.sin(b), 0.0])        # across a line running along bearing b
+        ext = abs(n[0]) * hx + abs(n[1]) * hy
+        return n, (min(max(self.look.slice_pos, 0.0), 1.0) - 0.5) * 2 * ext * 0.98
+
     # ------------------------------------------------------------------ derived look data
+    def _range2(self):
+        """Storage-unit range the second product's grid is scaled to (its colour table's range)."""
+        p2 = self.pal2
+        sc2 = p2.data_scale(self.units2) or 1.0
+        a, b = sorted(((p2.vmin - p2.offset) / sc2, (p2.vmax - p2.offset) / sc2))
+        return a, (b if b - a > 1e-6 else a + 1.0)
+
     def to_norm(self, v):
         return (np.asarray(v, np.float64) - self.lo) / (self.hi - self.lo)
 
@@ -425,7 +488,7 @@ class GLVolume(QOpenGLWindow):
             if rank == n - 1:
                 a = 1.0
             else:
-                a = (0.17 + 0.55 * rank / max(n - 1, 1)) * (0.45 + self.look.opacity)
+                a = (0.22 + 0.5 * rank / max(n - 1, 1)) * (0.45 + self.look.opacity)
             rgba = self.palette.color_at(np.array([self.display(v)]))[0] if self.palette is not None else (200,) * 4
             out.append((v, (rgba[0] / 255, rgba[1] / 255, rgba[2] / 255, min(a, 1.0)), side))
         return out
@@ -457,6 +520,28 @@ class GLVolume(QOpenGLWindow):
         if self._sky_cache is None or self._sky_cache[0] != k:
             self._sky_cache = (k, sky.Sky(sky.sun_vector(self.look.sun_az, self.look.sun_el), self.look.visibility))
         return self._sky_cache[1]
+
+    MOON_COL = np.array([0.82, 0.90, 1.08])
+
+    def lighting(self):
+        """What lights the realistic scene, after the lighting settings: dict(dir (real proportions), col, amb,
+        exposure, moon). By night with moonlight on, the moon (high in the sky opposite the sun) lights it."""
+        look = self.look
+        s = self.sun()
+        moon = s.night and look.moon > 0.01
+        if moon:
+            d = sky.sun_vector((look.sun_az + 180.0) % 360.0, 38.0)
+            col = self.MOON_COL * 0.02 * look.moon * look.sun_k
+            amb = s.sky_amb + np.array([0.0012, 0.0016, 0.0030]) * look.moon * look.sky_k
+            lum = float(np.dot(amb, (0.2126, 0.7152, 0.0722)) + 0.06 * np.dot(col, (0.2126, 0.7152, 0.0722)))
+            exposure = float(np.clip(0.10 / max(lum, 1e-6), 1.0, 60.0))      # (a dim, blue night picture)
+        else:
+            d = s.sun
+            col = s.sun_col * look.sun_k
+            amb = s.sky_amb * look.sky_k
+            exposure = s.exposure
+        return {"dir": np.asarray(d, float), "col": col, "amb": amb, "exposure": exposure * 2.0 ** look.ev,
+                "moon": moon}
 
     def _density(self):
         """Volume style: opacity per world unit (with the slider in the middle a 2 km strong core is nearly
@@ -556,10 +641,25 @@ class GLVolume(QOpenGLWindow):
             cz, cy, cx = cn.shape
             GL.glTexImage3D(GL.GL_TEXTURE_3D, 0, GL.GL_R16F, cx, cy, cz, 0, GL.GL_RED, GL.GL_HALF_FLOAT,
                             np.ascontiguousarray(cn))
+            c2 = g.info.get("col2")
+            if c2 is not None and self.pal2 is not None:
+                lo2, hi2 = self._range2()
+                n2 = ((c2[1].astype(np.float32) - lo2) / (hi2 - lo2)).astype(np.float16)
+                self._texture("col2", GL.GL_TEXTURE_3D)
+                z2, y2, x2 = n2.shape
+                GL.glTexImage3D(GL.GL_TEXTURE_3D, 0, GL.GL_R16F, x2, y2, z2, 0, GL.GL_RED, GL.GL_HALF_FLOAT,
+                                np.ascontiguousarray(n2))
             self._dirty.discard("vol")
         if "luts" in self._dirty and g is not None:
             tf, pal = self._luts()
-            for name, data in (("tf", tf), ("pal", pal)):
+            luts = [("tf", tf), ("pal", pal)]
+            if self.pal2 is not None:
+                lo2, hi2 = self._range2()
+                sc2 = self.pal2.data_scale(self.units2) or 1.0
+                v2 = lo2 + (np.arange(256) + 0.5) / 256 * (hi2 - lo2)
+                p2 = np.clip(self.pal2.color_at(v2 * sc2 + self.pal2.offset), 0, 255).astype(np.uint8)
+                luts.append(("pal2", np.ascontiguousarray(p2)))
+            for name, data in luts:
                 self._texture(name, GL.GL_TEXTURE_1D)
                 GL.glTexImage1D(GL.GL_TEXTURE_1D, 0, GL.GL_RGBA8, len(data), 0, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE,
                                 data)
@@ -700,32 +800,41 @@ class GLVolume(QOpenGLWindow):
         GL.glUniform1f(L("u_rain_on"), 1.0 if look.rain else 0.0)
         res = float(g.info.get("res_km") or (2 * hx / max(nx - 1, 1)))
         GL.glUniform1f(L("u_blur_lod"), float(np.clip(math.log2(0.65 / max(res, 0.05)), 0.4, 2.5)))
-        GL.glUniform1f(L("u_sig_cloud"), 6.0)
-        GL.glUniform1f(L("u_sig_rain"), 2.4)
+        GL.glUniform1f(L("u_sig_cloud"), 6.0 * float(look.cloud_k))
+        GL.glUniform1f(L("u_sig_rain"), 2.4 * float(look.rain_k))
         for name, target in (("vol", GL.GL_TEXTURE_3D), ("ctx", GL.GL_TEXTURE_3D), ("tf", GL.GL_TEXTURE_1D),
-                             ("pal", GL.GL_TEXTURE_1D), ("light", GL.GL_TEXTURE_3D), ("noise", GL.GL_TEXTURE_3D)):
+                             ("pal", GL.GL_TEXTURE_1D), ("light", GL.GL_TEXTURE_3D), ("noise", GL.GL_TEXTURE_3D),
+                             ("col2", GL.GL_TEXTURE_3D), ("pal2", GL.GL_TEXTURE_1D)):
             unit = self.UNITS[name]
             GL.glActiveTexture(GL.GL_TEXTURE0 + unit)
             tex = self._tex.get(name, 0) if (name != "light" or light_tex) else 0
             GL.glBindTexture(target, tex)
-            GL.glUniform1i(L("u_" + ("lightv" if name == "light" else name)), unit)
+            loc = L("u_" + ("lightv" if name == "light" else name))
+            if loc >= 0:
+                GL.glUniform1i(loc, unit)
         GL.glActiveTexture(GL.GL_TEXTURE0)
 
     def _sky_uniforms(self, p):
         L = lambda name: self._loc(p, name)        # noqa: E731
         s = self.sun()
-        sunp = s.sun
-        sunw = np.array([sunp[0], sunp[1], sunp[2] * self.zscale])
-        sunw /= max(np.linalg.norm(sunw), 1e-9)
-        GL.glUniform3f(L("u_sunp"), *sunp)
-        GL.glUniform3f(L("u_sunw"), *sunw)
-        GL.glUniform3f(L("u_sun_col"), *s.sun_col)
-        GL.glUniform3f(L("u_sky_amb"), *s.sky_amb)
+        li = self.lighting()
+        lp = li["dir"]
+        lw = np.array([lp[0], lp[1], lp[2] * self.zscale])
+        lw /= max(np.linalg.norm(lw), 1e-9)
+        look = self.look
+        GL.glUniform3f(L("u_sunp"), *s.sun)
+        GL.glUniform3f(L("u_lightp"), *lp)
+        GL.glUniform3f(L("u_lightw"), *lw)
+        GL.glUniform3f(L("u_sun_col"), *li["col"])
+        GL.glUniform3f(L("u_sky_amb"), *li["amb"])
         GL.glUniform3f(L("u_tauR"), *s.tau_r)
         GL.glUniform1f(L("u_tauM"), s.tau_m)
         GL.glUniform1f(L("u_E0"), sky.E0)
-        GL.glUniform1f(L("u_vis"), float(self.look.visibility))
-        GL.glUniform1f(L("u_exposure"), s.exposure)
+        GL.glUniform1f(L("u_vis"), float(look.visibility))
+        GL.glUniform1f(L("u_exposure"), li["exposure"])
+        GL.glUniform1f(L("u_g"), float(np.clip(0.70 * look.silver, 0.15, 0.92)))
+        GL.glUniform1f(L("u_ms_a"), float(np.clip(0.45 / max(look.soft, 0.2), 0.12, 0.92)))
+        GL.glUniform1f(L("u_ground_sh"), float(np.clip(look.ground_sh, 0.0, 1.0)))
         f = self._flash_uniform()
         GL.glUniform4f(L("u_flash"), *f)
         return f
@@ -736,13 +845,13 @@ class GLVolume(QOpenGLWindow):
             return (0.0, 0.0, 0.0, 0.0)
         x, y, z = fl["pos"]
         # as bright on screen by night as by day (by day it hardly shows, as in life)
-        k = 1.3 / self.sun().exposure if self.sun().night else 0.5
+        k = 1.3 / self.lighting()["exposure"] if self.sun().night else 0.5
         return (float(x), float(y), float(z) * self.zscale, float(fl["now"]) * k)
 
     # ------------------------------------------------------------------ the light volume
     def _light_dir(self, view):
         if self._mode() == 2:
-            s = self.sun().sun
+            s = self.lighting()["dir"]
             d = np.array([s[0], s[1], max(s[2], 0.02) * self.zscale])
             return d / np.linalg.norm(d)
         # analysis styles: light from over the viewer's left shoulder
@@ -763,7 +872,8 @@ class GLVolume(QOpenGLWindow):
         look = self.look
         mode = self._mode()
         key = (id(g), mode, dims, round(self.zscale, 3), round(look.opacity, 3), tuple(self.levels()),
-               self.thresholds(), round(look.cloud_base, 3), look.rain, id(self.palette))
+               self.thresholds(), round(look.cloud_base, 3), look.rain, id(self.palette), round(look.cloud_k, 3),
+               round(look.rain_k, 3))
         st = self._lv_state
         if st is not None and st[0] == key and float(np.dot(st[1], ldir)) > (0.9999 if mode == 2 else 0.9976):
             return
@@ -796,6 +906,8 @@ class GLVolume(QOpenGLWindow):
 
     # ------------------------------------------------------------------ drawing
     def _detail_scale(self, pixels):
+        if getattr(self, "_force_full", False):
+            return 1.0
         interacting = (time.perf_counter() - self._last_input) < 0.2
         if self._cost is None:
             return 0.6 if interacting else 1.0
@@ -958,6 +1070,29 @@ class GLVolume(QOpenGLWindow):
         GL.glUniform1i(L("u_steps"), int(min(6000 if real else 4000, diag / step + 4)))
         GL.glUniform1f(L("u_cell"), cell)
         GL.glUniform1i(L("u_shadow"), 1 if (look.shadows and not real) else 0)
+        GL.glUniform1i(L("u_caps"), 1 if look.caps else 0)
+        analysis = not real
+        vp = self._vplane() if analysis else None
+        GL.glUniform1i(L("u_slice_v"), 1 if vp is not None else 0)
+        if vp is not None:
+            GL.glUniform4f(L("u_vplane"), *vp[0], vp[1])
+        hs = analysis and look.slice in ("h", "vh")
+        GL.glUniform1i(L("u_slice_h"), 1 if hs else 0)
+        GL.glUniform1f(L("u_hz"), min(max(look.slice_z, 0.0), g.top) * self.zscale)
+        GL.glUniform1f(L("u_slice_a"), 0.96)
+        GL.glUniform1i(L("u_face_ref"), 1 if g.pid == "REF" else 0)
+        GL.glUniform1f(L("u_face_lo"), float(self.to_norm(5.0)))
+        GL.glUniform1f(L("u_floorn"), float(self.to_norm(self.rule.floor)))
+        tilt_on = analysis and look.tilt is not None
+        GL.glUniform1i(L("u_tilt_on"), 1 if tilt_on else 0)
+        GL.glUniform1f(L("u_tilt_tan"), math.tan(math.radians(look.tilt or 0.5)))
+        x0, y0, x1, y1 = g.box
+        GL.glUniform2f(L("u_radar"), -(x0 + x1) / 2, -(y0 + y1) / 2)
+        extras = vp is not None or hs or tilt_on
+        GL.glUniform1f(L("u_rest"), float(look.rest) if (extras and analysis) else 1.0)
+        cb = analysis and look.style == "surfaces" and look.colorby and g.info.get("col2") is not None \
+            and "col2" in self._tex and self.pal2 is not None
+        GL.glUniform1i(L("u_colorby"), 1 if cb else 0)
         GL.glUniform3f(L("u_light"), *self._light_dir(view))
         if real:
             self._sky_uniforms(p)
@@ -1000,25 +1135,40 @@ class GLVolume(QOpenGLWindow):
             return
         g = self.grid
         real = self.realistic()
+        # the title block's size first: in a narrow view the legend goes below it rather than over it
+        rows = [(text, font, col) for text, font, col in (
+            (self.title, ui_font(10.5, True), QColor(236, 240, 248)),
+            (self.subtitle, normal, QColor(190, 200, 220)),
+            (self._stats_text() if (g is not None and self.look.labels) else "", small, QColor(200, 210, 228)))
+            if text]
+        head_w = max((QFontMetricsF(f).horizontalAdvance(t) for t, f, _c in rows), default=0.0)
+        self._legend_top = 18 if 14 + head_w + 16 < W - 150 else 22 + 18 * len(rows) + 4
         if g is not None and mvp is not None:
             if self._flash is not None and self._flash.get("bolt") is not None:
                 self._bolt(p, mvp)
             if self.look.labels:
                 self._labels(p, mvp, g, small)
             if not real:
+                self._slice_outlines(p, mvp, g)
                 self._legend(p, W, small)
+            if self.column is not None:
+                self._column_line(p, mvp, g)
             self._compass(p, mvp, W, H, small)
         # title, subtitle, storm numbers (on a soft shadow: readable over a bright sky too)
+        if real and rows:
+            # over a bright sky white text needs a backing
+            tw = max(QFontMetricsF(f).horizontalAdvance(t) for t, f, _c in rows)
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(10, 14, 22, 120))
+            p.drawRoundedRect(QRectF(6, 6, tw + 18, 18 * len(rows) + 10), 7, 7)
         y = 22
-        for text, font, col in ((self.title, ui_font(10.5, True), QColor(236, 240, 248)),
-                                (self.subtitle, normal, QColor(190, 200, 220)),
-                                (self._stats_text() if (g is not None and self.look.labels) else "", small,
-                                 QColor(200, 210, 228))):
-            if text:
-                self._text(p, QPointF(14, y), text, font, col)
-                y += 18
+        for text, font, col in rows:
+            self._text(p, QPointF(14, y), text, font, col)
+            y += 18
         if self._probe is not None and g is not None:
             self._draw_probe(p, W, H)
+        if self.column is not None and g is not None:
+            self._column_chart(p, W, H)
         if self.message:
             p.setFont(ui_font(11))
             p.setPen(QColor(200, 210, 228))
@@ -1033,9 +1183,9 @@ class GLVolume(QOpenGLWindow):
             p.drawRoundedRect(r, 13, 13)
             p.setPen(QColor(220, 230, 250))
             p.drawText(r, Qt.AlignCenter, self.busy)
-        if g is not None:
-            self._text(p, QPointF(14, H - 10), "Drag: rotate   Right-drag: move   Wheel: zoom   Double-click: "
-                       "centre here   Hover: values", small, QColor(150, 162, 185))
+        if g is not None and self.column is None:
+            self._text(p, QPointF(14, H - 10), "Drag: rotate   Right-drag: move   Wheel: zoom   Click: column "
+                       "profile   Double-click: centre here   Hover: values", small, QColor(150, 162, 185))
         p.end()
 
     @staticmethod
@@ -1144,6 +1294,133 @@ class GLVolume(QOpenGLWindow):
                 p.drawPath(path)
                 self._text(p, q + QPointF(8, 4), self.fmt_value(v), font, QColor(255, 236, 230))
 
+    # ------------------------------------------------------------------ slices and the column profile
+    def _slice_outlines(self, p, mvp, g):
+        """Dashed outlines of the slices, so they read as planes even where they show nothing."""
+        x0, y0, x1, y1 = g.box
+        hx, hy = (x1 - x0) / 2, (y1 - y0) / 2
+        top = g.top
+        quads = []
+        vp = self._vplane()
+        if vp is not None:
+            n, w = vp
+            pts = []
+            # where the line n.p = w crosses the box's floor rectangle
+            for (ax, ay), (bx, by) in (((-hx, -hy), (hx, -hy)), ((hx, -hy), (hx, hy)), ((hx, hy), (-hx, hy)),
+                                       ((-hx, hy), (-hx, -hy))):
+                da, db = n[0] * ax + n[1] * ay - w, n[0] * bx + n[1] * by - w
+                if da == db or da * db > 0:
+                    continue
+                f = da / (da - db)
+                pts.append((ax + (bx - ax) * f, ay + (by - ay) * f))
+            if len(pts) >= 2:
+                (ax, ay), (bx, by) = pts[0], pts[1]
+                quads.append([(ax, ay, 0), (bx, by, 0), (bx, by, top), (ax, ay, top)])
+        if self.look.slice in ("h", "vh"):
+            z = min(max(self.look.slice_z, 0.0), top)
+            quads.append([(-hx, -hy, z), (hx, -hy, z), (hx, hy, z), (-hx, hy, z)])
+        pen = QPen(QColor(235, 242, 255, 150), 1.1, Qt.DashLine)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        for q in quads:
+            sc, ok = self._project(mvp, np.array(q, np.float64))
+            if not ok.all():
+                continue
+            path = QPainterPath(QPointF(*sc[0]))
+            for k in (1, 2, 3, 0):
+                path.lineTo(QPointF(*sc[k]))
+            p.drawPath(path)
+
+    def column_profile(self):
+        """(heights km, values) of the grid column at self.column."""
+        g = self.grid
+        x0, y0, x1, y1 = g.box
+        hx, hy = (x1 - x0) / 2, (y1 - y0) / 2
+        nz, ny, nx = g.values.shape
+        x, y = self.column
+        i = int(round((x + hx) / (2 * hx) * (nx - 1)))
+        j = int(round((y + hy) / (2 * hy) * (ny - 1)))
+        i, j = min(max(i, 0), nx - 1), min(max(j, 0), ny - 1)
+        return np.linspace(0.0, g.top, nz), g.values[:, j, i].astype(np.float64)
+
+    def _column_line(self, p, mvp, g):
+        x, y = self.column
+        sc, ok = self._project(mvp, np.array([[x, y, 0.0], [x, y, g.top]], np.float64))
+        if not ok.all():
+            return
+        p.setPen(QPen(QColor(0, 0, 0, 120), 3.2))
+        p.drawLine(QPointF(*sc[0]), QPointF(*sc[1]))
+        p.setPen(QPen(QColor(255, 255, 255, 230), 1.5))
+        p.drawLine(QPointF(*sc[0]), QPointF(*sc[1]))
+        p.setBrush(QColor(255, 255, 255))
+        p.drawEllipse(QPointF(*sc[0]), 3.0, 3.0)
+
+    def _column_chart(self, p, W, H):
+        """The values up the pinned column, bottom left: a coloured bar per height."""
+        zs, v = self.column_profile()
+        g = self.grid
+        cw, ch = 168.0, min(230.0, H * 0.45)
+        x0, y1 = 14.0, H - 30.0
+        y0 = y1 - ch
+        p.setPen(QPen(QColor(255, 255, 255, 60), 1))
+        p.setBrush(QColor(12, 16, 26, 222))
+        p.drawRoundedRect(QRectF(x0 - 6, y0 - 26, cw + 12, ch + 46), 7, 7)
+        font = ui_font(8)
+        fm = QFontMetricsF(font)
+        p.setFont(font)
+        p.setPen(QColor(225, 232, 245))
+        p.drawText(QPointF(x0, y0 - 10), "Column  (Esc clears)")
+        r = self.rule
+        lo, hi = self.lo, self.hi
+        if r.direction == 0:
+            m = max(abs(lo), abs(hi))
+            lo, hi = -m, m
+        px0 = x0 + 34
+        pw = cw - 40
+        cols = self.palette.color_at(self.display(v)) if self.palette is not None else np.full((len(v), 4), 200)
+        bh = ch / max(len(zs), 1)
+        floorish = np.abs(v - r.floor) < 1e-3
+        for k in range(len(zs)):
+            if floorish[k]:
+                continue
+            f = (v[k] - lo) / max(hi - lo, 1e-9)
+            if r.direction == 0:
+                xa, xb = px0 + pw / 2, px0 + pw * min(max(f, 0), 1)
+            else:
+                xa, xb = px0, px0 + pw * min(max(f, 0), 1)
+            yy = y1 - (k + 1) * bh
+            c = cols[k]
+            p.fillRect(QRectF(min(xa, xb), yy, max(abs(xb - xa), 1.0), bh + 0.5),
+                       QColor(int(c[0]), int(c[1]), int(c[2]), 235))
+        # height axis
+        p.setPen(QColor(170, 182, 205))
+        kft = self.height_units != "km"
+        unit = 0.3048 if kft else 1.0
+        step = 10 if kft else 3
+        for hv in np.arange(0, g.top / unit + 1e-6, step):
+            yy = y1 - hv * unit / g.top * ch
+            p.drawText(QRectF(x0 - 4, yy - 7, 34, 14), Qt.AlignRight | Qt.AlignVCenter, f"{hv:g}")
+            p.setPen(QPen(QColor(255, 255, 255, 25), 1))
+            p.drawLine(QPointF(px0, yy), QPointF(px0 + pw, yy))
+            p.setPen(QColor(170, 182, 205))
+        p.drawText(QPointF(x0, y1 + 14), "kft" if kft else "km")
+        # strongest value and (reflectivity) the echo tops
+        meas = np.where(floorish, np.nan, v)
+        if np.isfinite(meas).any():
+            k = int(np.nanargmax(meas if r.direction >= 0 else -meas))
+            txt = f"{'Max' if r.direction >= 0 else 'Min'} {self.fmt_value(v[k])} at {self.fmt_height(zs[k])}"
+            p.setPen(QColor(236, 240, 250))
+            p.drawText(QPointF(px0, y1 + 14), txt if fm.horizontalAdvance(txt) < pw + 10 else self.fmt_value(v[k]))
+            if g.pid == "REF":
+                for thr, col in ((18.0, QColor(150, 220, 160)), (50.0, QColor(255, 120, 110))):
+                    above = np.nonzero(v >= thr)[0]
+                    if len(above):
+                        yy = y1 - (above[-1] + 1) * bh
+                        p.setPen(QPen(col, 1, Qt.DashLine))
+                        p.drawLine(QPointF(px0, yy), QPointF(px0 + pw, yy))
+                        p.setPen(col)
+                        p.drawText(QPointF(px0 + pw - fm.horizontalAdvance(f"{thr:.0f}") - 1, yy - 2), f"{thr:.0f}")
+
     def _legend(self, p, W, font):
         if self.palette is None:
             return
@@ -1153,7 +1430,7 @@ class GLVolume(QOpenGLWindow):
             styles = self.level_styles()
             items = sorted(styles, key=lambda s: -s[0])
             x = W - 14
-            y = 18
+            y = getattr(self, "_legend_top", 18)
             for v, c, _sd in items:
                 txt = f"{self.display(v):g} {self.disp_units}"
                 tw = fm.horizontalAdvance(txt)
@@ -1164,6 +1441,30 @@ class GLVolume(QOpenGLWindow):
                 p.setPen(QColor(220, 228, 242))
                 p.drawText(QPointF(x - tw, y + 11.5), txt)
                 y += 20
+            c2 = self.grid.info.get("col2") if self.grid is not None else None
+            if self.look.colorby and c2 is not None and self.pal2 is not None:
+                # the colours painted on the surfaces: the second product's table
+                lo2, hi2 = self._range2()
+                sc2 = self.pal2.data_scale(self.units2) or 1.0
+                h, bx = 120, W - 30
+                y += 10
+                p.setPen(QColor(200, 210, 228))
+                name = "Coloured by " + PRODUCT_NAMES.get(c2[0], c2[0]).lower()
+                p.drawText(QPointF(W - 14 - fm.horizontalAdvance(name), y + 4), name)
+                y += 20
+                grad = QLinearGradient(0, y + h, 0, y)
+                for i in range(25):
+                    c = self.pal2.color_at(np.array([(lo2 + (hi2 - lo2) * i / 24) * sc2 + self.pal2.offset]))[0]
+                    grad.setColorAt(i / 24, QColor(int(c[0]), int(c[1]), int(c[2]), 255))
+                p.setPen(QPen(QColor(255, 255, 255, 80), 1))
+                p.setBrush(grad)
+                p.drawRoundedRect(QRectF(bx, y, 12, h), 3, 3)
+                p.setPen(QColor(220, 228, 242))
+                for vv in (lo2, (lo2 + hi2) / 2, hi2):
+                    yy = y + h - (vv - lo2) / max(hi2 - lo2, 1e-9) * h
+                    t2 = f"{vv * sc2 + self.pal2.offset:.3g}"
+                    p.drawText(QPointF(bx - fm.horizontalAdvance(t2) - 6, yy + 4), t2)
+                p.drawText(QPointF(bx - 6, y + h + 15), self.pal2.units or self.units2)
             return
         # volume: the colour table from the threshold up, with its density
         thr, full = self.thresholds()
@@ -1176,7 +1477,7 @@ class GLVolume(QOpenGLWindow):
             a, b = -max(abs(self.lo), abs(self.hi)), max(abs(self.lo), abs(self.hi))
         h = 150
         x = W - 46
-        y = 20
+        y = getattr(self, "_legend_top", 18) + 2
         grad = QLinearGradient(0, y + h, 0, y)
         n = 24
         for i in range(n + 1):
@@ -1378,7 +1679,8 @@ class GLVolume(QOpenGLWindow):
             self._flash = None
             self._flash_timer.stop()
             night = self.sun().night
-            self._next_flash.start(int(random.uniform(700, 2600) if night else random.uniform(1800, 5200)))
+            rate = max(self.look.flash_rate, 0.1)
+            self._next_flash.start(int((random.uniform(700, 2600) if night else random.uniform(1800, 5200)) / rate))
         self.update()
 
     def _bolt(self, p, mvp):
@@ -1407,6 +1709,7 @@ class GLVolume(QOpenGLWindow):
 
     def mousePressEvent(self, ev):
         self._mouse = (ev.position(), ev.button(), ev.modifiers())
+        self._press = (ev.position(), ev.button(), time.perf_counter())
         self._anim = None
         self._probe = None
 
@@ -1432,7 +1735,37 @@ class GLVolume(QOpenGLWindow):
 
     def mouseReleaseEvent(self, ev):
         self._mouse = None
+        pr, self._press = self._press, None
+        if pr is not None and pr[1] == Qt.LeftButton and self.grid is not None and \
+                (ev.position() - pr[0]).manhattanLength() < 4 and time.perf_counter() - pr[2] < 0.6:
+            hit = self.pick(ev.position())                   # a click (not a drag): pin the column there
+            if hit is not None:
+                self.column = hit
         self.update()
+
+    def pick(self, pos):
+        """The box column (x, y) under a point of the window: the first storm the eye meets there, else the
+        floor."""
+        g = self.grid
+        ro, rd = self._ray(pos)
+        hx, hy, top = self._box_world()
+        rds = np.where(np.abs(rd) < 1e-9, 1e-9, rd)
+        t0s, t1s = (np.array([-hx, -hy, 0.0]) - ro) / rds, (np.array([hx, hy, top]) - ro) / rds
+        t0 = max(np.minimum(t0s, t1s).max(), 0.0)
+        t1 = np.maximum(t0s, t1s).min()
+        if t1 <= t0:
+            return None
+        ts = np.linspace(t0, t1, 400)
+        pts = ro[None, :] + rd[None, :] * ts[:, None]
+        nz, ny, nx = g.values.shape
+        ix = np.clip(np.round((pts[:, 0] + hx) / (2 * hx) * (nx - 1)).astype(int), 0, nx - 1)
+        iy = np.clip(np.round((pts[:, 1] + hy) / (2 * hy) * (ny - 1)).astype(int), 0, ny - 1)
+        iz = np.clip(np.round(pts[:, 2] / max(top, 1e-6) * (nz - 1)).astype(int), 0, nz - 1)
+        v = g.values[iz, iy, ix].astype(np.float64)
+        r = self.rule
+        seen = np.asarray(r.interest(v, self.thresholds()[0])) > 0
+        k = int(np.nonzero(seen)[0][0]) if seen.any() else len(ts) - 1
+        return float(pts[k, 0]), float(pts[k, 1])
 
     def event(self, ev):
         if ev.type() == QEvent.Leave:
@@ -1466,7 +1799,10 @@ class GLVolume(QOpenGLWindow):
         self._fly(self.yaw, self.pitch, self.dist, tgt, self.fov, ms=380)
 
     def keyPressEvent(self, ev):
-        if ev.key() == Qt.Key_R:
+        if ev.key() == Qt.Key_Escape and self.column is not None:
+            self.column = None
+            self.update()
+        elif ev.key() == Qt.Key_R:
             self.reset_view()
         elif ev.key() == Qt.Key_G:
             self.reset_view("ground")
@@ -1514,7 +1850,40 @@ DEFAULTS = {"product": "REF", "style": "surfaces", "thresholds": {}, "levels": {
             "zscale": 2.5, "real_zscale": 1.0, "top_km": 18.0, "detail": "normal", "follow": True, "outline": True,
             "cut": "off", "cut_pos": 0.5, "shadows": True, "floor_map": True, "labels": True, "spin": False,
             "sun": "scan", "sun_az": 235.0, "sun_el": 35.0, "cloud_base_km": 1.3, "visibility_km": 80.0,
-            "rain": True, "lightning": True, "options": None, "prev_product": "REF"}
+            "rain": True, "lightning": True, "options": None, "prev_product": "REF",
+            "slice": "off", "slice_angle": 0.0, "slice_pos": 0.5, "slice_z_km": 3.0, "tilt": None, "rest": 0.35,
+            "colorby": None, "sun_hour": 17.0, "light": "natural", "ev": 0.0, "sun_k": 1.0, "sky_k": 1.0,
+            "cloud_k": 1.0, "rain_k": 1.0, "silver": 1.0, "soft": 1.0, "ground_sh": 1.0, "moon": 0.0,
+            "flash_rate": 1.0}
+LIGHT_PRESETS = {     # label, settings
+    "natural": ("Natural", dict(ev=0.0, sun_k=1.0, sky_k=1.0, cloud_k=1.0, rain_k=1.0, silver=1.0, soft=1.0,
+                                ground_sh=1.0, moon=0.0)),
+    "dramatic": ("Dramatic", dict(ev=-0.4, sun_k=1.35, sky_k=0.55, cloud_k=1.5, rain_k=1.4, silver=1.25, soft=0.75,
+                                  ground_sh=1.0, moon=0.0)),
+    "soft": ("Soft, hazy", dict(ev=0.2, sun_k=0.65, sky_k=1.45, cloud_k=0.8, rain_k=0.8, silver=0.7, soft=1.5,
+                                ground_sh=0.55, moon=0.0)),
+    "bright": ("Bright", dict(ev=0.6, sun_k=1.1, sky_k=1.2, cloud_k=0.9, rain_k=0.9, silver=1.0, soft=1.25,
+                              ground_sh=0.85, moon=0.0)),
+    "moonlit": ("Moonlit night", dict(ev=0.0, sun_k=1.0, sky_k=1.0, cloud_k=1.0, rain_k=1.0, silver=1.0, soft=1.1,
+                                      ground_sh=0.8, moon=1.0)),
+    "custom": ("Custom", None),
+}
+# (key, label, slider lo, hi, scale (slider units per value), tip)
+LIGHT_SLIDERS = (
+    ("ev", "Exposure", -20, 20, 10, "Brighter or darker overall (photographic stops)"),
+    ("sun_k", "Sunlight", 0, 200, 100, "How strong the direct light is (sun, or moon at night)"),
+    ("sky_k", "Sky light", 0, 200, 100, "Light from the whole sky: fills in the shadows"),
+    ("cloud_k", "Clouds", 30, 250, 100, "How thick the cloud is: thicker clouds have darker bases and crisper edges"),
+    ("rain_k", "Rain", 0, 250, 100, "How dense the rain shafts look"),
+    ("silver", "Edges", 30, 130, 100, "Silver linings: how much light cloud edges throw forward when the light is "
+                                      "behind them"),
+    ("soft", "Softness", 30, 250, 100, "How far light reaches into the cloud: high is soft and glowing, low is "
+                                       "deep, dark shadows"),
+    ("ground_sh", "Shadows", 0, 100, 100, "How dark the storm's shadow on the ground is"),
+    ("moon", "Moonlight", 0, 100, 100, "Moonlight by night (below the horizon the sun lights nothing): the storm "
+                                       "shows in a dim blue light"),
+    ("flash_rate", "Flashes", 10, 300, 100, "How often lightning flashes"),
+)
 LEVEL_PRESETS = {     # display units
     "REF": ("30, 50, 65", "20, 40, 60", "40, 55, 65", "35, 50", "50"),
     "DVEL": ("-25, 25", "-40, 40", "-15, 15"),
@@ -1659,7 +2028,7 @@ class _Options(QWidget):
         h.addWidget(lab)
         h.addWidget(widget, 1)
         if value is not None:
-            value.setMinimumWidth(52)
+            value.setMinimumWidth(46)
             value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             h.addWidget(value)
         v.addWidget(w)
@@ -1695,7 +2064,7 @@ class Volume3DWindow(QWidget):
         self.gl = GLVolume()
         self.gl.height_units = main.settings["height_units"] or "kft"
         self.gl_host = QWidget.createWindowContainer(self.gl, self)
-        self.gl_host.setMinimumSize(240, 160)
+        self.gl_host.setMinimumSize(120, 100)      # (a native window: never wider than its column)
         self.gl_host.setFocusPolicy(Qt.StrongFocus)
         self.gl_host.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._frame = None
@@ -1737,6 +2106,7 @@ class Volume3DWindow(QWidget):
         m.addSeparator()
         m.addAction("Rebuild", lambda: self.refresh(force=True))
         m.addAction("Save image…", self.save_image)
+        m.addAction("Save turning video…", self.save_turn)
         m.addAction("Copy image", self.copy_image)
         self.view_btn.setMenu(m)
         self.opt_btn = QToolButton()
@@ -1772,6 +2142,10 @@ class Volume3DWindow(QWidget):
         opts.row(v, "Levels", lvw, self.lv_unit)
         self.glass = _slider(0, 100, float(cfg["opacity"]) * 100, "How see-through the outer surfaces are")
         opts.row(v, "Glass", self.glass)
+        self.colorby = QComboBox()
+        self.colorby.setToolTip("Paint the surfaces with another product's colours: velocity on reflectivity "
+                                "shows the rotation in the storm, CC shows where debris or hail is")
+        opts.row(v, "Colour by", self.colorby)
         # volume
         self.sec_vol, v = opts.section("Volume")
         self.thr = _slider(0, 200, 0, "Values weaker than this are clear")
@@ -1779,6 +2153,30 @@ class Volume3DWindow(QWidget):
         opts.row(v, "Show from", self.thr, self.thr_lbl)
         self.dens = _slider(0, 100, float(cfg["opacity"]) * 100, "How dense (opaque) the glow is")
         opts.row(v, "Density", self.dens)
+        # slices and a tilt
+        self.sec_slice, v = opts.section("Slices & tilt")
+        self.slice = QComboBox()
+        for k, t in (("off", "No slice"), ("v", "Upright"), ("h", "Flat (one height)"), ("vh", "Both")):
+            self.slice.addItem(t, k)
+        self.slice.setCurrentIndex(max(0, self.slice.findData(cfg["slice"])))
+        self.slice.setToolTip("Cut a slice through the storm and show the data on it: upright (a cross section) "
+                              "or flat at one height")
+        opts.row(v, "Slice", self.slice)
+        self.slice_angle = _slider(0, 179, float(cfg["slice_angle"]), "Which way the upright slice runs")
+        self.slice_angle_lbl = QLabel()
+        self.row_sangle = opts.row(v, "Runs", self.slice_angle, self.slice_angle_lbl)
+        self.slice_pos = _slider(0, 100, float(cfg["slice_pos"]) * 100, "Where the upright slice is across the box")
+        self.row_spos = opts.row(v, "Across", self.slice_pos)
+        self.slice_z = _slider(0, 100, 30, "Height of the flat slice")
+        self.slice_z_lbl = QLabel()
+        self.row_sz = opts.row(v, "Height", self.slice_z, self.slice_z_lbl)
+        self.tilt = QComboBox()
+        self.tilt.addItem("No tilt", None)
+        self.tilt.setToolTip("Show one radar tilt as the cone it really is: the beam rises as it goes out")
+        opts.row(v, "Tilt", self.tilt)
+        self.rest = _slider(0, 100, float(cfg["rest"]) * 100, "How much of the storm still shows around the "
+                                                               "slices and the tilt")
+        self.row_rest = opts.row(v, "Around", self.rest)
         # realistic
         self.sec_real, v = opts.section("Sun & sky")
         self.sun = QComboBox()
@@ -1787,6 +2185,10 @@ class Volume3DWindow(QWidget):
         self.sun.setCurrentIndex(max(0, self.sun.findData(cfg["sun"])))
         self.sun.setToolTip("Where the sun is: as it was when the radar scanned, a time of day, or your own")
         opts.row(v, "Sun", self.sun)
+        self.sun_hour = _slider(0, 96, float(cfg["sun_hour"]) * 4, "Local time on the day of the scan: the sun "
+                                                                    "moves along its real path")
+        self.sun_hour_lbl = QLabel()
+        self.row_hour = opts.row(v, "Time", self.sun_hour, self.sun_hour_lbl)
         self.sun_az = _slider(0, 359, float(cfg["sun_az"]), "Which direction the sunlight comes from")
         self.sun_az_lbl = QLabel()
         self.row_az = opts.row(v, "From", self.sun_az, self.sun_az_lbl)
@@ -1811,10 +2213,24 @@ class Volume3DWindow(QWidget):
         self.lightning = _chip("Lightning", "Flashes in the strongest cores (cloud-to-ground strokes now and then)")
         self.lightning.setChecked(bool(cfg["lightning"]))
         opts.chips(v, self.rain, self.lightning)
+        self.sec_light, v = opts.section("Lighting")
+        self.light = QComboBox()
+        for k, (label, _vals) in LIGHT_PRESETS.items():
+            self.light.addItem(label, k)
+        self.light.setCurrentIndex(max(0, self.light.findData(cfg["light"])))
+        self.light.setToolTip("A starting point for the lighting; moving any slider makes it Custom")
+        opts.row(v, "Light", self.light)
+        self.light_sl = {}
+        for key, label, lo, hi, k, tip in LIGHT_SLIDERS:
+            sl = _slider(lo, hi, float(cfg[key]) * k, tip)
+            lab = QLabel()
+            opts.row(v, label, sl, lab, tip)
+            self.light_sl[key] = (sl, lab, k)
         # cut
         self.sec_cut, v = opts.section("Cut open")
         self.cut = QComboBox()
-        for k, t in (("off", "No cut"), ("ns", "North–south"), ("ew", "East–west"), ("height", "At a height")):
+        for k, t in (("off", "No cut"), ("face", "Facing you"), ("ns", "North–south"), ("ew", "East–west"),
+                     ("height", "At a height")):
             self.cut.addItem(t, k)
         self.cut.setCurrentIndex(max(0, self.cut.findData(cfg["cut"])))
         self.cut.setToolTip("Open the storm up: the half towards you is cut away and the cut face shows the data")
@@ -1861,7 +2277,7 @@ class Volume3DWindow(QWidget):
         sa.setFrameShape(QFrame.NoFrame)
         sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         sa.setWidget(opts)
-        sa.setFixedWidth(250)
+        sa.setFixedWidth(268)
         self.opt_area = sa
 
         self.status = QLabel("")
@@ -1904,6 +2320,15 @@ class Volume3DWindow(QWidget):
         for c in (self.outline, self.shadows, self.floor_map, self.labels, self.rain, self.lightning):
             c.toggled.connect(lambda _v: self._look_changed())
         self.cut.currentIndexChanged.connect(lambda _i: self._look_changed())
+        for sl in (self.slice_angle, self.slice_pos, self.slice_z, self.rest):
+            sl.valueChanged.connect(lambda _v: self._look_changed())
+        self.slice.currentIndexChanged.connect(lambda _i: self._look_changed())
+        self.tilt.currentIndexChanged.connect(lambda _i: self._look_changed())
+        self.colorby.currentIndexChanged.connect(lambda _i: self._colorby_changed())
+        self.sun_hour.valueChanged.connect(lambda _v: self._sun_preset_changed())
+        self.light.currentIndexChanged.connect(lambda _i: self._light_preset_changed())
+        for key, (sl, _lab, _k) in self.light_sl.items():
+            sl.valueChanged.connect(lambda _v, key=key: self._light_slider_moved(key))
         self.sun.currentIndexChanged.connect(lambda _i: self._sun_preset_changed())
         self.zs.valueChanged.connect(self._z)
         self.top.valueChanged.connect(lambda _v: self._rebuild_soon())
@@ -1912,6 +2337,7 @@ class Volume3DWindow(QWidget):
         self.spin_act.toggled.connect(self._spin_toggled)
         self.opt_btn.toggled.connect(self._options_toggled)
         main.stateChanged.connect(self._state_changed)
+        self._set_slice_z(float(cfg["slice_z_km"]))
         self._product_controls()
         self._apply_style_scale()
         self._sun_preset_changed(save=False)
@@ -1932,7 +2358,13 @@ class Volume3DWindow(QWidget):
                    labels=self.labels.isChecked(), spin=self.spin_act.isChecked(), sun=self.sun.currentData(),
                    sun_az=float(self.sun_az.value()), sun_el=float(self.sun_el.value()),
                    cloud_base_km=self.base.value() / 10.0, visibility_km=self._vis_km(),
-                   rain=self.rain.isChecked(), lightning=self.lightning.isChecked())
+                   rain=self.rain.isChecked(), lightning=self.lightning.isChecked(),
+                   slice=self.slice.currentData(), slice_angle=float(self.slice_angle.value()),
+                   slice_pos=self.slice_pos.value() / 100.0, slice_z_km=self._slice_z_km(),
+                   tilt=self.tilt.currentData(), rest=self.rest.value() / 100.0, colorby=self.colorby.currentData(),
+                   sun_hour=self.sun_hour.value() / 4.0, light=self.light.currentData())
+        for key, (sl, _lab, k) in self.light_sl.items():
+            cfg[key] = sl.value() / k
         cfg["real_zscale" if style == "realistic" else "zscale"] = z
         self.main.settings["volume3d"] = cfg
         self.main.settings.save()
@@ -1963,6 +2395,50 @@ class Volume3DWindow(QWidget):
 
     def _vis_km(self):
         return math.exp(math.log(8.0) + self.vis.value() / 100.0 * (math.log(200.0) - math.log(8.0)))
+
+    def _slice_z_km(self):
+        return self.slice_z.value() / 100.0 * self.top_km()
+
+    def _set_slice_z(self, km):
+        self.slice_z.blockSignals(True)
+        self.slice_z.setValue(int(round(min(max(km / max(self.top_km(), 0.1), 0.0), 1.0) * 100)))
+        self.slice_z.blockSignals(False)
+
+    def _light_value(self, key):
+        sl, _lab, k = self.light_sl[key]
+        return sl.value() / k
+
+    def _light_preset_changed(self):
+        k = self.light.currentData()
+        vals = LIGHT_PRESETS.get(k, (None, None))[1]
+        if vals:
+            for key, val in vals.items():
+                sl, _lab, kk = self.light_sl[key]
+                sl.blockSignals(True)
+                sl.setValue(int(round(val * kk)))
+                sl.blockSignals(False)
+            if vals.get("moon", 0) > 0 and self.sun_el.value() > -6:
+                # moonlight only shows at night: put the sun below the horizon
+                self.sun.blockSignals(True)
+                self.sun.setCurrentIndex(max(0, self.sun.findData("custom")))
+                self.sun.blockSignals(False)
+                self.sun_el.blockSignals(True)
+                self.sun_el.setValue(-8)
+                self.sun_el.blockSignals(False)
+                self._sun_preset_changed(save=False)
+        self._look_changed()
+
+    def _light_slider_moved(self, key):
+        if self.light.currentData() != "custom":
+            self.light.blockSignals(True)
+            self.light.setCurrentIndex(max(0, self.light.findData("custom")))
+            self.light.blockSignals(False)
+        self._look_changed()
+
+    def _colorby_changed(self):
+        self._look_changed()
+        if self.style() == "surfaces":
+            self.refresh(force=False)
 
     # ------------------------------------------------------------------ options column
     def _set_options_visible(self, on, save=True):
@@ -2025,6 +2501,15 @@ class Volume3DWindow(QWidget):
             self.lv_menu.addAction(txt, lambda t=txt: (self.levels.setText(t), self._look_changed()))
         self.lv_unit.setText(self._palette().units or self._units())
         self.outline.setEnabled(pid != "REF")
+        want = self.cfg.get("colorby")
+        self.colorby.blockSignals(True)
+        self.colorby.clear()
+        self.colorby.addItem("Its own colours", None)
+        for other in grid3d.PRODUCTS:
+            if other != pid:
+                self.colorby.addItem(PRODUCT_NAMES.get(other, other), other)
+        self.colorby.setCurrentIndex(max(0, self.colorby.findData(want)) if want != pid else 0)
+        self.colorby.blockSignals(False)
 
     def _threshold(self):
         a, b = self._thr_range()
@@ -2063,6 +2548,8 @@ class Volume3DWindow(QWidget):
             self.refresh(force=True)
         self._apply_style_scale()
         self._look_changed()
+        if self.colorby.currentData():
+            self.refresh()                     # (the colouring grid is only built for Surfaces)
         if self.gl.grid is not None:
             # realistic opens where you'd see it from in life: on the ground, a storm chaser's distance away
             self.gl.reset_view("ground" if style == "realistic" else "reset")
@@ -2076,11 +2563,36 @@ class Volume3DWindow(QWidget):
         self.zs_lbl.setText(f"{z:.1f}")
         self.gl.set_zscale(z)
 
+    def _sun_at_hour(self, hour):
+        """(az, el) of the sun at a local time on the scan's day (today with no scan), or None."""
+        try:
+            from datetime import datetime, timedelta, timezone
+            from zoneinfo import ZoneInfo
+            from ..data.sites import get_site
+            f = self._frame
+            site = get_site(f.site if f is not None else getattr(self.main.data, "site_id", ""))
+            if site is None:
+                return None
+            tz = ZoneInfo(site.tz) if getattr(site, "tz", None) else timezone(timedelta(hours=round(site.lon / 15)))
+            t = (f.time if f is not None and f.time is not None else datetime.now(timezone.utc)).astimezone(tz)
+            day = t.replace(hour=0, minute=0, second=0, microsecond=0)
+            return sky.sun_position(day + timedelta(hours=hour), site.lat, site.lon)
+        except Exception:
+            return None
+
     def _sun_preset_changed(self, save=True):
         k = self.sun.currentData()
         _label, az, el = sky.SUN_PRESETS.get(k, (None, None, None))
         if k == "scan" and self._sun_scan is not None:
             az, el = self._sun_scan
+        h = self.sun_hour.value() / 4.0
+        self.sun_hour_lbl.setText(f"{int(h) % 12 or 12}:{int(round((h % 1) * 60)):02d} {'am' if h % 24 < 12 else 'pm'}")
+        self.row_hour.setVisible(k == "time")
+        if k == "time":
+            pos = self._sun_at_hour(h)
+            if pos is not None:
+                az, el = pos
+                el = max(el, -8.0)
         for s, val in ((self.sun_az, az), (self.sun_el, el)):
             if val is not None:
                 s.blockSignals(True)
@@ -2132,6 +2644,29 @@ class Volume3DWindow(QWidget):
         look.visibility = self._vis_km()
         look.rain = self.rain.isChecked()
         look.lightning = self.lightning.isChecked()
+        look.slice = self.slice.currentData()
+        look.slice_angle = float(self.slice_angle.value())
+        look.slice_pos = self.slice_pos.value() / 100.0
+        look.slice_z = self._slice_z_km()
+        look.tilt = self.tilt.currentData()
+        look.rest = self.rest.value() / 100.0
+        look.colorby = self.colorby.currentData()
+        for key in self.light_sl:
+            setattr(look, key, self._light_value(key))
+        for key, (sl, lab, k) in self.light_sl.items():
+            val = sl.value() / k
+            lab.setText(f"{val:+.1f}" if key == "ev" else f"{val * 100:.0f}%")
+        b = look.slice_angle
+        self.slice_angle_lbl.setText("N–S" if b < 1 else "E–W" if abs(b - 90) < 1 else
+                                     f"{sky.compass(b)}–{sky.compass(b + 180)}")
+        self.slice_z_lbl.setText(self.gl.fmt_height(look.slice_z))
+        upright = look.slice in ("v", "vh")
+        self.row_sangle.setVisible(upright)
+        self.row_spos.setVisible(upright)
+        self.row_sz.setVisible(look.slice in ("h", "vh"))
+        self.row_rest.setEnabled(look.slice != "off" or look.tilt is not None)
+        self.sec_slice.setVisible(style != "realistic")
+        self.sec_light.setVisible(style == "realistic")
         self.row_cut.setEnabled(look.cut != "off")
         self.sec_cut.setVisible(style != "realistic")          # (real storms don't open up)
         self.sun_az_lbl.setText(f"{sky.compass(look.sun_az)} {look.sun_az:.0f}°")
@@ -2221,45 +2756,95 @@ class Volume3DWindow(QWidget):
         self.refresh(force=True)
 
     def on_closed(self):
-        """Called when the 3-D panel is closed: forget the selected area."""
+        """Called when the 3-D panel is closed: forget the selected area (and its picture)."""
         self.box = None
+        self._shown = None
+        self._want = None
+        self.gl.clear("Drag a box around a storm on the map (B, or “Area”) to see it in 3-D.")
         self.gl.set_active(False)
         self.closed.emit()
 
     def build(self):                  # (older callers)
         self.refresh(force=True)
 
-    def _key(self, frame):
+    def _key(self, frames):
         pid = self.pid()
         pal = self._palette()
         extra = ()
         if pid == "SRV":
             s = self.main.settings
             extra = (s["storm_motion_dir"], s["storm_motion_kts"])
-        return (frame.uid, frame.l2_rev, frame.site, pid, self.box, round(self.top_km(), 2),
-                self.detail.currentData(), id(pal), extra)
+        return (tuple((f.uid, f.l2_rev) for f in frames), frames[0].site, pid, self.box, round(self.top_km(), 2),
+                self.detail.currentData(), id(pal), extra, self._colorby_pid())
+
+    def _colorby_pid(self):
+        """The product the surfaces are coloured by (built alongside), or None."""
+        cb = self.colorby.currentData()
+        return cb if (cb and cb != self.pid() and self.style() == "surfaces") else None
+
+    FALLBACK_S = 30 * 60          # a scan this close to the one on the map can stand in for it
+    MIN_TILTS = 3                 # fewer tilts than this (a live scan just starting) isn't much of a 3-D picture
+
+    def _candidates(self, frame):
+        """Frames to build from, best first: the one on the map if it has Level II, then the nearest others that
+        do (earlier ones first: they're complete). The build takes the first with enough tilts."""
+        if frame.has_level2() and not (frame.from_chunks and frame.live):
+            return [frame]                         # a whole scan: nothing else needed (keeps the cache key steady)
+        frames = [f for f in (getattr(self.main.data, "frames", None) or []) if f is not None and f.has_level2()]
+        out = [frame] if frame.has_level2() else []
+        others = [f for f in frames if f is not frame and f.site == frame.site and frame.time is not None
+                  and f.time is not None and abs((f.time - frame.time).total_seconds()) <= self.FALLBACK_S]
+        others.sort(key=lambda f: (abs((f.time - frame.time).total_seconds()) + (0 if f.time <= frame.time else 900)))
+        return (out + others)[:4]
+
+    def _no_data_message(self, frame):
+        """Why there's nothing to build from, in words."""
+        site = None
+        try:
+            from ..data.sites import get_site
+            site = get_site(frame.site if frame is not None else getattr(self.main.data, "site_id", ""))
+        except Exception:
+            pass
+        if site is not None and getattr(site, "type", "") == "tdwr":
+            return (f"{site.id} is a TDWR (airport) radar: it only sends Level III products, a few tilts each, "
+                    "and the 3-D view needs a whole scan. Pick a nearby WSR-88D radar (one starting with K) to see "
+                    "this storm in 3-D.")
+        if frame is None:
+            return "Waiting for radar data…"
+        return ("Waiting for this radar's full scans (Level II) to download. The products shown so far are "
+                "Level III, one tilt each, so there isn't a whole scan to build the 3-D view from yet.")
 
     def refresh(self, force=False):
         frame = self.main.current_frame()
         if self.box is None:
             self.gl.set_message("Drag a box around a storm on the map (B, or “Area”) to see it in 3-D.")
             return
-        if frame is None or not frame.has_level2():
-            self.gl.set_message("The 3-D view needs Level II radar data.")
+        cands = self._candidates(frame) if frame is not None else []
+        if not cands:
+            if self._shown is not None:            # keep the last picture; just say why it isn't updating
+                self.status.setText(self._no_data_message(frame))
+            else:
+                self.gl.set_message(self._no_data_message(frame))
             return
-        key = self._key(frame)
+        key = self._key(cands)
         self._want = key
         g = self._cache.get(key)
         if g is not None and not force:
             self._cache.move_to_end(key)
-            self._show(g, frame)
+            self._show(g, self._src_frame(g, cands[0]), frame)
             return
         if force:
             self._cache.pop(key, None)
-        self._submit(key, frame)
+        self._submit(key, cands, frame)
 
-    def _submit(self, key, frame, prefetch=False):
-        job = (key, frame, prefetch)
+    @staticmethod
+    def _src_frame(grid, default):
+        ref = grid.info.get("src")
+        f = ref() if ref is not None else None
+        return f if f is not None else default
+
+    def _submit(self, key, cands, wanted=None, prefetch=False):
+        job = (key, cands, prefetch, wanted)
         if self._running is not None:
             if self._running[0] != key:
                 self._queued = job
@@ -2267,7 +2852,7 @@ class Volume3DWindow(QWidget):
         self._start(job)
 
     def _start(self, job):
-        key, frame, prefetch = job
+        key, cands, prefetch, _wanted = job
         self._running = job
         engine = self.main.engine
         pid = self.pid()
@@ -2277,13 +2862,33 @@ class Volume3DWindow(QWidget):
         if not prefetch:
             self.gl.set_busy(f"Building 3-D {PRODUCT_NAMES.get(pid, pid).lower()}…")
         self._t_build = time.perf_counter()
+        name = PRODUCT_NAMES.get(pid, pid).lower()
+        pid2 = self._colorby_pid()
 
         def fn():
-            tilts = engine.tilt_sweeps(frame, pid, cache=False)
-            ref = None if pid == "REF" else engine.tilt_sweeps(frame, "REF", cache=False)
-            if not tilts:
-                raise RuntimeError("no Level II tilts for this product")
+            import weakref
+            best = None
+            for f in cands:
+                tilts = engine.tilt_sweeps(f, pid, cache=False)
+                if len(tilts) >= self.MIN_TILTS:
+                    best = (f, tilts)
+                    break
+                if tilts and (best is None or len(tilts) > len(best[1])):
+                    best = (f, tilts)
+            if best is None:
+                raise RuntimeError(f"this scan has no {name} (older radars and some scan modes don't send it)"
+                                   if pid not in ("REF",) else "the scan has no reflectivity tilts")
+            f, tilts = best
+            ref = None if pid == "REF" else engine.tilt_sweeps(f, "REF", cache=False)
             g = grid3d.build(tilts, ref, box, top, pid, detail, key=key)
+            g.info["src"] = weakref.ref(f)
+            if pid2:
+                t2 = engine.tilt_sweeps(f, pid2, cache=False)
+                if t2:
+                    if ref is None and pid2 != "REF":
+                        ref = tilts if pid == "REF" else engine.tilt_sweeps(f, "REF", cache=False)
+                    g2 = grid3d.build(t2, None if pid2 == "REF" else ref, box, top, pid2, detail)
+                    g.info["col2"] = (pid2, g2.values)
             try:
                 g.info["stats"] = grid3d.stats(g)
             except Exception:
@@ -2292,16 +2897,18 @@ class Volume3DWindow(QWidget):
         QThreadPool.globalInstance().start(_Job(job, fn, self._relay))
 
     def _done(self, job, res):
-        key, frame, prefetch = job
+        key, cands, prefetch, wanted = job
         self._running = None
         if isinstance(res, Exception):
             if not prefetch:
                 self.gl.set_busy("")
-                self.status.setText(f"Couldn't build the 3-D view: {res}")
+                if self._shown is None:
+                    self.gl.set_message(f"Couldn't build the 3-D view: {res}.")
+                self.status.setText(f"Couldn't build the 3-D view: {res}.")
         else:
             self._remember(key, res)
             if key == self._want:
-                self._show(res, frame)
+                self._show(res, self._src_frame(res, cands[0]), wanted)
         q, self._queued = self._queued, None
         if q is not None and q[0] not in self._cache:
             self._start(q)
@@ -2327,9 +2934,10 @@ class Volume3DWindow(QWidget):
             f = frames[(i0 + k) % len(frames)]
             if f is None or not f.has_level2() or f.level2_if_ready() is None:
                 continue
-            key = self._key(f)
+            cands = self._candidates(f)
+            key = self._key(cands)
             if key not in self._cache:
-                self._start((key, f, True))
+                self._start((key, cands, True, f))
                 return
 
     def _scan_sun(self, frame):
@@ -2343,7 +2951,7 @@ class Volume3DWindow(QWidget):
         except Exception:
             return None
 
-    def _show(self, grid, frame):
+    def _show(self, grid, frame, wanted=None):
         pid = grid.pid
         pal = self._palette()
         self._frame = frame
@@ -2361,14 +2969,43 @@ class Volume3DWindow(QWidget):
         if frame.time is not None:
             title += f"  ·  {frame.time:%Y-%m-%d %H:%M:%S}Z"
         keep = self._shown is not None and self._shown.box == grid.box
+        c2 = grid.info.get("col2")
+        if c2 is not None:
+            self.gl.pal2 = self.main.palette_for(c2[0])
+            self.gl.units2 = catalog.get(c2[0]).units
         self.gl.set_grid(grid, pal, catalog.get(pid).units, title, keep_camera=keep)
+        self._fill_tilts(grid)
         self._floor(grid, pal)
         self._shown = grid
         x0, y0, x1, y1 = grid.box
         nz, ny, nx = grid.shape
-        self.status.setText(f"{x1 - x0:.0f} × {y1 - y0:.0f} km, {grid.info.get('res_km', 0):.2f} km grid "
-                            f"({nx}×{ny}×{nz}), {len(grid.elevations)} tilts, built in {grid.build_s:.1f} s.  "
-                            "“Area” picks another storm.")
+        note = ""
+        if wanted is not None and wanted is not frame and wanted.time is not None and frame.time is not None:
+            why = ("its full scan (Level II) hasn't arrived yet" if not wanted.has_level2()
+                   else "it is still coming in")
+            note = f"Showing the {frame.time:%H:%M}Z scan: {why} for {wanted.time:%H:%M}Z.  "
+        self.status.setText(note + f"{x1 - x0:.0f} × {y1 - y0:.0f} km, {grid.info.get('res_km', 0):.2f} km grid "
+                            f"({nx}×{ny}×{nz}), {len(grid.elevations)} tilts, built in {grid.build_s:.1f} s.")
+
+    def _fill_tilts(self, grid):
+        """The tilt list from the scan shown (keeping the chosen elevation, or the nearest one)."""
+        els = sorted({round(float(e), 1) for e in grid.elevations})
+        cur = self.tilt.currentData()
+        if cur is None and self.cfg.get("tilt") is not None and self.tilt.count() <= 1:
+            cur = self.cfg.get("tilt")
+        have = [self.tilt.itemData(i) for i in range(1, self.tilt.count())]
+        if have == els:
+            return
+        self.tilt.blockSignals(True)
+        self.tilt.clear()
+        self.tilt.addItem("No tilt", None)
+        for e in els:
+            self.tilt.addItem(f"{e:.1f}°", e)
+        if cur is not None and els:
+            near = min(els, key=lambda e: abs(e - cur))
+            self.tilt.setCurrentIndex(self.tilt.findData(near))
+        self.tilt.blockSignals(False)
+        self._look_changed(save=False)
 
     def _floor(self, grid, pal):
         """The lowest tilt (dimmed), map lines and towns for the floor."""
@@ -2419,6 +3056,62 @@ class Volume3DWindow(QWidget):
         path, _f = QFileDialog.getSaveFileName(self, "Save 3-D image", "radarforge-3d.png", "PNG image (*.png)")
         if path:
             self.gl.grabFramebuffer().save(path)
+
+    def save_turn(self, path=None, frames=None):
+        """A video (MP4) or animated GIF of the storm turning once round."""
+        if self.gl.grid is None:
+            self.status.setText("Pick a storm first (“Area”), then save the turning video.")
+            return
+        if path is None:
+            path, _f = QFileDialog.getSaveFileName(self, "Save turning video", "radarforge-3d.mp4",
+                                                   "MP4 video (*.mp4);;Animated GIF (*.gif)")
+            if not path:
+                return
+        gif = path.lower().endswith(".gif")
+        n = frames or (60 if gif else 120)
+        from PySide6.QtGui import QImage
+        from PySide6.QtWidgets import QApplication
+        gl = self.gl
+        yaw0, spin = gl.yaw, gl.spin
+        gl.set_spin(False)
+        gl._probe = None
+        gl._force_full = True
+        imgs = []
+        try:
+            for i in range(n):
+                gl.yaw = (yaw0 - 360.0 * i / n) % 360.0
+                img = gl.grabFramebuffer().convertToFormat(QImage.Format_RGB888)
+                w, h = img.width() - img.width() % 2, img.height() - img.height() % 2
+                a = np.frombuffer(img.constBits(), np.uint8, img.sizeInBytes()).reshape(img.height(),
+                                                                                     img.bytesPerLine())
+                imgs.append(a[:h, :w * 3].reshape(h, w, 3).copy())
+                if i % 10 == 0:
+                    self.status.setText(f"Making the turning video… {100 * i // n}%")
+                    QApplication.processEvents()
+        finally:
+            gl._force_full = False
+            gl.yaw = yaw0
+            gl.set_spin(spin)
+            gl.update()
+        try:
+            if gif:
+                from PIL import Image
+                frames_pil = [Image.fromarray(a) for a in imgs]
+                scale = min(1.0, 720 / max(frames_pil[0].width, 1))
+                if scale < 1.0:
+                    size = (int(frames_pil[0].width * scale), int(frames_pil[0].height * scale))
+                    frames_pil = [f.resize(size, Image.LANCZOS) for f in frames_pil]
+                frames_pil = [f.quantize(colors=200, method=Image.Quantize.MEDIANCUT) for f in frames_pil]
+                frames_pil[0].save(path, save_all=True, append_images=frames_pil[1:], duration=50, loop=0,
+                                   optimize=False)
+            else:
+                import imageio.v2 as imageio
+                with imageio.get_writer(path, fps=30, codec="libx264", quality=8, macro_block_size=2) as wr:
+                    for a in imgs:
+                        wr.append_data(a)
+            self.status.setText(f"Saved the turning video: {path}")
+        except Exception as exc:
+            self.status.setText(f"Couldn't save the video: {exc}")
 
     def copy_image(self):
         from PySide6.QtWidgets import QApplication

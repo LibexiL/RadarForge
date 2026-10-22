@@ -106,3 +106,45 @@ def test_classic_colours_are_the_default():
     s.data = {"warning_lines": {}, "warning_colors": {}}
     assert W.line_style(s, "SVR")[0] == (255, 255, 0) and W.line_style(s, "FFW")[0] == (0, 255, 0)
     assert W.line_style(s, "TORR")[0] == (255, 0, 255) and W.NWS_PRESET["SVR"][0] == "#ffa500"
+
+
+def _nws(key, event="Tornado Warning", variant="TOR"):
+    return W.Alert(event, [RING], "nws", T0, T0 + timedelta(hours=1), "OUN", "area", [], "urn:" + key, variant,
+                   key, "NEW", {"description": "text"})
+
+
+def test_fastest_source_wins_and_merges():
+    full = [_nws("KOUN.TO.W.0001"), _nws("KOUN.FA.Y.0002", "Flood Advisory", "FAY")]
+    fast = [_nws("KOUN.TO.W.0001"), _nws("KOUN.SV.W.0003", "Severe Thunderstorm Warning", "SVR")]
+    iem_js = {"features": [
+        {"properties": {"phenomena": "TO", "significance": "W", "wfo": "OUN", "eventid": 7, "status": "NEW",
+                        "issue": "2026-05-20T20:00:00Z", "expire": "2026-05-20T20:45:00Z",
+                        "polygon_begin": "2026-05-20T20:00:00Z", "polygon_end": "2026-05-20T20:45:00Z"},
+         "geometry": {"type": "Polygon", "coordinates": [RING.tolist()]}},
+        {"properties": {"phenomena": "TO", "significance": "W", "wfo": "OUN", "eventid": 1, "status": "CON",
+                        "tornadotag": "OBSERVED", "issue": "2026-05-20T19:50:00Z", "expire": "2026-05-20T20:45:00Z",
+                        "polygon_begin": "2026-05-20T20:05:00Z", "polygon_end": "2026-05-20T20:45:00Z"},
+         "geometry": {"type": "Polygon", "coordinates": [RING.tolist()]}},
+        {"properties": {"phenomena": "SV", "significance": "W", "wfo": "OUN", "eventid": 9, "status": "CAN",
+                        "issue": "2026-05-20T19:50:00Z", "expire": "2026-05-20T20:45:00Z",
+                        "polygon_begin": "2026-05-20T20:05:00Z", "polygon_end": "2026-05-20T20:45:00Z"},
+         "geometry": {"type": "Polygon", "coordinates": [RING.tolist()]}}]}
+    iem = W.iem_active(iem_js, now=T0 + timedelta(minutes=10))
+    assert sorted(W.event_key(a.key)[3] for a in iem) == [1, 7]          # the cancelled one is left out
+    out = W.merge_alerts(full, fast, iem, fast_newer=True)
+    keys = {W.event_key(a.key): a for a in out}
+    assert ("OUN", "SV", "W", 3) in keys                                   # from the quick check
+    assert ("OUN", "FA", "Y", 2) in keys                                   # non-urgent: from the full list
+    assert ("OUN", "TO", "W", 7) in keys and "Iowa State" in keys[("OUN", "TO", "W", 7)].hover   # IEM first
+    up = keys[("OUN", "TO", "W", 1)]
+    assert up.variant == "TORR" and up.info.get("description") == "text"   # upgraded, NWS text kept
+    again = W.merge_alerts(full, fast, iem, fast_newer=True)
+    assert [a.hover for a in again] == [a.hover for a in out]              # (sources never edited)
+    # an older quick check doesn't hide what the newer full list has
+    stale = W.merge_alerts(full, [], [], fast_newer=False)
+    assert {W.event_key(a.key) for a in stale} == {W.event_key(a.key) for a in full}
+
+
+def test_location_alert_once_across_feeds():
+    from radarforge.features import alerts
+    assert alerts._canon("KOUN.TO.W.0042") == alerts._canon("OUN.TO.W.42@2026-05-20T20:00Z")

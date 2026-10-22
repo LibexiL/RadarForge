@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.24.0 – 2026-10-21
+
+### 3-D view
+- **No more "needs Level II data" when there's a scan to show.** When the newest frame only has Level III products
+  so far (the full scan is still downloading), or the live scan has only a tilt or two, the 3-D view shows the
+  nearest complete scan and says so in its status line. When there really is nothing to build from, it says why:
+  still downloading, or a TDWR airport radar (Level III only: pick a nearby WSR-88D).
+- **Slices:** an upright cross-section (any direction, anywhere across the box) and/or a flat slice at any height,
+  showing the data on them, with the rest of the storm faded to a level you choose.
+- **Show a tilt** as the cone it really is (the beam rises as it goes out).
+- **Colour surfaces by another product:** storm-relative velocity on the reflectivity surfaces shows the rotation,
+  CC shows the debris or hail. A second legend shows that product's colours.
+- **Column profile:** click the storm to pin a column; a chart of the values up it (with the 18 and 50 dBZ tops)
+  appears in the corner. Esc clears it.
+- **Cut "Facing you":** an upright cut square on to the camera that follows it round (the north–south and east–west
+  cuts looked edge-on from some angles).
+- **Save turning video…** (View menu): an MP4 or animated GIF of the storm turning once round.
+- **Realistic lighting:** a new Lighting section with presets (Natural, Dramatic, Soft and hazy, Bright, Moonlit
+  night) and sliders for exposure, sunlight, sky light, cloud thickness, rain shafts, silver-lining edges, softness,
+  ground shadows, moonlight and how often lightning flashes. **Time of day** under Sun moves the sun along its real
+  path for the day of the scan.
+- **Fixes:**
+  - Docking the 3-D panel back after floating it, or reopening it, squeezed it into half of the next panel, and
+    the 3-D picture then drew over that panel. It now goes back beside the map at about its old size, and the
+    picture never spills out of its column.
+  - Closing the panel left the old storm on screen when it opened again.
+  - The strongest echo said "at 0 ft". It's now reported at the height the radar measured it.
+  - "From the ground" stood under the anvil looking at its underside. It now stands far enough off to see the
+    whole storm.
+  - Glassy outer surfaces (30 dBZ in dark green) were nearly invisible against the dark background. They're lighter
+    with a bright rim, and surfaces are closed where the box walls cut through a storm.
+  - The title is readable over a bright sky (Realistic), and in a narrow view the legend no longer covers it.
+
+### Warnings
+- **As fast as possible:** tornado, severe thunderstorm, flash flood, extreme wind, marine, snow squall and dust
+  storm warnings (and tornado / severe watches) are checked **every 10 seconds** on their own, and also every 15
+  seconds in **Iowa State's live feed**, which reads the NWS's own text feed and is often a minute or more ahead of
+  the NWS alert service. Whichever has a new warning first puts it on the map (and flashes it). An upgrade there (a
+  tornado warning becoming observed) shows at once. Everything else is still checked every minute. Connections are
+  kept open between checks. Settings → Warnings → "Fastest warnings" turns the Iowa State feed off.
+- A warning covering your location alerts once, whichever feed it showed up in first.
+
+### Radar data
+- **Live data is checked every 8 seconds** (was 15; a setting still on the old default moves too). While a scan is
+  coming in, the next check is 3 s later (was 4).
+- **Finding the live scan is quicker:** RadarForge remembers each radar's place in its numbered scans between runs
+  and checks the next few in one go. A full search looks at 16 numbers at a time instead of one after another.
+- **The archive list asks only for the last hour or so** instead of the whole day, and the newest scan and the loop
+  share one listing.
+- Previous scans download six at a time (was four), and the rest start sooner after the first.
+
 ## 1.23.0 – 2026-10-21
 
 - **Street cameras show which way they look.** A small cone points out from each camera icon in the direction it

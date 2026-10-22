@@ -290,12 +290,56 @@ def list_level2_range(site: str, start: datetime, end: datetime) -> list:
     return out
 
 
+def _list_level2_after(site: str, after: datetime) -> list:
+    """Archive files from [after] on (S3 lists only the keys after it: one small response, not the whole day)."""
+    out = []
+    d = after.date()
+    end = datetime.now(timezone.utc).date()
+    while d <= end:
+        prefix = f"{d:%Y/%m/%d}/{site.upper()}/"
+        start = prefix + f"{site.upper()}{after:%Y%m%d_%H%M%S}" if d == after.date() else None
+        objs, _ = list_objects(L2_BUCKET, prefix, start_after=start)
+        for o in objs:
+            name = o.key.rsplit("/", 1)[-1]
+            m = _L2_RE.search(name)
+            if not m or name.endswith(("_MDM", ".tar")):
+                continue
+            t = datetime.strptime(m.group(2) + m.group(3), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+            out.append(L2File(o.key, t, o.size))
+        d += timedelta(days=1)
+    out.sort(key=lambda f: f.time)
+    return out
+
+
+_latest_memo: dict = {}                # site -> (when, files): the newest volume and the loop share one listing
+_latest_lock = threading.Lock()
+
+
 def latest_level2(site: str, count: int = 1) -> list:
+    site = site.upper()
     now = datetime.now(timezone.utc)
-    files = list_level2(site, now.date())
+    with _latest_lock:
+        m = _latest_memo.get(site)
+        if m is not None and time.time() - m[0] < 20 and len(m[1]) >= count:
+            return m[1][-count:]
+    # just the last stretch of the day (volumes come every 4-10 minutes): far less to download than the whole day
+    files = []
+    try:
+        files = _list_level2_after(site, now - timedelta(minutes=(count + 4) * 12))
+    except Exception:
+        files = []
     if len(files) < count:
-        files = list_level2(site, (now - timedelta(days=1)).date()) + files
+        files = list_level2(site, now.date())
+        if len(files) < count:
+            files = list_level2(site, (now - timedelta(days=1)).date()) + files
+    with _latest_lock:
+        _latest_memo[site] = (time.time(), files)
     return files[-count:]
+
+
+def forget_listings():
+    with _latest_lock:
+        _latest_memo.clear()
 
 
 # --------------------------------------------------------------------------- #
@@ -413,36 +457,109 @@ def chunk_volumes(site: str) -> list:
     return sorted(nums)
 
 
-def find_latest_volume(site: str) -> int | None:
-    """Binary search the circular volume numbering for the newest volume."""
+_list_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="rf-list")    # listings side by side
+_last_volume: dict = {}                # site -> newest volume number seen (kept between runs)
+_VOLS_FILE = CACHE_DIR / "live_volumes.json"
+
+
+def _load_volumes():
+    import json
+    try:
+        _last_volume.update({k: int(v) for k, v in json.loads(_VOLS_FILE.read_text()).items()})
+    except Exception:
+        pass
+
+
+def _remember_volume(site, n):
+    import json
+    if _last_volume.get(site) == n:
+        return
+    _last_volume[site] = n
+    try:
+        _VOLS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _VOLS_FILE.with_name(f"{_VOLS_FILE.name}.{os.getpid()}.{threading.get_ident()}.part")
+        tmp.write_text(json.dumps(_last_volume))
+        os.replace(tmp, _VOLS_FILE)
+    except OSError:
+        pass
+
+
+_load_volumes()
+
+
+def _volume_stamp(site, n):
+    ch = list_chunks(site, n)
+    return ch[-1].stamp if ch else ""
+
+
+def _near_volume(site, hint, now=None):
+    """The newest volume among hint .. hint+5 (the numbers it has moved on by since), checked side by side; None
+    when that can't be told from them (nothing there, the newest is the last checked, or it is old)."""
+    cands = [(hint - 1 + k) % 999 + 1 for k in range(6)]
+    stamps = list(_list_pool.map(lambda n: _volume_stamp(site, n), cands))
+    best = max(range(len(cands)), key=lambda i: stamps[i])
+    if not stamps[best] or best == len(cands) - 1:
+        return None
+    t = datetime.strptime(stamps[best], "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+    if (now or datetime.now(timezone.utc)) - t > timedelta(minutes=20):
+        return None
+    return cands[best]
+
+
+def find_latest_volume(site: str, hint: int | None = None) -> int | None:
+    """The newest volume number. Starts next to the last one seen (one round of side-by-side listings), and
+    otherwise searches the circular numbering, 16 listings at a time."""
+    site = site.upper()
+    hint = hint or _last_volume.get(site)
+    if hint:
+        try:
+            n = _near_volume(site, hint)
+        except Exception:
+            n = None
+        if n is not None:
+            _remember_volume(site, n)
+            return n
     nums = chunk_volumes(site)
     if not nums:
         return None
+    n = search_newest(nums, lambda v: _volume_stamp(site, v))
+    if n is not None:
+        _remember_volume(site, n)
+    return n
+
+
+def search_newest(nums: list, stamp_of, width: int = 16):
+    """The number with the newest stamp in a list sorted by number whose stamps rise and then drop once (the
+    numbering wraps). Each round looks at [width] numbers side by side and narrows to the stretch holding the
+    drop; a short stretch is read whole."""
     cache: dict = {}
 
-    def stamp(i):
-        n = nums[i]
-        if n not in cache:
-            ch = list_chunks(site, n)
-            cache[n] = ch[-1].stamp if ch else ""
-        return cache[n]
-
+    def get(idxs):
+        todo = [i for i in idxs if nums[i] not in cache]
+        for i, st in zip(todo, _list_pool.map(lambda i: stamp_of(nums[i]), todo)):
+            cache[nums[i]] = st
+        return [cache[nums[i]] for i in idxs]
     lo, hi = 0, len(nums) - 1
-    # rotated sorted array: find index of minimum stamp, newest is the one before it
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if stamp(mid) > stamp(hi):
-            lo = mid + 1
-        else:
-            hi = mid
-    idx = (lo - 1) % len(nums)
-    best = nums[idx]
-    # sanity: check neighbours in case of gaps/leftovers
-    for j in (idx - 1, idx + 1):
-        n2 = nums[j % len(nums)]
-        if stamp(j % len(nums)) > cache.get(best, ""):
-            best = n2
-    return best
+    while True:
+        if hi - lo + 1 <= width:
+            idxs = list(range(lo, hi + 1))
+            st = get(idxs)
+            k = max(range(len(idxs)), key=lambda j: st[j])
+            best = idxs[k]
+            break
+        idxs = sorted({lo + round((hi - lo) * j / (width - 1)) for j in range(width)})
+        st = get(idxs)
+        k = max(range(len(idxs)), key=lambda j: st[j])
+        if not st[k]:
+            return None
+        # the newest lies between the newest sample and the one after it
+        lo, hi = idxs[k], (idxs[k + 1] if k + 1 < len(idxs) else idxs[k])
+    # neighbours (gaps and leftovers)
+    st_best = get([best])[0]
+    for j in ((best - 1) % len(nums), (best + 1) % len(nums)):
+        if get([j])[0] > st_best:
+            best, st_best = j, get([j])[0]
+    return nums[best]
 
 
 def next_volume_number(n: int) -> int:

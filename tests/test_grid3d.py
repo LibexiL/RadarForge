@@ -83,3 +83,15 @@ def test_plan_limits_the_grid():
     assert len(xs) <= 200 and len(ys) <= 200
     xs, ys, zs = grid3d.plan((0, 0, 20, 20), 18, "normal")
     assert abs((xs[1] - xs[0]) - 0.25) < 1e-9
+
+
+def test_strongest_echo_reported_at_a_measured_height():
+    """Below the lowest beam the grid repeats the lowest tilt: the strongest echo is placed at a height the radar
+    actually measured (never 0 ft when the lowest beam is well up), and it is the core."""
+    low = lambda x, y, z: np.where(z < 2.5, 66.0, 40.0)               # noqa: E731
+    tilts = [_tilt(e, low, ng=600) for e in ELS]
+    g = grid3d.build(tilts, None, (-120, -10, -100, 10), 16.0, "REF")  # ~110 km out: lowest beam ~1.6 km up
+    st = grid3d.stats(g)
+    v, _x, _y, z = st["max"]
+    b0 = float(np.asarray(g.info["beam0"], np.float32).mean())
+    assert v > 60 and z >= b0 - 0.3 and z > 1.0

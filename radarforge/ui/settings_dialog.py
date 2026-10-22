@@ -257,6 +257,13 @@ class SettingsDialog(QDialog):
         self.warn_loc = QCheckBox("Alert me when a warning covers my location")
         self.warn_loc.setChecked(bool(s["warn_at_location"]))
         f.addRow("My location", self.warn_loc)
+        self.warn_iem = QCheckBox("Fastest warnings: also watch Iowa State's live feed")
+        self.warn_iem.setToolTip("Tornado, severe thunderstorm and flash flood warnings are checked every 10 s at "
+                                 "the NWS and every 15 s at Iowa State, which reads the NWS's own text feed and is "
+                                 "often a minute or more ahead of the NWS alert service. Whichever has a warning "
+                                 "first puts it on the map.")
+        self.warn_iem.setChecked(bool(s["warnings_iem"]))
+        f.addRow("Speed", self.warn_iem)
         places = QPushButton("Saved locations && alerts…")
         places.clicked.connect(lambda: self.main.open_locations() if self.main is not None else None)
         f.addRow("Places", places)
@@ -867,6 +874,7 @@ class SettingsDialog(QDialog):
         s["alert_sound"] = self.alert_sound.currentData()
         s["alert_volume"] = self.alert_volume.value() / 100.0
         s["warn_at_location"] = self.warn_loc.isChecked()
+        s["warnings_iem"] = self.warn_iem.isChecked()
         s["loop_frames"] = self.frames.value()
         s["loop_fps"] = self.fps.value()
         s["loop_dwell"] = self.dwell.value()

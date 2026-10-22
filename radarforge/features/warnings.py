@@ -302,12 +302,89 @@ def _t(s):
         return None
 
 
-def fetch_live_alerts(county_polys: dict) -> list:
-    r = requests.get("https://api.weather.gov/alerts/active", params={"status": "actual"},
-                     headers=UA, timeout=30)
+# warnings that can't wait: checked on their own every few seconds (a small request), the rest once a minute
+URGENT_EVENTS = ("Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning", "Extreme Wind Warning",
+                 "Special Marine Warning", "Snow Squall Warning", "Dust Storm Warning", "Tornado Watch",
+                 "Severe Thunderstorm Watch")
+URGENT_SET = set(URGENT_EVENTS) | {"Tornado Emergency", "Flash Flood Emergency"}
+# Iowa State's live storm-based warnings (it reads the NWS text feed directly: often a minute or more ahead of
+# api.weather.gov)
+IEM_SBW_PHENOMENA = {"TO", "SV", "FF", "MA", "EW", "SQ", "DS"}
+
+
+class FilterRejected(Exception):
+    """api.weather.gov didn't accept the event filter (then the full list is used instead)."""
+
+
+def fetch_live_alerts(county_polys: dict, events=None, session=None) -> list:
+    params = {"status": "actual"}
+    if events:
+        params["event"] = ",".join(events)
+    r = (session or requests).get("https://api.weather.gov/alerts/active", params=params, headers=UA, timeout=30)
+    if events and r.status_code == 400:
+        raise FilterRejected(r.text[:200])
     r.raise_for_status()
+    return parse_live_alerts(r.json(), county_polys)
+
+
+def fetch_iem_active(session=None, now=None) -> list:
+    """The storm-based warnings in force right now from Iowa State (one per warning: its newest polygon)."""
+    r = (session or requests).get(IEM_SBW, headers={"User-Agent": UA["User-Agent"]}, timeout=20)
+    r.raise_for_status()
+    return iem_active(r.json(), now)
+
+
+def iem_active(js: dict, now=None) -> list:
+    now = now or datetime.now(timezone.utc)
+    feats = [f for f in js.get("features", []) if (f.get("properties") or {}).get("phenomena") in IEM_SBW_PHENOMENA
+             and str((f.get("properties") or {}).get("status") or "").upper() not in ("CAN", "EXP", "UPG")]
+    newest = {}
+    for a in parse_iem_sbw({"features": feats}):
+        if a.expires is not None and a.expires <= now:
+            continue
+        k = event_key(a.key)
+        b = a.valid[0]
+        old = newest.get(k)
+        if old is None or (b is not None and (old.valid[0] is None or b > old.valid[0])):
+            newest[k] = a
+    out = list(newest.values())
+    for a in out:
+        a.info["source"] = "iem"
+    return out
+
+
+def merge_alerts(full, fast, iem, fast_newer=True) -> list:
+    """One list from the three live sources. The urgent warnings come from the quick check when it is newer than
+    the full list; a warning Iowa State has but the NWS service doesn't list yet is added (and one it shows
+    upgraded - a tornado warning becoming observed - takes the higher threat until the NWS catches up)."""
+    if fast is not None and fast_newer:
+        out = [a for a in full if a.event not in URGENT_SET] + list(fast)
+    else:
+        out = list(full)
+    import copy
+    have = {event_key(a.key): i for i, a in enumerate(out)}
+    for a0 in iem or ():
+        k = event_key(a0.key)
+        i = have.get(k)
+        a = copy.copy(a0)                    # (the source list is merged again on every check: never edited)
+        a.info = dict(a0.info)
+        if i is None:
+            a.hover = a.hover + "\n(from Iowa State's live feed: the NWS alert service hasn't listed it yet)"
+            out.append(a)
+            have[k] = len(out) - 1
+        elif a.style[3] > out[i].style[3]:
+            nws = out[i]
+            a.info = {**nws.info, **{k2: v for k2, v in a.info.items() if k2 in ("facts", "iem", "source")}}
+            a.area = nws.area or a.area
+            a.hover = nws.hover + f"\nUpgraded to {VARIANT[a.variant][2]} (Iowa State's live feed)"
+            out[i] = a
+    out.sort(key=lambda a: a.style[3])
+    return out
+
+
+def parse_live_alerts(js: dict, county_polys: dict) -> list:
     out = []
-    for f in r.json().get("features", []):
+    for f in js.get("features", []):
         p = f.get("properties", {})
         ev = p.get("event", "")
         params = p.get("parameters") or {}
@@ -550,7 +627,23 @@ class WarningsOverlay(QObject):
         self._report_key = None
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
-        self._timer.start(60_000)
+        self._timer.start(self.FULL_S * 1000)
+        # the urgent warnings are checked much more often, from two sources, whichever has a warning first
+        self._full: list = []
+        self._fast = None                 # urgent warnings from the quick check (None: none yet)
+        self._iem: list = []
+        self._full_at = self._fast_at = 0.0
+        self._fast_ok = True              # api.weather.gov takes the event filter
+        self._fast_busy = self._iem_busy = False
+        self._seeded = False
+        self._sess = {k: requests.Session() for k in ("full", "fast", "iem")}      # (connections kept open)
+        self._fast_timer = QTimer(self)
+        self._fast_timer.timeout.connect(self._fast_poll)
+        self._fast_timer.start(self.FAST_S * 1000)
+        self._iem_timer = QTimer(self)
+        self._iem_timer.timeout.connect(self._iem_poll)
+        self._iem_timer.start(self.IEM_S * 1000)
+        self._merge_lock = threading.Lock()
         self.frame_time = None            # the scan on screen
         self.latest_time = None           # the newest scan of the loop
         self.center = (35.0, -97.0)
@@ -570,12 +663,75 @@ class WarningsOverlay(QObject):
         self._flash_timer.timeout.connect(self._flash_tick)
         self._flashStart.connect(self._flash_timer.start)
 
+    FULL_S = 60                       # every warning, watch and advisory
+    FAST_S = 10                       # the urgent ones (tornado, severe, flash flood…) from api.weather.gov
+    IEM_S = 15                        # ... and from Iowa State's live feed
+
     def set_live(self):
         if self.mode != "live":
             self._known.clear()               # (what's in force now isn't "new" just because we came back)
             self._last_fetch = 0.0
+            self._seeded = False
+            self._fast, self._iem = None, []
         self.mode = "live"
         self.refresh(force=True)
+        self._fast_poll()
+        self._iem_poll()
+
+    def _want_live_warnings(self):
+        ov = self.settings["overlays"]
+        return self.mode == "live" and (ov.get("warnings", True) or ov.get("watches", True))
+
+    def _combine(self):
+        """Merge the live sources into self.alerts (any thread)."""
+        with self._merge_lock:
+            alerts = merge_alerts(self._full, self._fast, self._iem if self.settings["warnings_iem"] else [],
+                                  fast_newer=self._fast_at >= self._full_at)
+            first = not self._seeded
+            self._note_new(alerts, first)
+            self._seeded = True
+            self.alerts = alerts
+            self._ver += 1
+
+    def _fast_poll(self):
+        if self._fast_busy or not self._fast_ok or not self._want_live_warnings() or not self._full_at:
+            return
+        self._fast_busy = True
+
+        def work():
+            try:
+                t = time.time()
+                fast = fetch_live_alerts(self.county_polys_fn(), URGENT_EVENTS, self._sess["fast"])
+                if self.mode == "live":
+                    self._fast, self._fast_at = fast, t
+                    self._combine()
+                    self.changed.emit()
+            except FilterRejected:
+                self._fast_ok = False                    # (the full list once a minute still has them)
+            except Exception:
+                pass                                     # (the next check is seconds away)
+            finally:
+                self._fast_busy = False
+        threading.Thread(target=work, daemon=True).start()
+
+    def _iem_poll(self):
+        if self._iem_busy or not self.settings["warnings_iem"] or not self._want_live_warnings() \
+                or not self._full_at:
+            return
+        self._iem_busy = True
+
+        def work():
+            try:
+                iem = fetch_iem_active(self._sess["iem"])
+                if self.mode == "live":
+                    self._iem = iem
+                    self._combine()
+                    self.changed.emit()
+            except Exception:
+                pass
+            finally:
+                self._iem_busy = False
+        threading.Thread(target=work, daemon=True).start()
 
     def set_archive_time(self, t: datetime):
         """Archive / files: the scan on screen (storm reports follow it; the warnings come from the history)."""
@@ -728,13 +884,13 @@ class WarningsOverlay(QObject):
         def work():
             try:
                 if want_w and mode == "live":
-                    alerts = fetch_live_alerts(self.county_polys_fn())
-                    alerts.sort(key=lambda a: a.style[3])
-                    first = not self._known and self._last_fetch == 0.0
-                    self._note_new(alerts, first)
-                    self.alerts = alerts
+                    t_start = time.time()
+                    full = fetch_live_alerts(self.county_polys_fn(), session=self._sess["full"])
+                    self._full, self._full_at = full, t_start
+                    self._combine()
                     self._last_fetch = time.time()
-                    self._ver += 1
+                    if self._fast is None:
+                        self._fast_poll_soon = True
                 elif want_w and self.alerts:
                     self.alerts = []                # (archive: the warnings come from the history)
                     self._ver += 1
@@ -763,6 +919,10 @@ class WarningsOverlay(QObject):
             finally:
                 self._busy = False
                 self.changed.emit()
+                if getattr(self, "_fast_poll_soon", False):
+                    self._fast_poll_soon = False
+                    self._fast_poll()                    # (the quick checks start once the full list is in)
+                    self._iem_poll()
         threading.Thread(target=work, daemon=True).start()
         if self.mode == "live":
             self._ensure_history()            # (its recent end, every few minutes)

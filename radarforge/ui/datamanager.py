@@ -40,7 +40,7 @@ class DataManager(QObject):
         self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="rf-data")
         # live chunk polling gets its own thread so archive downloads can never hold it up
         self._live_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="rf-live")
-        self._dl_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="rf-download")   # volume files
+        self._dl_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="rf-download")   # volume files
         # Level III files (small) get their own downloads, so they never wait behind volume files
         self._l3_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="rf-l3")
         # downloaded volumes are decoded straight away (newest first) instead of when the loop first plays them
@@ -68,7 +68,7 @@ class DataManager(QObject):
         # every 30 s, and a new volume's products took that long to show
         self._l3_timer = QTimer(self)
         self._l3_timer.timeout.connect(self._l3_tick)
-        self._pollSoon.connect(lambda: QTimer.singleShot(4000, self._poll_live_now))
+        self._pollSoon.connect(lambda: QTimer.singleShot(3000, self._poll_live_now))
         self._l3Again.connect(lambda: self._poll_l3() if self.mode == "live" else None)
         VOLUMES.capacity = volume_capacity(settings)
         # keep the download cache from filling the disk (old files first, then down to 3 GB)
@@ -318,6 +318,7 @@ class DataManager(QObject):
         newest first; Level III starts at the same time."""
         self.stop_live()
         self._reset()
+        aws.forget_listings()             # (a reload lists afresh)
         self.mode = "live"
         self._last_sync = time.time()
         src = self.settings["l2_source"] or "aws"
@@ -573,7 +574,7 @@ class DataManager(QObject):
         # the first file on its own (it's what shows first), then the rest several at once
         futures = [self._dl_pool.submit(one, f) for f in files[:1]]
         if futures:
-            wait(futures, timeout=4)
+            wait(futures, timeout=1.5)
         if not stale():
             futures += [self._dl_pool.submit(one, f) for f in files[1:]]
         failed = 0
