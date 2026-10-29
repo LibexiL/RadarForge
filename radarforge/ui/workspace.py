@@ -20,7 +20,7 @@ from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QImage, QPainter
 from PySide6.QtWidgets import (QApplication, QMenu, QSizePolicy, QSplitter, QStackedWidget, QVBoxLayout,
                                QWidget)
 
-HEADER_H = 25
+HEADER_H = 32
 GRIP_W = 10           # dotted handle at the left of a tab bar: drags the whole group
 EDGE_PX = 22          # window-edge drop strip
 ZONE = 0.30           # outer fraction of a panel that splits instead of tabbing
@@ -124,7 +124,7 @@ class StackHeader(QWidget):
 
     def _tab_font(self, active):
         f = QFont(self.font())
-        f.setPointSizeF(max(7.5, f.pointSizeF() - 0.5))
+        f.setPointSizeF(max(8.0, f.pointSizeF()))
         f.setWeight(QFont.DemiBold if active else QFont.Normal)
         return f
 
@@ -800,7 +800,7 @@ class Workspace(QWidget):
 
     @staticmethod
     def _edge_size(total, horiz):
-        return int(min(total * 0.22, 360)) if horiz else int(min(total * 0.3, 340))
+        return int(min(total * 0.235, 430)) if horiz else int(min(total * 0.3, 360))
 
     # ---------------------------------------------------------------- public ops
     def show_panel(self, key, focus=True):
@@ -1282,6 +1282,30 @@ class Workspace(QWidget):
             print("layout restore failed:", exc)
             return False
 
+    def widen_side_column(self, want=None):
+        """Give a docked side column at the window's right or left edge about the default width, if it's
+        narrower (the panels need more room since 1.25). The arrangement itself is left alone."""
+        root = self.root
+        if not isinstance(root, QSplitter) or root.orientation() != Qt.Horizontal or root.count() < 2:
+            return
+        sizes = root.sizes()
+        total = sum(sizes)
+        want = want or int(min(430, max(340, total * 0.235)))
+        for i in (root.count() - 1, 0):
+            w = root.widget(i)
+            if w is self.center or not any(isinstance(x, PanelStack) and x.keys and x.side_only()
+                                           for x in self._walk(w)):
+                continue
+            if sizes[i] < want - 20:
+                j = next((k for k in range(root.count()) if self.center in self._walk(root.widget(k))
+                          or root.widget(k) is self.center), None)
+                if j is None or sizes[j] - (want - sizes[i]) < 400:
+                    return
+                sizes[j] -= want - sizes[i]
+                sizes[i] = want
+                root.setSizes(sizes)
+            return
+
     def apply_default(self, total_w=1500, total_h=900):
         # what a new user needs first; Placefiles opens when used (Layers → Placefiles…, or the Panels menu)
         later = {"placefiles", "inspector"}
@@ -1292,7 +1316,7 @@ class Workspace(QWidget):
         if extra:
             groups[-1] += extra
         groups = [g for g in groups if g]
-        col_w = 360
+        col_w = int(min(430, max(340, total_w * 0.235)))
         state = {"v": 1, "tree": {"t": "split", "o": "h", "sizes": [max(400, total_w - col_w), col_w], "c": [
             {"t": "center"},
             {"t": "split", "o": "v", "sizes": [int(total_h * 0.58), int(total_h * 0.42)][:len(groups)],

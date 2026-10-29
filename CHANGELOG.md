@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.25.0 – 2026-10-29
+
+- **More breathing room everywhere.** The interface was squeezed too tight after 1.22:
+  - Text is a little larger (10 pt instead of 9 pt).
+  - Buttons, chips, fields, menus and tabs have more padding.
+  - Panels have proper margins, more space between sections and between rows of buttons, and taller tab bars.
+  - The side column is wider by default (about 430 px on a large screen). A side column still at the old width
+    widens once, keeping your arrangement.
+- **The top bar is calmer:** the seven warning-type buttons are now one **Warnings** button. Its coloured dots
+  show which types are on, and its menu switches them. The same buttons are back in the Warnings panel. With
+  the room this frees, the toolbar buttons show their names again on wide windows.
+- **Fix:** one-time hints (the blue "Got it" bubbles) were hidden behind the map and only a sliver showed at
+  the edge. They now float on top and move with the window.
+
 ## 1.24.0 – 2026-10-21
 
 ### 3-D view

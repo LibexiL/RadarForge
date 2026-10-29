@@ -317,8 +317,11 @@ class MenusMixin:
                 b.setText(full if level < 2 else short)
                 b.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 4 else Qt.ToolButtonTextBesideIcon)
                 b.setToolTip(f"{full}: show on the map and in the Warnings panel")
-            if hasattr(self, "_wbar_label"):
-                self._wbar_label.setVisible(level < 3)
+            wb = getattr(self, "_wbar_btn", None)
+            if wb is not None:                          # the Warnings button: shorter when it's tight
+                off = sum(1 for f in getattr(self, "_wbar_filters", []) if not f[3].isChecked())
+                wb.setText(("Warnings" if level < 4 else "") + (f" ({len(self._wbar_filters) - off}/"
+                                                                 f"{len(self._wbar_filters)})" if off else ""))
             for _a, vb in getattr(self, "view_btns", {}).values():      # Radar / Models: just the icons
                 vb.setToolButtonStyle(Qt.ToolButtonIconOnly if level >= 3 else Qt.ToolButtonTextBesideIcon)
 

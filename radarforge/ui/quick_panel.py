@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFrame, QGridLayout, QHB
                                QScrollArea, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget)
 
 from ..features import mrms
+from . import metrics as M
 
 COLS = 3
 
@@ -52,8 +53,8 @@ class Section(QWidget):
         self.panel, self.key, self.title = panel, key, title
         self.chips = []
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 2, 0, 2)
-        lay.setSpacing(3)
+        lay.setContentsMargins(0, 4, 0, 6)
+        lay.setSpacing(M.ROW)
         self.header = QPushButton()
         self.header.setFlat(True)
         self.header.setCursor(Qt.PointingHandCursor)
@@ -63,9 +64,9 @@ class Section(QWidget):
         lay.addWidget(self.header)
         self.body = QWidget()
         self.grid = QGridLayout(self.body)
-        self.grid.setContentsMargins(2, 0, 2, 4)
-        self.grid.setHorizontalSpacing(3)
-        self.grid.setVerticalSpacing(3)
+        self.grid.setContentsMargins(0, 2, 0, 6)
+        self.grid.setHorizontalSpacing(M.GAP)
+        self.grid.setVerticalSpacing(M.ROW)
         self.cols = COLS
         for c in range(COLS):
             self.grid.setColumnStretch(c, 1)
@@ -147,7 +148,7 @@ class Section(QWidget):
         h.setSpacing(6)
         lab = QLabel(text)
         lab.setProperty("role", "hint")
-        lab.setMinimumWidth(58)
+        lab.setMinimumWidth(54)
         h.addWidget(lab)
         h.addWidget(widget, 1)
         self._place_row(row)
@@ -158,11 +159,12 @@ class Section(QWidget):
         box = QWidget()
         h = QHBoxLayout(box)
         h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(2)
+        h.setSpacing(4)
         grp = QButtonGroup(box)
         grp.setExclusive(False)                      # the actions are the source of truth
         for a, lab in zip(actions, labels):
             b = _chip(lab, a.text().replace("&&", "&"))
+            b.setStyleSheet("QToolButton { padding: 5px 2px; }")       # (several share a row beside a caption)
             b.setChecked(a.isChecked())
 
             def clicked(_=False, a=a, b=b):
@@ -226,8 +228,8 @@ class ChipPage(QWidget):
         self.main = main
         inner = QWidget()
         self._lay = lay = QVBoxLayout(inner)
-        lay.setContentsMargins(8, 6, 8, 8)
-        lay.setSpacing(2)
+        lay.setContentsMargins(M.PAD, 8, M.PAD, M.PAD)
+        lay.setSpacing(4)
         self.sections = []
         self.build(lay)
         lay.addStretch(1)
@@ -282,7 +284,7 @@ class ChipPage(QWidget):
         fm = self.fontMetrics()
         texts = [b.text() for sec in self.sections for kind, b in sec._items
                  if kind == "cell" and isinstance(b, QToolButton)]
-        return max((fm.horizontalAdvance(t) for t in texts), default=60) + 8       # padding + border
+        return max((fm.horizontalAdvance(t) for t in texts), default=60) + 22      # padding + border
 
     def eventFilter(self, obj, ev):
         if ev.type() == QEvent.Resize and obj is self._scroll.viewport():
@@ -290,8 +292,8 @@ class ChipPage(QWidget):
         return False
 
     def _fit_columns(self, width):
-        avail = width - 16 - 4                          # page margins, grid margins
-        cols = max(1, min(COLS, (avail + 4) // (self._chip_w + 4)))
+        avail = width - 2 * M.PAD                       # page margins
+        cols = max(1, min(COLS, (avail + M.GAP) // (self._chip_w + M.GAP)))
         for sec in self.sections:
             sec.reflow(cols)
 
@@ -316,8 +318,8 @@ class QuickPanel(ChipPage):
         cap.setFont(f)
         lay.addWidget(cap)
         prow = QGridLayout()
-        prow.setHorizontalSpacing(3)
-        prow.setVerticalSpacing(3)
+        prow.setHorizontalSpacing(M.GAP)
+        prow.setVerticalSpacing(M.ROW)
         for i, (key, label, tip) in enumerate((
                 ("severe", "Severe ›", "Warnings, storm reports, SPC outlooks, storm tools and severe model maps"),
                 ("winter", "Winter ›", "Precipitation type, freezing line, snowfall, winter warnings and winter "
@@ -326,7 +328,9 @@ class QuickPanel(ChipPage):
                                            "model maps"))):
             b = QPushButton(label)
             b.setToolTip(tip)
-            b.setMinimumHeight(24)
+            b.setMinimumHeight(28)
+            b.setMinimumWidth(40)
+            b.setStyleSheet("QPushButton { padding: 5px 4px; }")      # (four share one row)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(lambda _=False, k=key: m.show_panel(k))
             prow.addWidget(b, 0, i)
@@ -336,10 +340,11 @@ class QuickPanel(ChipPage):
             cb.setChecked(clean.isChecked())
             cb.clicked.connect(lambda _=False, a=clean, b=cb: (a.trigger(), b.setChecked(a.isChecked())))
             clean.toggled.connect(cb.setChecked)
-            cb.setMinimumHeight(24)
+            cb.setMinimumHeight(28)
+            cb.setStyleSheet("QToolButton { padding: 5px 4px; }")
             prow.addWidget(cb, 0, 3)                # one row: the three weather panels and a clean map
         lay.addLayout(prow)
-        lay.addSpacing(2)
+        lay.addSpacing(M.ROW)
 
         s = self.section("warnings", "Warnings")
         s.chip(ov.get("warnings"), "Warnings", "NWS warnings on the map (rest the mouse on one for a summary, "

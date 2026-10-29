@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
                                QScrollArea, QSizePolicy, QStackedWidget, QTabWidget, QToolButton,
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
+from . import metrics as M
 from ..data.sites import get_site, nearest_site
 from ..features import feeds
 from ..features.warnings import FILTERS
@@ -78,8 +79,8 @@ class ProductsPanel(QWidget):
         self.main = main
         inner = QWidget()
         lay = QVBoxLayout(inner)
-        lay.setContentsMargins(8, 8, 8, 8)
-        lay.setSpacing(4)
+        lay.setContentsMargins(M.PAD, 10, M.PAD, M.PAD)
+        lay.setSpacing(M.ROW)
         self.info = QLabel()
         self.info.setTextFormat(Qt.RichText)
         self.info.setWordWrap(True)
@@ -87,10 +88,10 @@ class ProductsPanel(QWidget):
         lay.addWidget(self.info)
 
         # which panel we are choosing for
-        lay.addSpacing(4)
+        lay.addSpacing(M.SECTION - M.ROW)
         lay.addWidget(_section("Panel"))
         prow = QHBoxLayout()
-        prow.setSpacing(3)
+        prow.setSpacing(M.GAP)
         self.panel_group = QButtonGroup(self)
         self.panel_group.setExclusive(True)
         self.panel_btns = []
@@ -105,10 +106,11 @@ class ProductsPanel(QWidget):
         # products by category
         self.prod_btns = {}
         for cat in catalog.CATEGORIES:
-            lay.addSpacing(4)
+            lay.addSpacing(M.SECTION - M.ROW)
             lay.addWidget(_section(cat))
             grid = QGridLayout()
-            grid.setSpacing(3)
+            grid.setHorizontalSpacing(M.GAP)
+            grid.setVerticalSpacing(M.ROW)
             prods = [p for p in catalog.PRODUCTS if p.category == cat]
             for k, p in enumerate(prods):
                 b = _chip(p.short, p.name + (f"\n{p.description}" if p.description else ""))
@@ -118,17 +120,18 @@ class ProductsPanel(QWidget):
             lay.addLayout(grid)
 
         # tilts
-        lay.addSpacing(4)
+        lay.addSpacing(M.SECTION - M.ROW)
         self.tilt_title = _section("Tilt")
         lay.addWidget(self.tilt_title)
         self.tilt_grid = QGridLayout()
-        self.tilt_grid.setSpacing(3)
+        self.tilt_grid.setHorizontalSpacing(M.GAP)
+        self.tilt_grid.setVerticalSpacing(M.ROW)
         self.tilt_btns = []
         self._tilt_labels = None
         lay.addLayout(self.tilt_grid)
 
         # colour table + storm motion
-        lay.addSpacing(4)
+        lay.addSpacing(M.SECTION - M.ROW)
         lay.addWidget(_section("Colour table"))
         self.ct_label = QLabel()
         self.ct_label.setWordWrap(True)
@@ -266,9 +269,11 @@ class WarningsPanel(QWidget):
         # --- warnings tab
         w = QWidget()
         wl = QVBoxLayout(w)
-        wl.setContentsMargins(6, 6, 6, 6)
+        wl.setContentsMargins(M.PAD, 10, M.PAD, M.PAD)
+        wl.setSpacing(M.ROW)
         frow = QGridLayout()
-        frow.setSpacing(3)
+        frow.setHorizontalSpacing(M.GAP)
+        frow.setVerticalSpacing(M.ROW)
         self.filters = {}
         for i, (key, label, events) in enumerate(FILTERS):
             cb = _chip(label, "Show on the map and in this list: " + ", ".join(events))

@@ -1,13 +1,18 @@
 """A small one-time hint bubble (first visit to the Models view, the Layers presets…)."""
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
 
 
 class HintBubble(QFrame):
+    """A frameless little window of its own (not a child widget): the map is a native OpenGL window, and a child
+    widget over it is hidden behind it."""
+
     def __init__(self, parent, text):
-        super().__init__(parent)
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowDoesNotAcceptFocus)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
         self.setObjectName("hintBubble")
         self.setFrameShape(QFrame.StyledPanel)
         self.setStyleSheet("#hintBubble { background: palette(highlight); border-radius: 8px; }"
@@ -34,7 +39,26 @@ def show_hint(window, text):
     b.adjustSize()
     w = window.width()
     top = window.menuBar().height() + window.main_tb.height() + 10
-    b.move(QPoint(max(8, (w - b.width()) // 2 - 120), top))
-    b.raise_()
+    b.move(window.mapToGlobal(QPoint(max(8, (w - b.width()) // 2 - 120), top)))
     b.show()
+    b.raise_()
+    window.installEventFilter(_Follow(window, b))       # (moves with the window, goes when it's minimised)
     return b
+
+
+class _Follow(QObject):
+    def __init__(self, window, bubble):
+        super().__init__(bubble)
+        self.window, self.bubble = window, bubble
+        self.off = bubble.pos() - window.mapToGlobal(QPoint(0, 0))
+
+    def eventFilter(self, obj, ev):
+        t = ev.type()
+        try:
+            if t == QEvent.Move:
+                self.bubble.move(self.window.mapToGlobal(QPoint(0, 0)) + self.off)
+            elif t in (QEvent.Hide, QEvent.WindowStateChange) and self.window.isMinimized():
+                self.bubble.close()
+        except RuntimeError:                     # (the bubble has gone)
+            pass
+        return False
