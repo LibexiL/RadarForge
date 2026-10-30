@@ -329,97 +329,31 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
             ("WAT", "Watches", "WAT", "TOA"))
 
     def _build_warning_bar(self):
-        """One "Warnings" button at the right end of the main toolbar: its icon shows a dot per warning type
-        that's on (in that type's line colour), its menu turns each type on or off. (The same switches are in
-        the Warnings panel.)"""
+        """The warning-type switches at the right end of the main toolbar: a compact strip of coloured dots and
+        short codes, one click per type (see warning_toggles.py). The state lives in the Warnings panel's
+        (hidden) filter buttons, so the menus and the panel stay in step."""
+        from ..features.warnings import line_style
+        from .warning_toggles import WarningToggles
         tb = self.main_tb
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         spacer.setMinimumWidth(8)
         self._wbar_spacer_act = tb.addWidget(spacer)
-        self._wbar_chips = []                 # (none any more: _fit_toolbar has nothing to shorten here)
-        self._wbar_filters = []
-        btn = QToolButton()
-        btn.setText("Warnings")
-        btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        btn.setPopupMode(QToolButton.InstantPopup)
-        btn.setToolTip("Which warnings are drawn on the map and listed in the Warnings panel")
-        menu = QMenu(btn)
+        self._wbar_chips = []
         filters = getattr(self.warnings_panel, "filters", {})
-        for key, full, _short, code in self.WBAR:
-            b = filters.get(key)
-            if b is None:
-                continue
-            act = menu.addAction(full)
-            act.setCheckable(True)
-            act.setChecked(b.isChecked())
-            act.toggled.connect(lambda on, b=b: b.setChecked(on) if b.isChecked() != on else None)
-            b.toggled.connect(lambda on, a=act: (a.setChecked(on) if a.isChecked() != on else None,
-                                                 self._wbar_colours()))
-            self._wbar_filters.append((key, full, code, b, act))
-        menu.addSeparator()
-        menu.addAction("All on", lambda: [b.setChecked(True) for _k, _f, _c, b, _a in self._wbar_filters])
-        menu.addAction("Warnings panel…", lambda: self.show_panel("warnings"))
-        btn.setMenu(menu)
-        self._wbar_btn = btn
-        self._wbar_dots = QLabel()
-        self._wbar_dots.setToolTip(btn.toolTip())
-        box = QWidget()
-        h = QHBoxLayout(box)
-        h.setContentsMargins(0, 0, 2, 0)
-        h.setSpacing(2)
-        h.addWidget(self._wbar_dots)
-        h.addWidget(btn)
-        self._wbar_act = tb.addWidget(box)
-        self._wbar = box
-        self._wbar_colours()
+        items = [(key, full, short, code, filters[key]) for key, full, short, code in self.WBAR if key in filters]
+        self._wbar_filters = items
+        self.wbar = WarningToggles(items, lambda code: line_style(self.settings, code)[0],
+                                   open_panel=lambda: self.show_panel("warnings"))
+        self._wbar_btn = None
+        self._wbar_act = tb.addWidget(self.wbar)
+        self._wbar = self.wbar
 
     def _wbar_colours(self):
-        """The Warnings button's icon: a dot per warning type, in its line colour when it's on, hollow when
-        off; each menu item gets its colour dot too (Settings → Warnings can change the colours)."""
-        from PySide6.QtGui import QPixmap, QPainter as _P, QIcon, QColor as _C, QPen as _Pen
-        from ..features.warnings import line_style
-        items = getattr(self, "_wbar_filters", [])
-        if not items:
-            return
-        dpr = self.devicePixelRatioF()
-        n = len(items)
-        d, gap = 7, 3
-        pm = QPixmap(int((n * (d + gap) - gap + 2) * dpr), int((d + 2) * dpr))
-        pm.setDevicePixelRatio(dpr)
-        pm.fill(Qt.transparent)
-        p = _P(pm)
-        p.setRenderHint(_P.Antialiasing)
-        for i, (_key, _full, code, b, act) in enumerate(items):
-            try:
-                rgb = line_style(self.settings, code)[0]
-            except Exception:
-                rgb = (200, 200, 200)
-            col = _C(*rgb[:3])
-            x = 1 + i * (d + gap)
-            if b.isChecked():
-                p.setPen(Qt.NoPen)
-                p.setBrush(col)
-            else:
-                p.setPen(_Pen(_C(150, 158, 175, 170), 1.2))
-                p.setBrush(Qt.NoBrush)
-            p.drawEllipse(x, 1, d, d)
-            dot = QPixmap(int(12 * dpr), int(12 * dpr))
-            dot.setDevicePixelRatio(dpr)
-            dot.fill(Qt.transparent)
-            q = _P(dot)
-            q.setRenderHint(_P.Antialiasing)
-            q.setPen(Qt.NoPen)
-            q.setBrush(col)
-            q.drawEllipse(2, 2, 8, 8)
-            q.end()
-            act.setIcon(QIcon(dot))
-        p.end()
-        btn = getattr(self, "_wbar_btn", None)
-        if btn is not None:
-            self._wbar_dots.setPixmap(pm)
-            off = [full for _k, full, _c, b, _a in items if not b.isChecked()]
-            btn.setText("Warnings" if not off else f"Warnings ({len(items) - len(off)}/{len(items)})")
+        """(Settings → Warnings changed a colour: the dots follow.)"""
+        w = getattr(self, "wbar", None)
+        if w is not None:
+            w.update()
 
     def _panel_closed(self, key):
         if key == "xsection":

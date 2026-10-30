@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.25.1 – 2026-10-29
+
+- **Warning switches, top right: one click each again, no menu.** A compact strip of coloured dots with short codes
+  (TOR, SVR, FFW, WIN, TRO, OTH, WAT). Click one to hide or show that type. Hidden types get a hollow dot and
+  struck-through code. Right-click a type for "Only this type", "Show all types" or the Warnings panel. In a
+  narrow window just the dots stay.
+- **The Warnings panel no longer has its own row of type buttons:** it's just the list.
+
 ## 1.25.0 – 2026-10-29
 
 - **More breathing room everywhere.** The interface was squeezed too tight after 1.22:
