@@ -55,11 +55,21 @@ jobs:
           test ! -e ~/.local/bin/radarforge
       - name: Windows installer
         if: runner.os == 'Windows'
-        shell: cmd
+        shell: pwsh
         run: |
-          echo.| Windows\install.bat
-          if errorlevel 1 exit /b 1
-          "%LOCALAPPDATA%\RadarForge\venv\Scripts\python.exe" -m radarforge --help
-          if errorlevel 1 exit /b 1
-          if not exist "%LOCALAPPDATA%\RadarForge\radarforge.bat" exit /b 1
-          if not exist "%APPDATA%\Microsoft\Windows\Start Menu\Programs\RadarForge.lnk" exit /b 1
+          # run the installer exactly as a user would; on failure, surface the end of its output as annotations
+          $log = "$env:RUNNER_TEMP\install.log"
+          function Fail($what) {
+            Get-Content $log -Tail 40 | ForEach-Object { if ($_.Trim()) { Write-Output "::error title=$what::$_" } }
+            exit 1
+          }
+          cmd /c "echo.| Windows\install.bat" *> $log
+          $code = $LASTEXITCODE
+          Get-Content $log
+          if ($code -ne 0) { Fail "install.bat exit $code" }
+          & "$env:LOCALAPPDATA\RadarForge\venv\Scripts\python.exe" -m radarforge --help *> $log
+          $code = $LASTEXITCODE
+          Get-Content $log
+          if ($code -ne 0) { Fail "radarforge --help exit $code" }
+          if (-not (Test-Path "$env:LOCALAPPDATA\RadarForge\radarforge.bat")) { "missing radarforge.bat" | Set-Content $log; Fail "launcher" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\RadarForge.lnk")) { "missing Start Menu shortcut" | Set-Content $log; Fail "shortcut" }
