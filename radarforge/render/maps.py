@@ -75,7 +75,11 @@ class MapData:
             self.city_pop = self.raw["city_pop"]
 
     def county_polygons(self):
-        """[(fips, lon/lat array)] for watch shading."""
+        """{fips: [lon/lat array]} for county-based alerts (watches, winter, tropical). Built once: the same
+        arrays every time, so alerts made from them can be recognised (and their drawing reused) after a
+        refresh."""
+        if getattr(self, "_county_polys", None) is not None:
+            return self._county_polys
         if "counties_pts" not in self.raw:
             return {}
         pts = self.raw["counties_pts"]
@@ -84,4 +88,5 @@ class MapData:
         out: dict = {}
         for i, f in enumerate(fips):
             out.setdefault(int(f), []).append(pts[st[i]:st[i + 1]])
+        self._county_polys = out
         return out

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.25.2 – 2026-10-31
+
+- **Winter (and other county-shaded) warnings no longer make the app lag.** With a big winter outbreak on the
+  map, every redraw used to repaint hundreds of counties, about a third of a second each time: panning,
+  zooming and loops all stuttered.
+  - The shaded areas are now drawn once into a picture a little larger than the map. Loops and other redraws just
+  stamp it, panning slides it, and zooming stretches it until you stop, then redraws it sharp.
+  - Outlines carry no more detail than the screen can show.
+  - Each warning's merged outline is kept when warnings refresh, instead of being rebuilt every minute.
+  - A redraw now takes a few milliseconds instead of about 300.
+  - Merged outlines are also cleaner: short stubs of county border no longer show inside an area.
+
 ## 1.25.1 – 2026-10-29
 
 - **Warning switches, top right: one click each again, no menu.** A compact strip of coloured dots with short codes

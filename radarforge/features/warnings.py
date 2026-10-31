@@ -690,6 +690,7 @@ class WarningsOverlay(QObject):
             first = not self._seeded
             self._note_new(alerts, first)
             self._seeded = True
+            carry_geometry(self.alerts, alerts)
             self.alerts = alerts
             self._ver += 1
 
@@ -963,11 +964,12 @@ class WarningsOverlay(QObject):
         x0, y0, x1, y1 = vt.world_bounds(pad=10)
         sel = self.selected_uid
         sel_key = sel.split("@")[0] if sel and "@" in sel else None
-        for a in self.shown_alerts():
-            if not self.visible(a):
-                continue
+        shown = [a for a in self.shown_alerts() if self.visible(a)]
+        areas = [a for a in shown if a.event in AREA_EVENTS]
+        if areas:
+            self._paint_area_layer(painter, vt, view, areas, sel, sel_key)
+        for a in shown:
             if a.event in AREA_EVENTS:
-                self._paint_area(painter, vt, view, a, a.uid == sel or (sel_key is not None and a.key == sel_key))
                 continue
             is_watch = a.event.endswith("Watch")
             pulse = self.flashing(a)
@@ -1030,45 +1032,136 @@ class WarningsOverlay(QObject):
                 if inches is not None and vt.km_across < 900:
                     view._halo_text(painter, sx + rad + 2, sy + 4, f"{inches:g}″", QColor(190, 215, 255), f1)
 
-    def _paint_area(self, painter, vt, view, a, selected):
-        """A county / zone based alert (winter storm, hurricane…): its counties shaded as one area, one outline."""
-        from PySide6.QtGui import QPainterPath, QTransform
+    def _area_geometry(self, view, a, scale):
+        """(fill path, outline path) for a county-based alert at this zoom, cached on the alert: the outline
+        is its outer edge only, and both carry no more detail than the screen can show."""
         xys = self._xy(a, view.lat0, view.lon0)
-        if a._path is None or a._path[0] != (view.lat0, view.lon0):
-            path = QPainterPath()
-            path.setFillRule(Qt.WindingFill)
-            for xy in xys:
-                if len(xy) < 3:
-                    continue
-                path.addPolygon(QPolygonF([QPointF(float(x), float(y)) for x, y in xy]))
-                path.closeSubpath()
-            a._path = ((view.lat0, view.lon0), path.simplified())
-        path = a._path[1]
+        g = a._path if isinstance(a._path, dict) and a._path.get("proj") == (view.lat0, view.lon0) else None
+        if g is None:
+            g = {"proj": (view.lat0, view.lon0), "runs": merged_outline(xys), "levels": {}}
+            pts = np.concatenate(xys) if xys else np.zeros((0, 2))
+            g["bbox"] = (pts[:, 0].min(), pts[:, 1].min(), pts[:, 0].max(), pts[:, 1].max()) if len(pts) else None
+            a._path = g
+        # detail: about half a pixel for the outline, a pixel for the fill (its edge is under the outline)
+        lvl = int(math.floor(math.log2(max(0.5 / max(scale, 1e-6), 1e-3))))
+        geo = g["levels"].get(lvl)
+        if geo is None:
+            tol = 2.0 ** lvl
+            fill = qpath([snap(xy, tol * 2) for xy in xys], close=True)
+            line = qpath([snap(r, tol) for r in g["runs"]])
+            geo = (fill, line)
+            if len(g["levels"]) > 6:
+                g["levels"].clear()
+            g["levels"][lvl] = geo
+        return g["bbox"], geo
+
+    def _paint_area(self, painter, vt, view, a, selected, pulse=None):
+        """A county / zone based alert (winter storm, hurricane…): its counties shaded as one area, one outline."""
+        from PySide6.QtGui import QPainter as _QP, QTransform
+        bbox, (fill_path, line_path) = self._area_geometry(view, a, vt.scale)
+        if bbox is None:
+            return
         x0, y0, x1, y1 = vt.world_bounds(pad=10)
-        br = path.boundingRect()
-        if br.right() < x0 or br.left() > x1 or br.bottom() < y0 or br.top() > y1:
+        if bbox[2] < x0 or bbox[0] > x1 or bbox[3] < y0 or bbox[1] > y1:
             return
         rgb, width, _kind = line_style(self.settings, a.variant)
         _rgb, _w, fill, _pri = a.style
-        pulse = self.flashing(a)
         painter.save()
         painter.setTransform(QTransform(vt.scale, 0, 0, -vt.scale, vt.ox - vt.cx * vt.scale, vt.oy + vt.cy * vt.scale),
                              True)
+        painter.setRenderHint(_QP.Antialiasing, False)        # (the fill's edge is under the outline anyway)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(*rgb, int(fill + (60 * pulse if pulse is not None else 0))))
-        painter.drawPath(path)
+        painter.setBrush(QColor(*rgb, int(min(255, fill + (60 * pulse if pulse is not None else 0)))))
+        painter.drawPath(fill_path)
         painter.setBrush(Qt.NoBrush)
-        for w, col in ((width + 2.0, QColor(0, 0, 0, 150)), (width, QColor(*rgb))):
+        for w, col, aa in ((width + 2.0, QColor(0, 0, 0, 150), False), (width, QColor(*rgb), True)):
+            painter.setRenderHint(_QP.Antialiasing, aa)        # (the dark halo needn't be smooth: it's quicker)
             pen = QPen(col, w, Qt.DashLine if a.event.endswith("Watch") else Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
             pen.setCosmetic(True)
             painter.setPen(pen)
-            painter.drawPath(path)
+            painter.drawPath(line_path)
         if selected:
             pen = QPen(QColor(255, 255, 255), width + 1.5, Qt.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
-            painter.drawPath(path)
+            painter.drawPath(line_path)
         painter.restore()
+
+    AREA_MARGIN = 0.25                # the area picture reaches this far past each side of the view (panning)
+    AREA_SETTLE_S = 0.18              # zooming: the stretched picture is redrawn sharp once zooming pauses
+
+    def _paint_area_layer(self, painter, vt, view, areas, sel, sel_key):
+        """All the county-based alerts as one picture, a little bigger than the view. A loop playing or the
+        map redrawing for any other reason just stamps it; panning slides it; zooming stretches it until
+        zooming pauses, then it's drawn again (a winter outbreak covers hundreds of counties)."""
+        from PySide6.QtCore import QRectF, QTimer
+        from PySide6.QtGui import QImage, QPainter as _QP
+        r = vt.rect
+        dev = painter.device()
+        dpr = dev.devicePixelRatioF() if hasattr(dev, "devicePixelRatioF") else 1.0
+        flashing = [a for a in areas if self.flashing(a) is not None]
+        steady = [a for a in areas if a not in flashing]
+        caches = self.__dict__.setdefault("_area_caches", {})
+        slot = (round(r.x()), round(r.y()))
+        static = (round(r.width()), round(r.height()), dpr, view.lat0, view.lon0,
+                  tuple((a.uid, a.variant, len(a.rings), sum(len(x) for x in a.rings)) for a in steady), sel,
+                  sel_key, self._style_sig())
+        e = caches.get(slot)
+        now = time.monotonic()
+        W, H = r.width(), r.height()
+        mx, my = W * self.AREA_MARGIN, H * self.AREA_MARGIN
+        if steady:
+            if e is not None and e["static"] == static:
+                if abs(vt.scale - e.get("seen_scale", e["scale"])) > 1e-9:
+                    e["seen_scale"] = vt.scale
+                    e["scale_changed"] = now
+                k = vt.scale / e["scale"]
+                left = r.x() + W / 2 + (e["cx"] - vt.cx) * vt.scale - (mx + W / 2) * k
+                top = r.y() + H / 2 - (e["cy"] - vt.cy) * vt.scale - (my + H / 2) * k
+                target = QRectF(left, top, (W + 2 * mx) * k, (H + 2 * my) * k)
+                covers = target.contains(r)
+                if abs(k - 1.0) < 1e-6 and covers:
+                    painter.drawImage(target.topLeft(), e["img"])            # (the usual case: just stamp it)
+                    e = "done"
+                elif covers and now - e.get("scale_changed", 0) < self.AREA_SETTLE_S:
+                    painter.save()
+                    painter.setRenderHint(_QP.SmoothPixmapTransform, False)
+                    painter.drawImage(target, e["img"])                       # zooming: stretched for now
+                    painter.restore()
+                    if not getattr(self, "_area_settle_pending", False):
+                        self._area_settle_pending = True
+
+                        def settle():
+                            self._area_settle_pending = False
+                            self.changed.emit()
+                        QTimer.singleShot(int(self.AREA_SETTLE_S * 1000) + 20, settle)
+                    e = "done"
+            if e != "done":
+                img = QImage(max(1, int((W + 2 * mx) * dpr)), max(1, int((H + 2 * my) * dpr)),
+                             QImage.Format_ARGB32_Premultiplied)
+                img.setDevicePixelRatio(dpr)
+                img.fill(0)
+                p = _QP(img)
+                p.setRenderHint(_QP.Antialiasing, True)
+                p.translate(mx - r.x(), my - r.y())
+                big = _Grown(vt, mx, my)
+                for a in steady:
+                    self._paint_area(p, big, view, a, a.uid == sel or (sel_key is not None and a.key == sel_key))
+                p.end()
+                caches[slot] = {"static": static, "scale": vt.scale, "seen_scale": vt.scale, "cx": vt.cx,
+                                "cy": vt.cy, "img": img, "scale_changed": 0.0}
+                painter.drawImage(QRectF(r.x() - mx, r.y() - my, W + 2 * mx, H + 2 * my).topLeft(), img)
+        for a in flashing:
+            self._paint_area(painter, vt, view, a, a.uid == sel or (sel_key is not None and a.key == sel_key),
+                             self.flashing(a))
+
+    def _style_sig(self):
+        """What the area picture depends on in the settings (line styles and colours)."""
+        s = self.settings
+        try:
+            return hash((repr(s["warning_lines"]), repr(s["warning_colors"])))
+        except Exception:
+            return 0
 
     def visible_reports(self):
         """Reports drawn now: types switched on, and (archive) near the frame's time."""
@@ -1186,6 +1279,132 @@ def draw_line(painter, shape, rgb, width, kind, halo=True):
     if inner > 0:
         painter.setPen(QPen(QColor(0, 0, 0), max(1.0, inner), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         draw(*args)
+
+
+# --------------------------------------------------------------------------- county-based alerts, drawn fast
+def carry_geometry(old, new):
+    """Alerts fetched again come back as new objects: keep the projected outlines (and the merged county
+    outline, which takes a moment) of those whose shape hasn't changed."""
+    prev = {a.uid: a for a in old or () if a.xy is not None}
+    for a in new:
+        o = prev.get(a.uid)
+        if o is None or o is a or a.xy is not None or len(o.rings) != len(a.rings):
+            continue
+        if all(r1 is r2 or (r1.shape == r2.shape and np.array_equal(r1, r2)) for r1, r2 in zip(o.rings, a.rings)):
+            a.xy, a._proj, a._path = o.xy, o._proj, o._path
+
+
+class _Grown:
+    """A view transform whose visible bounds reach [mx], [my] pixels past each side (for the area picture)."""
+
+    def __init__(self, vt, mx, my):
+        self._vt, self._mx, self._my = vt, mx, my
+
+    def __getattr__(self, name):
+        return getattr(self._vt, name)
+
+    def world_bounds(self, pad=0.0):
+        x0, y0, x1, y1 = self._vt.world_bounds(pad)
+        dx, dy = self._mx / self._vt.scale, self._my / self._vt.scale
+        return x0 - dx, y0 - dy, x1 + dx, y1 + dy
+
+
+def qpath(polylines, close=False, winding=True):
+    """A QPainterPath from [N x 2 arrays] in one go (Qt's own serialised path format, filled from numpy) -
+    a hundred times quicker than adding the points one by one."""
+    import struct
+    from PySide6.QtCore import QByteArray, QDataStream
+    from PySide6.QtGui import QPainterPath
+    parts = [np.asarray(pl, np.float64) for pl in polylines if len(pl) >= 2]
+    if close:
+        parts = [np.vstack([pl, pl[:1]]) if (pl[0] != pl[-1]).any() else pl for pl in parts]
+    path = QPainterPath()
+    if not parts:
+        return path
+    n = sum(len(pl) for pl in parts)
+    rec = np.empty(n, dtype=[("c", ">i4"), ("x", ">f8"), ("y", ">f8")])
+    xy = np.concatenate(parts)
+    rec["x"], rec["y"] = xy[:, 0], xy[:, 1]
+    rec["c"] = 1                                          # LineTo ...
+    starts = np.cumsum([0] + [len(pl) for pl in parts[:-1]])
+    rec["c"][starts] = 0                                  # ... MoveTo at each part's start
+    data = struct.pack(">i", n) + rec.tobytes() + struct.pack(">ii", 0, 1 if winding else 0)
+    QDataStream(QByteArray(data)) >> path
+    return path
+
+
+def snap(pl, tol):
+    """Points snapped to a [tol] grid with repeats dropped: detail no finer than a fraction of a pixel. Shared
+    county borders snap identically, so neighbours still meet exactly."""
+    if tol <= 0 or len(pl) < 3:
+        return pl
+    q = np.round(np.asarray(pl, np.float64) / tol)
+    keep = np.r_[True, (q[1:] != q[:-1]).any(axis=1)]
+    return q[keep] * tol
+
+
+def outline_runs(rings):
+    """The outer edge of a group of county rings (km): the edges only one county has (borders between two
+    of its counties drop out), as runs of connected points."""
+    rings = [np.asarray(r, np.float64) for r in rings if len(r) >= 3]
+    if not rings:
+        return []
+    a = np.concatenate([r for r in rings])
+    b = np.concatenate([np.roll(r, -1, axis=0) for r in rings])
+    qa = np.round(a * 1000.0).astype(np.int64)             # (to the metre: shared vertices match exactly)
+    qb = np.round(b * 1000.0).astype(np.int64)
+    swap = (qa[:, 0] > qb[:, 0]) | ((qa[:, 0] == qb[:, 0]) & (qa[:, 1] > qb[:, 1]))
+    lo = np.where(swap[:, None], qb, qa)
+    hi = np.where(swap[:, None], qa, qb)
+    keys = np.c_[lo, hi]
+    degenerate = (qa == qb).all(axis=1)
+    _u, inv, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)
+    outer = (counts[inv.ravel()] == 1) & ~degenerate
+    runs = []
+    k = 0
+    for r in rings:
+        n = len(r)
+        o = outer[k:k + n]
+        k += n
+        if not o.any():
+            continue
+        if o.all():
+            runs.append(np.vstack([r, r[:1]]))
+            continue
+        # rotate so the ring starts at an inner edge, then cut it into runs of outer edges
+        start = int(np.argmin(o))
+        idx = (np.arange(n) + start) % n
+        oo = o[idx]
+        i = 0
+        while i < n:
+            if not oo[i]:
+                i += 1
+                continue
+            j = i
+            while j < n and oo[j]:
+                j += 1
+            pts = r[idx[i:j]]
+            end = r[(idx[j - 1] + 1) % n]
+            runs.append(np.vstack([pts, end[None, :]]))
+            i = j
+    return runs
+
+
+def merged_outline(rings):
+    """The outline of a group of county rings (km) as one shape - Qt merges them exactly, so borders between
+    two of its counties go even where the two don't share every point - as [N x 2] rings."""
+    try:
+        # (points within ~100 m snapped together first: closes the slivers the county map has between some
+        # neighbours, which would otherwise leave short stubs of border inside the area)
+        path = qpath([snap(r, 0.1) for r in rings], close=True).simplified()
+        out = []
+        for poly in path.toSubpathPolygons():
+            n = poly.size()
+            if n >= 2:
+                out.append(np.array([(poly.at(i).x(), poly.at(i).y()) for i in range(n)], np.float64))
+        return out
+    except Exception:
+        return outline_runs(rings)
 
 
 def near_edge(x, y, poly, tol) -> bool:

@@ -148,3 +148,28 @@ def test_fastest_source_wins_and_merges():
 def test_location_alert_once_across_feeds():
     from radarforge.features import alerts
     assert alerts._canon("KOUN.TO.W.0042") == alerts._canon("OUN.TO.W.42@2026-05-20T20:00Z")
+
+
+def test_county_alerts_drawn_fast_and_merged():
+    """Neighbouring counties merge into one outline (the shared border goes); paths build from arrays; the
+    drawing of an alert fetched again with the same counties is kept."""
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    a = np.array([(0, 0), (10, 0), (10, 10), (0, 10)], float)
+    b = np.array([(10, 0), (20, 0), (20, 10), (10, 10)], float)
+    p = W.qpath([a, b], close=True)
+    assert p.elementCount() == 10 and abs(p.boundingRect().width() - 20) < 1e-9
+    outline = W.merged_outline([a, b])
+    pts = np.concatenate(outline)
+    assert len(outline) == 1 and pts[:, 0].min() == 0 and pts[:, 0].max() == 20
+    assert not any(abs(x - 10) < 1e-6 and 0.5 < y < 9.5 for x, y in pts)        # no border down the middle
+    runs = W.outline_runs([a, b])
+    assert sum(len(r) - 1 for r in runs) == 6                                   # 8 edges less the shared one twice
+    old = W.Alert("Winter Storm Warning", [a, b], "x", T0, T0, uid="u1")
+    old.xy, old._proj, old._path = ["xy"], (35, -97), {"proj": (35, -97)}
+    new = W.Alert("Winter Storm Warning", [a, b], "x", T0, T0, uid="u1")
+    W.carry_geometry([old], [new])
+    assert new.xy == ["xy"] and new._path is old._path
+    moved = W.Alert("Winter Storm Warning", [a], "x", T0, T0, uid="u1")
+    W.carry_geometry([old], [moved])
+    assert moved.xy is None
