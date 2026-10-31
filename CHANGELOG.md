@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.26.1 – 2026-10-31
+
+- The automatic code checks on GitHub pass again (unused imports left over from the layout work).
+- Otherwise the same as 1.26.0.
+
 ## 1.26.0 – 2026-10-31
 
 **A new, map-first layout.** The map gets the window; everything else is in three tidy places.

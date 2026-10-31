@@ -6,7 +6,7 @@ Every chip mirrors the same action as its menu item, so the two never disagree. 
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer
-from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton,
                                QScrollArea, QSizePolicy, QSlider, QToolButton, QVBoxLayout, QWidget)
 
 from ..features import mrms

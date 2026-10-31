@@ -4,8 +4,6 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import gzip
-import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
