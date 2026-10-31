@@ -180,7 +180,7 @@ class ModelsMixin:
             self.set_model_region(self.settings["model_region"] or "CONUS", save=False)
             if not self.models.run_list():
                 self.models.refresh_runs()
-            self.ws.show_panel("models")
+            self.show_panel("models")
             self._first_time_hint("models", "Models view: pick a field in the Models panel (or right-click a panel). "
                                             "← → step through the forecast hours, Space plays them. F6 goes back "
                                             "to the radar.")
@@ -189,8 +189,8 @@ class ModelsMixin:
             self._set_site_projection(self.data.site_id)
             if self._radar_view_state:
                 self.view.set_view(*self._radar_view_state)
-            if self.ws.is_open("models"):
-                self.ws.show_panel("products", focus=False) if self.ws.is_open("products") else None
+            if self.panel_open("models"):
+                self.show_panel("products")
         self._fit_toolbar()
         self._models_changed()
         if not models_on:

@@ -29,7 +29,10 @@ class PlaceSearch(QLineEdit):
         self.setToolTip("Find a town, road, address or landmark.\nTowns appear as you type; press Enter to search "
                         "OpenStreetMap for anything else.\nYou can also type coordinates (35.22, -97.44).")
         self.setClearButtonEnabled(True)
-        self.setFixedWidth(250)
+        self.setMinimumWidth(120)           # (shrinks in a narrow window rather than falling off the bar)
+        self.setMaximumWidth(260)
+        from PySide6.QtWidgets import QSizePolicy
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.model = QStandardItemModel(self)
         self.comp = QCompleter(self.model, self)
         self.comp.setCompletionMode(QCompleter.UnfilteredPopupCompletion)

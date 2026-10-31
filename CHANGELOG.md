@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.26.0 – 2026-10-31
+
+**A new, map-first layout.** The map gets the window; everything else is in three tidy places.
+
+- **One slim bar along the top** instead of a menu bar and a crowded toolbar.
+  - Every menu is behind **≡** at the top left (**F10**), and all their keyboard shortcuts still work.
+  - One **data button** shows Live / Archive / Files and switches between them; it replaces the separate Live,
+    Archive and Open buttons.
+  - The radar, panel layout, tilt, the warning switches and the place search are there too.
+- **The tools run down the left of the map:** pan, cross section, measure, storm track and 3-D, then storm
+  motion, smoothing, dealias and the Σ trail.
+- **The drawer at the right replaces the two stacks of side-panel tabs.** It shows one page at a time, and its
+  buttons pick which:
+  - **Radar:** products, tilts, colour tables.
+  - **Layers**
+  - **Weather:** Severe, Winter and Tropical behind one switch.
+  - **Alerts:** the warning list, plus warnings / watches on the map and "Alert me".
+  - **Storms**
+  - **Models**
+  - **More:** inspector, placefiles.
+
+  Click the button that's on, the ×, or **F9** to fold the drawer away and give the map the whole window.
+  The 3-D and cross-section panels open beside the map, next to the drawer.
+- **Buttons fit their words** and wrap like text, instead of stretching into big blocks in fixed columns.
+- **Fewer duplicates:** warnings and watches on/off and "Alert me" live on the Alerts page (no longer also
+  on Layers). The Severe › Winter › Tropical buttons are gone from Layers; the drawer's Weather button does
+  that.
+- Getting started, the keyboard help and the README describe the new layout.
+- **Fix:** labels in the 3-D view (title, legend, heights, towns) could come out scrambled with some graphics
+  drivers. They're now drawn as an image first, like the map's.
+
 ## 1.25.2 – 2026-10-31
 
 - **Winter (and other county-shaded) warnings no longer make the app lag.** With a big winter outbreak on the

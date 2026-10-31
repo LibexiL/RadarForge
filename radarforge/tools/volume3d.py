@@ -1121,7 +1121,25 @@ class GLVolume(QOpenGLWindow):
         return f"{txt} {self.disp_units}"
 
     def _overlay(self, mvp):
-        p = QPainter(self)
+        """Titles, labels, legend… painted into an image first, then put on the 3-D view in one go: text drawn
+        straight onto an OpenGL window comes out scrambled with some graphics drivers (the glyph cache)."""
+        from PySide6.QtGui import QImage
+        dpr = float(self.devicePixelRatio())
+        img = QImage(max(1, int(round(self.width() * dpr))), max(1, int(round(self.height() * dpr))),
+                     QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(dpr)
+        img.fill(0)
+        p = QPainter(img)
+        try:
+            self._overlay_paint(p, mvp)
+        finally:
+            if p.isActive():
+                p.end()
+        gp = QPainter(self)
+        gp.drawImage(0, 0, img)
+        gp.end()
+
+    def _overlay_paint(self, p, mvp):
         p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
         small = ui_font(8.5)

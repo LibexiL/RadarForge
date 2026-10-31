@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QButtonGroup, QComboBox, QFrame, QGridLayout, QHB
 
 from ..features import mrms
 from . import metrics as M
+from .flow import flow_box
 
 COLS = 3
 
@@ -30,8 +31,7 @@ def _chip(text, tip=""):
     b.setToolTip(tip)
     b.setCheckable(True)
     b.setProperty("role", "chip")
-    b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    b.setMinimumWidth(30)
+    b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)        # as wide as its words
     return b
 
 
@@ -40,7 +40,7 @@ def _button(text, fn, tip=""):
     b.setText(text)
     b.setToolTip(tip)
     b.setProperty("role", "chip")
-    b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
     b.clicked.connect(lambda: fn())
     return b
 
@@ -63,16 +63,12 @@ class Section(QWidget):
         self.header.clicked.connect(self.toggle)
         lay.addWidget(self.header)
         self.body = QWidget()
-        self.grid = QGridLayout(self.body)
-        self.grid.setContentsMargins(0, 2, 0, 6)
-        self.grid.setHorizontalSpacing(M.GAP)
-        self.grid.setVerticalSpacing(M.ROW)
-        self.cols = COLS
-        for c in range(COLS):
-            self.grid.setColumnStretch(c, 1)
+        self.vbox = QVBoxLayout(self.body)
+        self.vbox.setContentsMargins(0, 2, 0, 6)
+        self.vbox.setSpacing(M.ROW)
         lay.addWidget(self.body)
-        self._row, self._col = 0, 0
-        self._items = []                  # ("cell" | "row" | "break", widget) in order, for reflowing
+        self._flow = None                 # the current line of chips (wraps like words)
+        self._items = []                  # ("cell" | "row" | "break", widget) in order
         self.collapsed = key in (panel.main.settings["quick_collapsed"] or [])
         self.body.setVisible(not self.collapsed)
         self.update_header()
@@ -80,42 +76,25 @@ class Section(QWidget):
     def _place(self, w, record=True):
         if record:
             self._items.append(("cell", w))
-        self.grid.addWidget(w, self._row, self._col)
-        self._col += 1
-        if self._col >= self.cols:
-            self._row, self._col = self._row + 1, 0
+        if self._flow is None:
+            box, self._flow = flow_box(M.GAP, M.ROW)
+            self.vbox.addWidget(box)
+        self._flow.addWidget(w)
 
     def newline(self, record=True):
         if record:
             self._items.append(("break", None))
-        if self._col:
-            self._row, self._col = self._row + 1, 0
+        self._flow = None
 
     def _place_row(self, row, record=True):
         if record:
             self._items.append(("row", row))
-        self.newline(record=False)
-        self.grid.addWidget(row, self._row, 0, 1, self.cols)
-        self._row += 1
+        self._flow = None
+        self.vbox.addWidget(row)
 
     def reflow(self, cols):
-        """Lay the same controls out again in a different number of columns."""
-        if cols == self.cols:
-            return
-        for _kind, w in self._items:
-            if w is not None:
-                self.grid.removeWidget(w)
-        for c in range(max(cols, self.cols)):
-            self.grid.setColumnStretch(c, 1 if c < cols else 0)
-        self.cols = cols
-        self._row, self._col = 0, 0
-        for kind, w in self._items:
-            if kind == "cell":
-                self._place(w, record=False)
-            elif kind == "row":
-                self._place_row(w, record=False)
-            else:
-                self.newline(record=False)
+        """(Chips wrap by themselves now.)"""
+        return
 
     def chip(self, action, text, tip=None):
         """A chip mirroring a checkable action."""
@@ -149,22 +128,21 @@ class Section(QWidget):
         lab = QLabel(text)
         lab.setProperty("role", "hint")
         lab.setMinimumWidth(54)
-        h.addWidget(lab)
+        lab.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        lab.setContentsMargins(0, 4, 0, 0)
+        h.addWidget(lab, 0, Qt.AlignTop)
+        widget.setMinimumWidth(0)
         h.addWidget(widget, 1)
         self._place_row(row)
         return widget
 
     def segment(self, text, actions, labels):
         """Mutually exclusive chips mirroring radio actions."""
-        box = QWidget()
-        h = QHBoxLayout(box)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(4)
+        box, h = flow_box(4, 4)                       # (wraps when the drawer is narrow)
         grp = QButtonGroup(box)
         grp.setExclusive(False)                      # the actions are the source of truth
         for a, lab in zip(actions, labels):
             b = _chip(lab, a.text().replace("&&", "&"))
-            b.setStyleSheet("QToolButton { padding: 5px 2px; }")       # (several share a row beside a caption)
             b.setChecked(a.isChecked())
 
             def clicked(_=False, a=a, b=b):
@@ -292,10 +270,7 @@ class ChipPage(QWidget):
         return False
 
     def _fit_columns(self, width):
-        avail = width - 2 * M.PAD                       # page margins
-        cols = max(1, min(COLS, (avail + M.GAP) // (self._chip_w + M.GAP)))
-        for sec in self.sections:
-            sec.reflow(cols)
+        return                                          # (chips wrap by themselves)
 
     def changeEvent(self, ev):
         if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and hasattr(self, "_scroll"):
@@ -311,47 +286,18 @@ class QuickPanel(ChipPage):
     def build(self, lay):
         m = self.main
         ov = m.overlay_acts
-        cap = QLabel("Weather panels")
-        cap.setProperty("role", "section")
-        f = cap.font()
-        f.setBold(True)
-        cap.setFont(f)
-        lay.addWidget(cap)
-        prow = QGridLayout()
-        prow.setHorizontalSpacing(M.GAP)
-        prow.setVerticalSpacing(M.ROW)
-        for i, (key, label, tip) in enumerate((
-                ("severe", "Severe ›", "Warnings, storm reports, SPC outlooks, storm tools and severe model maps"),
-                ("winter", "Winter ›", "Precipitation type, freezing line, snowfall, winter warnings and winter "
-                                       "model maps"),
-                ("tropical", "Tropical ›", "Hurricanes: cones, tracks, arrival times, past storms and tropical "
-                                           "model maps"))):
-            b = QPushButton(label)
-            b.setToolTip(tip)
-            b.setMinimumHeight(28)
-            b.setMinimumWidth(40)
-            b.setStyleSheet("QPushButton { padding: 5px 4px; }")      # (four share one row)
-            b.setCursor(Qt.PointingHandCursor)
-            b.clicked.connect(lambda _=False, k=key: m.show_panel(k))
-            prow.addWidget(b, 0, i)
         clean = m.preset_acts.get("clean")
         if clean is not None:
-            cb = _chip("Clean", clean.toolTip() or "Just the radar, the map and warnings")
+            cb = _chip("Clean map: just the radar, the map and warnings", clean.toolTip() or
+                       "Just the radar, the map and warnings")
             cb.setChecked(clean.isChecked())
             cb.clicked.connect(lambda _=False, a=clean, b=cb: (a.trigger(), b.setChecked(a.isChecked())))
             clean.toggled.connect(cb.setChecked)
-            cb.setMinimumHeight(28)
-            cb.setStyleSheet("QToolButton { padding: 5px 4px; }")
-            prow.addWidget(cb, 0, 3)                # one row: the three weather panels and a clean map
-        lay.addLayout(prow)
+            cb.setMinimumHeight(30)
+            lay.addWidget(cb)
         lay.addSpacing(M.ROW)
 
-        s = self.section("warnings", "Warnings")
-        s.chip(ov.get("warnings"), "Warnings", "NWS warnings on the map (rest the mouse on one for a summary, "
-                                               "click it for the full text)")
-        s.chip(ov.get("watches"), "Watches", "Tornado and severe thunderstorm watches")
-        s.chip(m.warn_loc_act, "Alert me", "Pop up a new warning that covers your location (live)")
-        s.button("Warnings panel…", lambda: m.show_panel("warnings"), "The list of warnings, with filters")
+        # (warnings and watches: the Alerts page, and the switches at the top right)
 
         s = self.section("overlays", "Radar overlays")
         s.chip(ov.get("melting_layer"), "Melting layer", "Level III melting layer rings (N0M)")

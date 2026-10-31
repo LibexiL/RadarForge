@@ -1316,6 +1316,12 @@ class Workspace(QWidget):
         if extra:
             groups[-1] += extra
         groups = [g for g in groups if g]
+        if not groups:                                 # (the side panels are in the drawer: just the map)
+            state = {"v": 1, "tree": {"t": "center"}, "floating": [], "closed": list(self._panels)}
+            for k in self._panels:
+                self._panels[k].pop("home", None)
+            self.restore(state)
+            return
         col_w = int(min(430, max(340, total_w * 0.235)))
         state = {"v": 1, "tree": {"t": "split", "o": "h", "sizes": [max(400, total_w - col_w), col_w], "c": [
             {"t": "center"},

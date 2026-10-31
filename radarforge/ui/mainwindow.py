@@ -123,7 +123,14 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.ws = Workspace(self.view.make_container(), self)
         self.ws.center_overlay = self.view.set_overlay_image     # drop zones over the (native) map
         self.view.drop_handler = self._view_drag
-        self.setCentralWidget(self.ws)
+        # the map (with the 3-D / cross-section panels beside it when open) and the drawer at the right
+        from PySide6.QtWidgets import QSplitter
+        self.body_split = QSplitter(Qt.Horizontal)
+        self.body_split.setObjectName("bodySplit")
+        self.body_split.setChildrenCollapsible(False)
+        self.body_split.setHandleWidth(1)
+        self.body_split.addWidget(self.ws)
+        self.setCentralWidget(self.body_split)
         self.frame_index = -1
         self._shown_frame = None
         self.follow_latest = True
@@ -187,6 +194,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self._build_panels()
         self._build_warning_bar()        # the warning type toggles, right end of the toolbar
         self._build_search()             # the place search box, left of Quick in the menu bar's corner
+        self._finish_header()            # the menus behind ≡, the search box and drawer button in the top bar
         self._shortcuts()
         self._show_menu_checks()
         self.setAcceptDrops(True)
@@ -195,6 +203,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.play_timer.timeout.connect(self._play_step)
         self._age_timer = QTimer(self)
         self._age_timer.timeout.connect(self._update_data_age)
+        self._age_timer.timeout.connect(self._sync_source_btn)
         self._age_timer.start(1000)
 
         # data signals
@@ -231,15 +240,13 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
                 self.restoreGeometry(bytes.fromhex(g))
             except Exception:
                 pass
-        WS_VERSION = 4          # 1.10: Quick panel; 1.20: Layers + Models, then Severe / Winter panels; one-time switch to the new default arrangement
+        WS_VERSION = 5          # 1.10: Quick panel; 1.20: Layers + Models…; 1.26: side panels in the drawer
         if int(settings["workspace_version"] or 0) < WS_VERSION or not self.ws.restore(settings["workspace"] or {}):
             self.ws.apply_default(self.width(), self.height())
             settings["workspace_version"] = WS_VERSION
-            settings["ws_roomy"] = True
-        elif not settings.get("ws_roomy"):
-            # (1.25, once) the side panels got roomier: a side column left at the old 360 px default widens
-            settings["ws_roomy"] = True
-            QTimer.singleShot(0, self.ws.widen_side_column)
+        self.drawer.restore(settings.get("drawer") or {})
+        dw = int(settings.get("drawer_width") or 400)
+        QTimer.singleShot(0, lambda: self._size_drawer(dw))
         self.lock_act.setChecked(self.ws.locked)
         self._sync_side_act()
         self.apply_theme(settings["theme"], save=False)
@@ -273,17 +280,30 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.tropical_panel = TropicalPanel(self)
         self.severe_panel = SeverePanel(self)
         self.winter_panel = WinterPanel(self)
-        for key, title, w in (("quick", "Layers", self.quick_panel),
-                              ("severe", "Severe", self.severe_panel),
-                              ("winter", "Winter", self.winter_panel),
-                              ("products", "Products", self.products_panel),
-                              ("models", "Models", self.models_panel),
-                              ("tropical", "Tropical", self.tropical_panel),
-                              ("warnings", "Warnings", self.warnings_panel),
-                              ("cells", "Storm cells", self.cells_panel),
-                              ("inspector", "Inspector", self.inspector_panel),
-                              ("placefiles", "Placefiles", self.placefile_panel)):
-            ws.register(key, title, w, "side")
+        from .drawer import Drawer
+        self.drawer = Drawer([
+            ("radar", "Radar", "radar", "What each panel shows: products, tilts and colour tables",
+             [("products", "Radar", self.products_panel)]),
+            ("layers", "Layers", "layers", "The map's layers: overlays, satellite, observations, lightning, cameras",
+             [("quick", "Layers", self.quick_panel)]),
+            ("weather", "Weather", "cloud", "Severe, winter and tropical weather: their switches, tools and "
+                                            "model maps", [("severe", "Severe", self.severe_panel),
+                                                           ("winter", "Winter", self.winter_panel),
+                                                           ("tropical", "Tropical", self.tropical_panel)]),
+            ("alerts", "Alerts", "warning", "Warnings and watches in force, and storm reports",
+             [("warnings", "Alerts", self.warnings_panel)]),
+            ("storms", "Storms", "cell", "Storm cells: where they're heading, hail and rotation",
+             [("cells", "Storms", self.cells_panel)]),
+            ("models", "Models", "models", "Forecast model maps (HRRR, NAM, RAP, GFS)",
+             [("models", "Models", self.models_panel)]),
+            ("more", "More", "info", "The value under the cursor, and placefiles",
+             [("inspector", "Inspector", self.inspector_panel), ("placefiles", "Placefiles", self.placefile_panel)]),
+        ], self)
+        self.body_split.addWidget(self.drawer)
+        self.body_split.setStretchFactor(0, 1)
+        self.body_split.setStretchFactor(1, 0)
+        self.drawer.toggled.connect(lambda on: (self._sync_side_act(), self._drawer_toggled(on)))
+        self.drawer.shown.connect(lambda _k: (self._update_l3_needs(), self.stateChanged.emit()))
         self.xs_win = CrossSectionWindow(self)
         self.xs_win.closed.connect(self._xsection_closed)
         ws.register("xsection", "Cross Section", self.xs_win, "tool")
@@ -291,28 +311,18 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.v3d_host = _Lazy3D(self)
         ws.register("3d", "3D Volume", self.v3d_host, "tool", prefer=("right", 0.48))   # beside the map, big
         ws.panelClosed.connect(self._panel_closed)
-        ws.sideToggled.connect(lambda _on: self._sync_side_act())
-        ws.layoutChanged.connect(self._sync_side_act)
         ws.layoutChanged.connect(self._update_l3_needs)
-        # the Quick panel's switch sits beside the side-panel switch in the menu bar corner (F8)
-        qa = ws.action("quick")
+        qa = self.drawer.action("quick")
         qa.setShortcut(QKeySequence("F8"))
-        qa.setToolTip("Layers panel: the map's layers, and the Severe, Winter and Tropical panels (F8)")
+        qa.setToolTip("Layers (F8)")
         self.addAction(qa)
-        self._iconize(qa, "quick")
-        qb = QToolButton()
-        qb.setDefaultAction(qa)
-        qb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        qb.setAutoRaise(True)
-        qb.setIconSize(QSize(16, 16))
-        self.corner.layout().insertWidget(0, qb)
-        self.quick_btn = qb
+        self.quick_btn = None
         # Panels menu
         pm = self.panels_menu
         pm.addAction(self.side_act)
-        self._header(pm, "Side panels")
+        self._header(pm, "In the drawer")
         for key in self.SIDE_PANELS:
-            pm.addAction(ws.action(key))
+            pm.addAction(self.drawer.action(key))
         self._header(pm, "Tool panels")
         for key in ("xsection", "3d"):
             pm.addAction(ws.action(key))
@@ -320,7 +330,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.lock_act = self._act(pm, "Lock panel layout", self._toggle_lock, None, checkable=True)
         self._act(pm, "Reset panel layout", self.reset_panel_layout, None)
         pm.addSeparator()
-        tip = pm.addAction("Tip: drag a panel's tab – drop zones show where it will go")
+        tip = pm.addAction("Tip: the 3-D and cross-section panels can be dragged by their tab")
         tip.setEnabled(False)
 
     # the warning-type toggles live at the right end of the main toolbar (they were a block in the Warnings panel)
@@ -361,19 +371,73 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         elif key == "3d" and self.v3d_win is not None:
             self.v3d_win.on_closed()
 
+    def _finish_header(self):
+        """One slim bar along the top: the menu bar is hidden, its menus go behind the ≡ button (their keyboard
+        shortcuts still work), and the place search and the drawer button move into the bar."""
+        mb = self.menuBar()
+        menu = QMenu(self.menu_btn)
+        for a in mb.actions():
+            if a.menu() is not None:
+                menu.addMenu(a.menu())
+        self.menu_btn.setMenu(menu)
+
+        def walk(m):
+            for a in m.actions():
+                if a.menu() is not None:
+                    walk(a.menu())
+                elif not a.isSeparator() and not a.shortcut().isEmpty():
+                    self.addAction(a)                 # (shortcuts of a hidden menu bar's items: kept working)
+        for a in mb.actions():
+            if a.menu() is not None:
+                walk(a.menu())
+        from PySide6.QtGui import QShortcut
+        QShortcut(QKeySequence("F10"), self, activated=self.menu_btn.showMenu)
+        corner = self.corner
+        mb.setCornerWidget(QWidget(), Qt.TopRightCorner)
+        corner.setParent(None)
+        self.main_tb.addWidget(corner)
+        mb.setVisible(False)
+
     def show_panel(self, key):
-        self.ws.show_panel(key)
+        if not self.drawer.show_key(key):
+            self.ws.show_panel(key)
+
+    def panel_open(self, key):
+        """Whether a panel is showing (in the drawer, or docked / floating)."""
+        if key in self.drawer.keys():
+            return self.drawer.is_open(key)
+        return self.ws.is_open(key)
+
+    def _size_drawer(self, w):
+        total = sum(self.body_split.sizes()) or self.width()
+        w = max(320, min(int(w), total - 400))
+        self.body_split.setSizes([total - w, w])
+
+    def _drawer_toggled(self, on):
+        """Folded: just the drawer's buttons stay (the map gets the room); open: back to its width."""
+        total = sum(self.body_split.sizes()) or self.width()
+        if on:
+            w = int(self.settings.get("drawer_width") or 400)
+            self.drawer.setMaximumWidth(16777215)
+            self._size_drawer(w)
+        else:
+            sizes = self.body_split.sizes()
+            if len(sizes) == 2 and sizes[1] > 120:
+                self.settings["drawer_width"] = sizes[1]
+            nav = self.drawer.nav.sizeHint().width()
+            self.drawer.setMaximumWidth(nav)
+            self.body_split.setSizes([total - nav, nav])
 
     def show_dock(self, key):          # older name, kept for scripts
         self.show_panel(key)
 
     def toggle_side_panel(self):
-        self.ws.toggle_side()
+        self.drawer.toggle()
         self._sync_side_act()
 
     def _sync_side_act(self):
-        if hasattr(self, "side_act") and hasattr(self, "ws"):
-            self.side_act.setChecked(self.ws.side_visible())
+        if hasattr(self, "side_act") and hasattr(self, "drawer"):
+            self.side_act.setChecked(self.drawer.is_open())
 
     def _toggle_lock(self, on):
         self.ws.locked = on
@@ -404,6 +468,8 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         icons.clear_cache()
         for target, ic in self._icon_targets:
             target.setIcon(icons.icon(ic))
+        if getattr(self, "drawer", None) is not None:
+            self.drawer.retint()
         self._update_layout_btn()
         self.play_act.setIcon(icons.icon("pause" if self.playing else "play"))
         for w in (self.ws, self.xs_win, self.v3d_host):
@@ -1454,6 +1520,10 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
     def _save_state(self):
         s = self.settings
         s["workspace"] = self.ws.state()
+        s["drawer"] = self.drawer.state()
+        sizes = self.body_split.sizes()
+        if self.drawer.is_open() and len(sizes) == 2 and sizes[1] > 120:
+            s["drawer_width"] = sizes[1]
         s["view"] = {"cx": self.view.cx, "cy": self.view.cy, "scale": self.view.scale}
         s["window_geometry"] = bytes(self.saveGeometry()).hex()
         s["panels"] = [p.product for p in self.view.panels] + list(s["panels"])[len(self.view.panels):]

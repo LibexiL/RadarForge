@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComb
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from . import metrics as M
+from .flow import flow_box
 from ..data.sites import get_site, nearest_site
 from ..features import feeds
 from ..features.warnings import FILTERS
@@ -47,8 +48,8 @@ def _chip(text, tip="", checkable=True):
     b.setToolTip(tip)
     b.setCheckable(checkable)
     b.setProperty("role", "chip")
-    b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    b.setMinimumWidth(34)
+    b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)        # as wide as its words
+    b.setMinimumWidth(30)
     return b
 
 
@@ -92,6 +93,7 @@ class ProductsPanel(QWidget):
         lay.addWidget(_section("Panel"))
         prow = QHBoxLayout()
         prow.setSpacing(M.GAP)
+        prow.setAlignment(Qt.AlignLeft)
         self.panel_group = QButtonGroup(self)
         self.panel_group.setExclusive(True)
         self.panel_btns = []
@@ -108,27 +110,23 @@ class ProductsPanel(QWidget):
         for cat in catalog.CATEGORIES:
             lay.addSpacing(M.SECTION - M.ROW)
             lay.addWidget(_section(cat))
-            grid = QGridLayout()
-            grid.setHorizontalSpacing(M.GAP)
-            grid.setVerticalSpacing(M.ROW)
+            box, grid = flow_box(M.GAP, M.ROW)
             prods = [p for p in catalog.PRODUCTS if p.category == cat]
             for k, p in enumerate(prods):
                 b = _chip(p.short, p.name + (f"\n{p.description}" if p.description else ""))
                 b.clicked.connect(lambda _=False, pid=p.id: self._product_clicked(pid))
-                grid.addWidget(b, k // 4, k % 4)
+                grid.addWidget(b)
                 self.prod_btns[p.id] = b
-            lay.addLayout(grid)
+            lay.addWidget(box)
 
         # tilts
         lay.addSpacing(M.SECTION - M.ROW)
         self.tilt_title = _section("Tilt")
         lay.addWidget(self.tilt_title)
-        self.tilt_grid = QGridLayout()
-        self.tilt_grid.setHorizontalSpacing(M.GAP)
-        self.tilt_grid.setVerticalSpacing(M.ROW)
+        self._tilt_box, self.tilt_grid = flow_box(M.GAP, M.ROW)
         self.tilt_btns = []
         self._tilt_labels = None
-        lay.addLayout(self.tilt_grid)
+        lay.addWidget(self._tilt_box)
 
         # colour table + storm motion
         lay.addSpacing(M.SECTION - M.ROW)
@@ -231,13 +229,13 @@ class ProductsPanel(QWidget):
             for i, lab in enumerate(labels):
                 b = _chip(lab.replace(" ×", "×"), "Show this elevation angle")
                 b.clicked.connect(lambda _=False, i=i: self._tilt_clicked(i))
-                self.tilt_grid.addWidget(b, i // 4, i % 4)
+                self.tilt_grid.addWidget(b)
                 self.tilt_btns.append(b)
         els = m._tilt_elevs(frame)
         cur = int(np.argmin(np.abs(np.array(els) - m.tilt_elev))) if els else -1
         for i, b in enumerate(self.tilt_btns):
             b.setChecked(i == cur)
-        self.tilt_title.setText("TILT" + ("" if catalog.get(pid).tilted else "  (not used by this product)"))
+        self.tilt_title.setText("Tilt" + ("" if catalog.get(pid).tilted else "  (not used by this product)"))
         # colour table
         path = m.settings["palette_overrides"].get(pid)
         import os
@@ -285,6 +283,24 @@ class WarningsPanel(QWidget):
         self._filter_box = QWidget(w)
         self._filter_box.setLayout(frow)
         self._filter_box.hide()
+        # the master switches: warnings / watches on the map, and the pop-up for my location
+        sw = QHBoxLayout()
+        sw.setSpacing(M.GAP)
+        self.master = []
+        for key, label, tip in (("warnings", "Warnings on the map", "NWS warnings on the map (rest the mouse on one "
+                                                                   "for a summary, click it for the full text)"),
+                                ("watches", "Watches", "Tornado and severe thunderstorm watches"),
+                                ("alertme", "Alert me", "Pop up a new warning that covers your location (live)")):
+            act = main.warn_loc_act if key == "alertme" else main.overlay_acts.get(key)
+            if act is None:
+                continue
+            b = _chip(label, tip)
+            b.setChecked(act.isChecked())
+            b.toggled.connect(lambda on, a=act: a.setChecked(on) if a.isChecked() != on else None)
+            act.toggled.connect(lambda on, b=b: b.setChecked(on) if b.isChecked() != on else None)
+            sw.addWidget(b)
+            self.master.append(b)
+        wl.addLayout(sw)
         row2 = QHBoxLayout()
         self.in_view = QCheckBox("Only in view")
         self.in_view.setChecked(bool(main.settings["warnings_in_view"]))

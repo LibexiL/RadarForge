@@ -178,5 +178,5 @@ class WarningToggles(QWidget):
         m.addAction("Show all types", lambda: [self.set_on(j, True) for j in range(len(self.items))])
         if self.open_panel is not None:
             m.addSeparator()
-            m.addAction("Warnings panel…", self.open_panel)
+            m.addAction("Alerts…", self.open_panel)
         m.exec(gpos)

@@ -179,7 +179,7 @@ class SettingsDialog(QDialog):
         self.legend = QCheckBox("Show colour bars")
         self.legend.setChecked(bool(s["show_legend"]))
         f.addRow("Panels", self.legend)
-        f.addRow("", _hint("These are also on the toolbar and in the Quick panel (F8)."))
+        f.addRow("", _hint("These are also on the tool rail at the left and in the drawer (Layers, F8)."))
         self.maps_under = QCheckBox("Draw roads, borders and lakes under the radar data")
         self.maps_under.setChecked(bool(s["maps_under_radar"]))
         f.addRow("Map lines", self.maps_under)
@@ -192,7 +192,7 @@ class SettingsDialog(QDialog):
     def _page_data_layers(self):
         from ..features import mrms, satellite
         w, lay = _page("Data layers", "Satellite, lightning, MRMS and camera options. Switch the layers themselves "
-                                      "on and off from the Layers menu or the Quick panel (F8).")
+                                      "on and off from the Layers menu or the drawer (Layers, F8).")
         f = _form()
         s = self.s
         self.sat_channel = QComboBox()

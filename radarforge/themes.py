@@ -521,7 +521,7 @@ QMenu::separator { height: 1px; background: %(border)s; margin: 5px 8px; }
 QMenu::section { color: %(dim)s; padding: 6px 10px 2px 10px; font-weight: 600; }
 
 /* ---- buttons */
-QPushButton { background: %(button)s; border: 1px solid %(border)s; border-radius: 6px; padding: 5px 14px; }
+QPushButton { background: %(button)s; border: 1px solid %(border)s; border-radius: 6px; padding: 4px 12px; }
 QPushButton:hover { background: %(btn_hi)s; border-color: %(edge)s; }
 QPushButton:pressed { background: %(press)s; }
 QPushButton:checked { background: %(acc_soft)s; border-color: transparent; color: %(acc_fg)s; }
@@ -530,7 +530,7 @@ QPushButton:default:hover { background: %(acc_hi)s; border-color: %(acc_hi)s; }
 QPushButton:disabled { color: %(dim_soft)s; background: transparent; }
 QToolButton { border-radius: 6px; }
 QToolButton[role="chip"] { background: %(chip)s; border: 1px solid transparent; border-radius: 6px;
-    padding: 5px 10px; color: %(text)s; }
+    padding: 3px 9px; color: %(text)s; }
 QToolButton[role="chip"]:hover { background: %(hover2)s; border-color: %(edge)s; }
 QToolButton[role="chip"]:pressed { background: %(press)s; }
 QToolButton[role="chip"]:checked { background: %(acc_soft)s; color: %(acc_fg)s; }
@@ -622,4 +622,27 @@ QFrame[role="line"] { color: %(border)s; background: %(border)s; max-height: 1px
 QScrollArea { border: none; background: transparent; }
 QScrollArea > QWidget > QWidget { background: transparent; }
 QDialogButtonBox QPushButton { min-width: 76px; }
+
+/* ---- map-first layout: the tool rail (left), the drawer (right) */
+QToolBar#tool_rail { background: %(header)s; border: none; border-right: 1px solid %(border)s; padding: 8px 5px;
+    spacing: 4px; }
+QToolBar#tool_rail QToolButton { padding: 7px; border-radius: 9px; margin: 0 1px; }
+QToolBar#tool_rail QToolButton:checked { background: %(acc_soft)s; }
+QToolBar#tool_rail::separator { background: %(border)s; height: 1px; margin: 7px 6px; }
+QToolButton[role="menubtn"] { padding: 5px 7px; border-radius: 8px; }
+QToolButton[role="source"] { padding: 4px 22px 4px 10px; border-radius: 13px; border: 1px solid %(border)s; }
+QToolButton[role="source"][live="true"] { color: %(acc_fg)s; background: %(acc_soft)s; border-color: transparent; }
+QToolButton[role="menubtn"]::menu-indicator { image: none; width: 0; }
+QSplitter#bodySplit::handle { background: %(border)s; }
+QFrame#drawerBody { background: %(window)s; border: none; }
+QFrame#drawerNav { background: %(header)s; border: none; border-left: 1px solid %(border)s; }
+QWidget#drawerHead { background: %(window)s; }
+QLabel[role="drawerTitle"] { font-size: 15px; font-weight: 600; }
+QToolButton[role="drawerNav"] { color: %(dim)s; padding: 9px 2px 7px 2px; border-radius: 10px; border: none;
+    font-size: 11px; }
+QToolButton[role="drawerNav"]:hover { background: %(hover)s; color: %(text)s; }
+QToolButton[role="drawerNav"]:checked { background: %(acc_soft)s; color: %(acc_fg)s; }
+QToolButton[role="drawerNav"][folded="true"]:checked { background: transparent; color: %(dim)s; }
+QToolButton[role="drawerNav"][folded="true"]:checked:hover { background: %(hover)s; color: %(text)s; }
+QToolButton[role="viewswitch"][side="mid"] { border-left: none; border-radius: 0; }
 """ % dict(c, arrows=arrow)

@@ -254,6 +254,39 @@ def _layers(p, col, pen):
         p.drawPolygon(QPolygonF([QPointF(12, 4 + dy), QPointF(20, 8 + dy), QPointF(12, 12 + dy), QPointF(4, 8 + dy)]))
 
 
+def _menu(p, col, pen):
+    for y in (7, 12, 17):
+        p.drawLine(QPointF(5, y), QPointF(19, y))
+
+
+def _cloud(p, col, pen):
+    path = QPainterPath()
+    path.moveTo(7, 17)
+    path.cubicTo(3.5, 17, 3, 12, 6.5, 11.5)
+    path.cubicTo(7, 7.5, 12.5, 6, 14.5, 9.5)
+    path.cubicTo(18.5, 8.5, 21, 12, 19.5, 14.5)
+    path.cubicTo(21, 16.5, 19, 17.5, 17.5, 17)
+    path.closeSubpath()
+    p.drawPath(path)
+    p.drawLine(QPointF(9, 19.5), QPointF(8, 21.5))
+    p.drawLine(QPointF(13, 19.5), QPointF(12, 21.5))
+    p.drawLine(QPointF(17, 19.5), QPointF(16, 21.5))
+
+
+def _cell(p, col, pen):
+    p.drawEllipse(QPointF(12, 12), 7.5, 7.5)
+    p.drawEllipse(QPointF(12, 12), 3.5, 3.5)
+    _fill(p, col)
+    p.drawEllipse(QPointF(12, 12), 1.2, 1.2)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+
+
+def _close(p, col, pen):
+    p.drawLine(QPointF(7, 7), QPointF(17, 17))
+    p.drawLine(QPointF(17, 7), QPointF(7, 17))
+
+
 def _palette(p, col, pen):
     p.drawRoundedRect(QRectF(3, 7, 18, 10), 2, 2)
     for i, a in enumerate((60, 110, 170, 230)):
@@ -500,6 +533,7 @@ _DRAW = {
     "quick": _quick, "pin": _pin, "camera": _camera, "bolt": _bolt, "satellite": _satellite, "image": _image,
     "film": _film, "info": _info, "refresh": _refresh, "star": _star, "flag": _flag, "book": _book, "chart": _chart,
     "sounding": _sounding, "target": _target, "keyboard": _keyboard,
+    "menu": _menu, "cloud": _cloud, "cell": _cell, "close": _close,
 }
 for _n in range(1, 7):
     _DRAW[f"layout{_n}"] = _layout(_n)

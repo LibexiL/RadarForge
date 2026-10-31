@@ -17,11 +17,12 @@ STEPS = [
      "<span style='color:#e0e000'><b>yellow</b></span> severe thunderstorm, "
      "<span style='color:#30d030'><b>green</b></span> flash flood. Shaded counties are winter and tropical alerts. "
      "Click any of them for the full text."),
-    ("Weather panels",
-     "The side panels have one tab per kind of weather: <b>Severe</b> (warnings, reports, SPC, storm tools), "
-     "<b>Winter</b> (precipitation type, freezing line, snow) and <b>Tropical</b> (hurricanes). Each has a "
-     "one-click setup at the top and buttons for its model maps. <b>Layers</b> (F8) holds the rest: satellite, "
-     "overlays, display and map."),
+    ("The drawer",
+     "Everything else is in the drawer at the right. Its buttons pick what it shows: <b>Radar</b> (products and "
+     "tilts), <b>Layers</b>, <b>Weather</b> (Severe, Winter and Tropical, each with a one-click setup and its "
+     "model maps), <b>Alerts</b>, <b>Storms</b> and <b>Models</b>. Click the button that's on (or F9) to fold "
+     "the drawer away and give the map the whole window. The tools (cross section, measure, storm track, 3-D) "
+     "are down the left; every menu is behind <b>≡</b> at the top left (F10)."),
     ("Models",
      "The <b>Models</b> button (or F6) switches to forecast maps from the HRRR, NAM, RAP and GFS. The quickest way "
      "in: <b>Severe → Severe set</b> shows CAPE, helicity, shear and STP side by side. ← → step the forecast hours, "

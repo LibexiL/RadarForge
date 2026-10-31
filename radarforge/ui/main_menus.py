@@ -144,6 +144,22 @@ class MenusMixin:
         self.addToolBar(tb)
         self.main_tb = tb
         self._icon_targets = []           # (action or button, icon name) re-tinted when the theme changes
+        # ≡: every menu (the menu bar itself is hidden: the map gets the room)
+        self.menu_btn = QToolButton()
+        self.menu_btn.setToolTip("Menu: File, View, Radar, Models, Layers, Tools, Panels, Help (F10)")
+        self.menu_btn.setPopupMode(QToolButton.InstantPopup)
+        self.menu_btn.setProperty("role", "menubtn")
+        self._icon_targets.append((self.menu_btn, "menu"))
+        tb.addWidget(self.menu_btn)
+        # the tools down the left of the map
+        self.rail = QToolBar("Tools", self)
+        self.rail.setObjectName("tool_rail")
+        self.rail.setOrientation(Qt.Vertical)
+        self.rail.setMovable(False)
+        self.rail.setFloatable(False)
+        self.rail.setIconSize(QSize(20, 20))
+        self.rail.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.addToolBar(Qt.LeftToolBarArea, self.rail)
         self._build_view_switch(tb)       # [Radar] [Models]
 
         # radar + data source
@@ -161,18 +177,28 @@ class MenusMixin:
         self.live_act = QAction("Live", self, checkable=True)
         self.live_act.setToolTip("Real-time data from AWS (Level II chunks + Level III). F5 reloads it.")
         self.live_act.toggled.connect(self._toggle_live)
-        self._tb_button(tb, self.live_act)
         self._icon_targets.append((self.live_act, "live"))
-        self.archive_act = QAction("Archive", self)
+        self.archive_act = QAction("Archive…", self)
         self.archive_act.setToolTip("Load past data from the AWS archive (Ctrl+A)")
         self.archive_act.triggered.connect(self.open_archive)
-        self._tb_button(tb, self.archive_act)
         self._icon_targets.append((self.archive_act, "archive"))
-        self.open_act = QAction("Open", self)
+        self.open_act = QAction("Open files…", self)
         self.open_act.setToolTip("Open Level II / Level III files (Ctrl+O)")
         self.open_act.triggered.connect(self.open_files)
-        self._tb_button(tb, self.open_act)
         self._icon_targets.append((self.open_act, "open"))
+        # one button for where the data comes from: shows "Live" / "Archive" / "Files", its menu switches
+        self.source_btn = QToolButton()
+        self.source_btn.setPopupMode(QToolButton.InstantPopup)
+        self.source_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.source_btn.setProperty("role", "source")
+        self.source_btn.setToolTip("Where the radar data comes from: live, the archive, or files")
+        sm = QMenu(self.source_btn)
+        sm.addAction(self.live_act)
+        sm.addAction(self.archive_act)
+        sm.addAction(self.open_act)
+        self.source_btn.setMenu(sm)
+        tb.addWidget(self.source_btn)
+        self._sync_source_btn()
         tb.addSeparator()
 
         # layout: one button with a menu (the six layouts used to take six buttons)
@@ -231,15 +257,15 @@ class MenusMixin:
             act.setChecked(tool == "pan")
             act.triggered.connect(lambda _=False, t=tool: self.set_tool(t))
             self.tool_group.addAction(act)
-            self._tb_button(tb, act)
+            self._tb_button(self.rail, act, text_beside=False)
             self._icon_targets.append((act, ic))
-        tb.addSeparator()
+        self.rail.addSeparator()
         self.sm_act = QAction("", self)
         self.sm_act.triggered.connect(self.edit_storm_motion)
-        self._tb_button(tb, self.sm_act)
+        self._tb_button(self.rail, self.sm_act, text_beside=False)
         self._icon_targets.append((self.sm_act, "motion"))
         self._update_sm_label()
-        tb.addSeparator()
+        self.rail.addSeparator()
 
         # display switches (GR2Analyst-style): smoothing, velocity dealiasing, max-value trail
         self.smooth_act = QAction("Smoothing", self, checkable=True)
@@ -261,14 +287,14 @@ class MenusMixin:
                                   "strongest winds (CC shows its lowest: debris trails)")
         self.trail_act.toggled.connect(self._toggle_trail)
         for a, ic in ((self.smooth_act, "smooth"), (self.dealias_act, "dealias"), (self.trail_act, "trail")):
-            self._tb_button(tb, a, text_beside=False)
+            self._tb_button(self.rail, a, text_beside=False)
             self._icon_targets.append((a, ic))
         self._build_models_toolbar(tb)    # model / run / area pickers (shown in the Models view)
 
         # panel switches live in the menu bar's free right-hand corner, so they're never pushed off a
         # narrow window: [Quick] [Side panel] (Quick is added once the panels exist)
-        self.side_act = QAction("Side panel", self, checkable=True)
-        self.side_act.setToolTip("Show / hide the side panel (F9)")
+        self.side_act = QAction("Drawer", self, checkable=True)
+        self.side_act.setToolTip("Open / fold away the drawer at the right (F9)")
         self.side_act.setShortcut(QKeySequence("F9"))
         self.side_act.triggered.connect(self.toggle_side_panel)
         self.addAction(self.side_act)
@@ -291,6 +317,30 @@ class MenusMixin:
         if getattr(self, "layout_btn", None) is not None:
             self.layout_btn.setIcon(icons.icon(f"layout{n}"))
             self.layout_btn.setToolTip(f"Panel layout: {LAYOUT_NAMES.get(n, n)} (keys 1 … 6)")
+
+    def _sync_source_btn(self):
+        """The data-source button's words and icon follow the mode (called every second, cheaply)."""
+        b = getattr(self, "source_btn", None)
+        if b is None:
+            return
+        mode = getattr(getattr(self, "data", None), "mode", "")
+        if self.live_act.isChecked() or mode == "live":
+            text, ic = "Live", "live"
+        elif mode == "archive":
+            text, ic = "Archive", "archive"
+        elif mode == "files":
+            text, ic = "Files", "open"
+        elif getattr(getattr(self, "data", None), "frames", None):
+            text, ic = "Files", "open"
+        else:
+            text, ic = "Data", "open"
+        if b.text() != text:
+            from . import icons
+            b.setText(text)
+            b.setIcon(icons.icon(ic))
+            b.setProperty("live", text == "Live")
+            b.style().unpolish(b)
+            b.style().polish(b)
 
     def _fit_toolbar(self):
         """Narrow windows: first drop the words beside the toolbar icons, then shorten the radar and storm
@@ -819,7 +869,7 @@ class MenusMixin:
                      ("right-click", "product, colour table, sounding, storm tools, nearest radar")]),
             ("Views", [("F6", "switch between the Radar and Models views"),
                        ("← / → (Models)", "previous / next forecast hour; Space plays them")]),
-            ("Window", [("F8", "Layers panel"), ("F9", "show / hide the side panel"), ("F11", "full screen"),
+            ("Window", [("F8", "Layers"), ("F9", "open / fold away the drawer"), ("F10", "the menu"), ("F11", "full screen"),
                         ("F1", "this list")]),
             ("Data & files", [("F5", "reload live data"), ("Ctrl+O", "open files"), ("Ctrl+A", "archive"),
                               ("Ctrl+R", "choose radar"), ("Ctrl+D", "add / remove favourite radar"),
