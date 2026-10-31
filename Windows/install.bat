@@ -21,7 +21,10 @@ set "VENV=%APPDIR%\venv"
 
 rem ---- find 64-bit Python 3.10 or newer ---------------------------------------
 set "PY="
-py -3 scripts\check_python.py >nul 2>nul && set "PY=py -3"
+rem prefer versions every dependency ships ready-built for: the newest Python (e.g. a fresh 3.15) can lack
+rem wheels for h5py/SciPy, and then pip tries to compile them and fails
+for %%V in (3.13 3.12 3.14 3.11 3.10) do if not defined PY py -%%V scripts\check_python.py >nul 2>nul && set "PY=py -%%V"
+if not defined PY py -3 scripts\check_python.py >nul 2>nul && set "PY=py -3"
 if not defined PY python scripts\check_python.py >nul 2>nul && set "PY=python"
 if not defined PY goto :nopython
 echo.

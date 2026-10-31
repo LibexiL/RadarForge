@@ -12,6 +12,9 @@
 - The drawer folds away when its page pops out, so the map gets the room.
 - **The drawer's edge is a proper grab handle** now (wider, and it lights up under the mouse), so dragging the
   drawer wider or narrower is easy.
+- **Windows install.bat / run.bat no longer fail on PCs with a brand-new Python** (such as 3.15): they now pick
+  a Python version that every dependency has ready-made downloads for (3.13, 3.12, 3.14, 3.11 or 3.10) when one
+  is installed, instead of always the newest.
 
 ## 1.26.1 – 2026-10-31
 

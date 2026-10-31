@@ -13,7 +13,10 @@ set "VENV=%~dp0.venv"
 if exist "%VENV%\Scripts\python.exe" goto :run
 
 set "PY="
-py -3 "%ROOT%\scripts\check_python.py" >nul 2>nul && set "PY=py -3"
+rem prefer versions every dependency ships ready-built for: the newest Python (e.g. a fresh 3.15) can lack
+rem wheels for h5py/SciPy, and then pip tries to compile them and fails
+for %%V in (3.13 3.12 3.14 3.11 3.10) do if not defined PY py -%%V "%ROOT%\scripts\check_python.py" >nul 2>nul && set "PY=py -%%V"
+if not defined PY py -3 "%ROOT%\scripts\check_python.py" >nul 2>nul && set "PY=py -3"
 if not defined PY python "%ROOT%\scripts\check_python.py" >nul 2>nul && set "PY=python"
 if not defined PY (
   echo Python 3.10 or newer was not found.
