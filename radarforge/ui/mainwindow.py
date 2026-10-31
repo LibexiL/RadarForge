@@ -128,7 +128,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.body_split = QSplitter(Qt.Horizontal)
         self.body_split.setObjectName("bodySplit")
         self.body_split.setChildrenCollapsible(False)
-        self.body_split.setHandleWidth(1)
+        self.body_split.setHandleWidth(6)            # (a grab-able edge: drag it to make the drawer wider)
         self.body_split.addWidget(self.ws)
         self.setCentralWidget(self.body_split)
         self.frame_index = -1
@@ -244,6 +244,9 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         if int(settings["workspace_version"] or 0) < WS_VERSION or not self.ws.restore(settings["workspace"] or {}):
             self.ws.apply_default(self.width(), self.height())
             settings["workspace_version"] = WS_VERSION
+        for key in self.drawer.keys():
+            if self.ws.is_open(key):
+                self.drawer.take_out(key)              # (the saved layout has it out of the drawer)
         self.drawer.restore(settings.get("drawer") or {})
         dw = int(settings.get("drawer_width") or 400)
         QTimer.singleShot(0, lambda: self._size_drawer(dw))
@@ -304,6 +307,12 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.body_split.setStretchFactor(1, 0)
         self.drawer.toggled.connect(lambda on: (self._sync_side_act(), self._drawer_toggled(on)))
         self.drawer.shown.connect(lambda _k: (self._update_l3_needs(), self.stateChanged.emit()))
+        # any drawer panel can come out as a window of its own (and be docked anywhere by its tab); closing it
+        # puts it back
+        for key in self.drawer.keys():
+            ws.register_external(key, self.drawer._titles.get(key, key), self.drawer._slots[key].panel, "drawer")
+        self.drawer.popOut.connect(self._pop_out_panel)
+        self.drawer.putBack.connect(lambda k: self.ws.close_panel(k) if self.ws.is_open(k) else None)
         self.xs_win = CrossSectionWindow(self)
         self.xs_win.closed.connect(self._xsection_closed)
         ws.register("xsection", "Cross Section", self.xs_win, "tool")
@@ -311,6 +320,7 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         self.v3d_host = _Lazy3D(self)
         ws.register("3d", "3D Volume", self.v3d_host, "tool", prefer=("right", 0.48))   # beside the map, big
         ws.panelClosed.connect(self._panel_closed)
+        ws.panelClosed.connect(self._drawer_panel_closed)
         ws.layoutChanged.connect(self._update_l3_needs)
         qa = self.drawer.action("quick")
         qa.setShortcut(QKeySequence("F8"))
@@ -399,14 +409,36 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
         mb.setVisible(False)
 
     def show_panel(self, key):
-        if not self.drawer.show_key(key):
+        if key in self.drawer.keys() and self.ws.is_open(key):
+            self.ws.show_panel(key)                    # (out of the drawer: bring its window / dock forward)
+        elif not self.drawer.show_key(key):
             self.ws.show_panel(key)
 
     def panel_open(self, key):
         """Whether a panel is showing (in the drawer, or docked / floating)."""
         if key in self.drawer.keys():
-            return self.drawer.is_open(key)
+            return self.ws.is_open(key) or self.drawer.is_open(key)
         return self.ws.is_open(key)
+
+    def _pop_out_panel(self, key, gpos):
+        """A drawer panel into a window of its own at [gpos] (the drawer page shows a note meanwhile)."""
+        from PySide6.QtCore import QPoint, QSize
+        if self.ws.is_open(key):
+            self.ws.show_panel(key)
+            return
+        w = self.drawer.take_out(key)
+        w.setParent(self.ws)
+        size = QSize(max(340, self.drawer.width() - 60), max(420, min(720, self.height() - 160)))
+        self.ws.float_panel(key, gpos - QPoint(size.width() // 2, 14), size)
+        self.drawer.set_open(False)            # the panel took its page with it: give the map the room back
+        self._status_msg(f"{self.drawer._titles.get(key, key)} is in its own window: drag its tab to dock it "
+                         "anywhere, close it to put it back in the drawer")
+
+    def _drawer_panel_closed(self, key):
+        """A panel taken out of the drawer was closed: back into the drawer it goes."""
+        if key in self.drawer.keys():
+            self.drawer.put_back(key, self.ws.widget(key))
+            self.drawer.show_key(key)
 
     def _size_drawer(self, w):
         total = sum(self.body_split.sizes()) or self.width()

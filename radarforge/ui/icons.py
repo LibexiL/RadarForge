@@ -282,6 +282,13 @@ def _cell(p, col, pen):
     p.setBrush(Qt.NoBrush)
 
 
+def _popout(p, col, pen):
+    p.drawRoundedRect(QRectF(4, 7, 13, 13), 2, 2)
+    p.drawLine(QPointF(11, 13), QPointF(20, 4))
+    p.drawLine(QPointF(14, 4), QPointF(20, 4))
+    p.drawLine(QPointF(20, 4), QPointF(20, 10))
+
+
 def _close(p, col, pen):
     p.drawLine(QPointF(7, 7), QPointF(17, 17))
     p.drawLine(QPointF(17, 7), QPointF(7, 17))
@@ -533,7 +540,7 @@ _DRAW = {
     "quick": _quick, "pin": _pin, "camera": _camera, "bolt": _bolt, "satellite": _satellite, "image": _image,
     "film": _film, "info": _info, "refresh": _refresh, "star": _star, "flag": _flag, "book": _book, "chart": _chart,
     "sounding": _sounding, "target": _target, "keyboard": _keyboard,
-    "menu": _menu, "cloud": _cloud, "cell": _cell, "close": _close,
+    "menu": _menu, "cloud": _cloud, "cell": _cell, "close": _close, "popout": _popout,
 }
 for _n in range(1, 7):
     _DRAW[f"layout{_n}"] = _layout(_n)

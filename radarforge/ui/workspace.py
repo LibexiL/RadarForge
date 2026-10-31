@@ -561,6 +561,13 @@ class Workspace(QWidget):
         widget.windowTitleChanged.connect(lambda t, k=key: self._title_changed(k, t))
         self.closed.add(key)
 
+    def register_external(self, key, title, widget, group="drawer"):
+        """A panel that lives elsewhere (the drawer) until it's taken out: not moved, not hidden now."""
+        act = QAction(title, self, checkable=True)
+        act.triggered.connect(lambda on, k=key: self.show_panel(k) if on else self.close_panel(k))
+        self._panels[key] = {"title": title, "widget": widget, "group": group, "action": act, "prefer": None}
+        self.closed.add(key)
+
     def keys(self):
         return list(self._panels)
 

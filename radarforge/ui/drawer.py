@@ -7,12 +7,81 @@ at a time: no stacks of tabs.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QButtonGroup, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QStackedWidget,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from . import icons
+
+
+class _Slot(QStackedWidget):
+    """Holds one panel - or, while the panel is out of the drawer (a window of its own, or docked by the map), a
+    note saying so with a button to put it back."""
+
+    def __init__(self, key, title, widget, put_back):
+        super().__init__()
+        self.key, self.panel = key, widget
+        self.addWidget(widget)
+        note = QWidget()
+        v = QVBoxLayout(note)
+        v.setContentsMargins(24, 40, 24, 24)
+        v.setSpacing(12)
+        lab = QLabel(f"{title} is out of the drawer: it's in its own window, or docked beside the map.")
+        lab.setWordWrap(True)
+        lab.setProperty("role", "hint")
+        v.addWidget(lab)
+        b = QPushButton("Put it back in the drawer")
+        b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        b.clicked.connect(lambda: put_back(key))
+        v.addWidget(b)
+        v.addStretch(1)
+        self.note = note
+        self.addWidget(note)
+
+    def is_out(self):
+        return self.currentWidget() is self.note
+
+    def take_out(self):
+        if self.indexOf(self.panel) >= 0:
+            self.removeWidget(self.panel)
+        self.setCurrentWidget(self.note)
+
+    def put_back(self, widget=None):
+        w = widget or self.panel
+        self.panel = w
+        if self.indexOf(w) < 0:
+            self.insertWidget(0, w)
+        w.show()
+        self.setCurrentWidget(w)
+
+
+class _Head(QWidget):
+    """The drawer's title line: drag it out of the drawer to give the panel a window of its own."""
+    dragged_out = Signal(QPoint)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("drawerHead")
+        self.setCursor(Qt.OpenHandCursor)
+        self.setToolTip("Drag this title out of the drawer to put the panel in a window of its own "
+                        "(then dock it anywhere by its tab)")
+        self._press = None
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self._press = ev.globalPosition().toPoint()
+        super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        if self._press is not None and (ev.globalPosition().toPoint() - self._press).manhattanLength() > 24:
+            self._press = None
+            self.dragged_out.emit(ev.globalPosition().toPoint())
+        super().mouseMoveEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        self._press = None
+        super().mouseReleaseEvent(ev)
 
 
 class _Switch(QWidget):
@@ -70,6 +139,8 @@ class Drawer(QWidget):
     get a switch along the top."""
     toggled = Signal(bool)            # opened / folded away
     shown = Signal(str)               # the panel key now showing
+    popOut = Signal(str, QPoint)      # take this panel out of the drawer (a window of its own, at this point)
+    putBack = Signal(str)             # the panel out of the drawer should come back
 
     def __init__(self, sections, parent=None):
         super().__init__(parent)
@@ -79,6 +150,7 @@ class Drawer(QWidget):
         self._where = {}              # panel key -> section key
         self._titles = {}
         self._actions = {}
+        self._slots = {}              # panel key -> _Slot
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -89,13 +161,22 @@ class Drawer(QWidget):
         bl = QVBoxLayout(self.body)
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(0)
-        head = QWidget()
-        head.setObjectName("drawerHead")
+        head = _Head()
+        head.dragged_out.connect(lambda gpos: self._pop_out_current(gpos))
         hl = QHBoxLayout(head)
         hl.setContentsMargins(16, 10, 8, 4)
         self.title = QLabel()
         self.title.setProperty("role", "drawerTitle")
         hl.addWidget(self.title, 1)
+        pop = QToolButton()
+        pop.setIcon(icons.icon("popout"))
+        pop.setIconSize(QSize(14, 14))
+        pop.setAutoRaise(True)
+        pop.setToolTip("Put this panel in a window of its own (dock it anywhere by its tab; close it to bring "
+                       "it back to the drawer)")
+        pop.clicked.connect(lambda: self._pop_out_current(None))
+        self._pop_btn = pop
+        hl.addWidget(pop)
         close = QToolButton()
         close.setIcon(icons.icon("close"))
         close.setIconSize(QSize(14, 14))
@@ -133,10 +214,13 @@ class Drawer(QWidget):
             self.nav_group.addButton(b)
             self.nav_btns[key] = b
             nl.addWidget(b)
-            if len(parts) == 1:
-                w = parts[0][2]
+            slots = [(pk, title, _Slot(pk, title, pw, self.putBack.emit)) for pk, title, pw in parts]
+            for pk, _t, slot in slots:
+                self._slots[pk] = slot
+            if len(slots) == 1:
+                w = slots[0][2]
             else:
-                w = _Switch(parts)
+                w = _Switch(slots)
                 w.changed.connect(lambda k: (self._sync_title(), self.shown.emit(k)))
             idx = self.stack.addWidget(w)
             self._sections[key] = (idx, w, [p[0] for p in parts])
@@ -231,11 +315,32 @@ class Drawer(QWidget):
             self._sync_title()
         return a
 
+    # ------------------------------------------------------------------ panels out of the drawer
+    def _pop_out_current(self, gpos):
+        key = self.current_key()
+        if not self._slots[key].is_out():
+            self.popOut.emit(key, gpos if gpos is not None else self.mapToGlobal(QPoint(-420, 40)))
+
+    def is_out(self, panel_key):
+        s = self._slots.get(panel_key)
+        return s is not None and s.is_out()
+
+    def take_out(self, panel_key):
+        """The panel's widget, taken out (its page shows a note meanwhile)."""
+        s = self._slots[panel_key]
+        w = s.panel
+        s.take_out()
+        return w
+
+    def put_back(self, panel_key, widget=None):
+        self._slots[panel_key].put_back(widget)
+
     def retint(self):
         """New theme: the buttons' icons in the new text colour."""
         for b in self.nav_btns.values():
             b.setIcon(icons.icon(b.property("iconName")))
         self._close_btn.setIcon(icons.icon("close"))
+        self._pop_btn.setIcon(icons.icon("popout"))
 
     def state(self) -> dict:
         return {"open": self._open, "section": self._current, "part": self.current_key()}

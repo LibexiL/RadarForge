@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.26.2 – 2026-10-31
+
+**Panels can be dragged out and resized again.**
+
+- **Pop any drawer page out into its own window:** drag its title out of the drawer, or click the new pop-out
+  button beside ×. The window can be moved and resized, or docked beside the map by dragging its tab, just like
+  the old panels.
+- **Close it and it goes back into the drawer.** The layout is remembered: a panel you left out is still out next
+  time you start RadarForge.
+- The drawer folds away when its page pops out, so the map gets the room.
+- **The drawer's edge is a proper grab handle** now (wider, and it lights up under the mouse), so dragging the
+  drawer wider or narrower is easy.
+
 ## 1.26.1 – 2026-10-31
 
 - The automatic code checks on GitHub pass again (unused imports left over from the layout work).

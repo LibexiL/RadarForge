@@ -633,7 +633,8 @@ QToolButton[role="menubtn"] { padding: 5px 7px; border-radius: 8px; }
 QToolButton[role="source"] { padding: 4px 22px 4px 10px; border-radius: 13px; border: 1px solid %(border)s; }
 QToolButton[role="source"][live="true"] { color: %(acc_fg)s; background: %(acc_soft)s; border-color: transparent; }
 QToolButton[role="menubtn"]::menu-indicator { image: none; width: 0; }
-QSplitter#bodySplit::handle { background: %(border)s; }
+QSplitter#bodySplit::handle { background: %(header)s; border-left: 1px solid %(border)s; }
+QSplitter#bodySplit::handle:hover { background: %(acc_line)s; border: none; }
 QFrame#drawerBody { background: %(window)s; border: none; }
 QFrame#drawerNav { background: %(header)s; border: none; border-left: 1px solid %(border)s; }
 QWidget#drawerHead { background: %(window)s; }
