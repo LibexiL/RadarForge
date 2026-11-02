@@ -8,11 +8,12 @@ from __future__ import annotations
 import html
 import re
 import threading
+import time
 from datetime import datetime, timezone
 
 import numpy as np
-from PySide6.QtCore import QObject, QPoint, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication, QPalette
+from PySide6.QtCore import QObject, QPoint, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QGuiApplication, QImage, QPalette, QTextDocument
 from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
                                QTextBrowser, QVBoxLayout)
 
@@ -85,6 +86,41 @@ def item_rgb(it, main) -> tuple:
     return feeds.CAT_RGB.get(o.get("cat"), (200, 200, 200))
 
 
+def graphic_source(it):
+    """Where the issuer's pictures of [it] live: dict(key, page, token, fallbacks, limit, who), or None.
+    SPC watches (the threat/exposure graphic and the county map), mesoscale discussions and outlooks."""
+    k, o = it["kind"], it["obj"]
+    now = datetime.now(timezone.utc)
+    if k == "mcd" and o.get("number"):
+        n, year = int(o["number"]), (o.get("issue") or now).year
+        return dict(key=f"mcd:{year}:{n}", page=feeds.mcd_page(n, year), token=f"mcd{n:04d}",
+                    fallbacks=(f"mcd{n:04d}.png",), limit=2, who="SPC")
+    if k == "alert" and o.event.endswith("Watch"):
+        ek = W.event_key(o.key)
+        if len(ek) == 4 and ek[2] == "A" and ek[1] in ("TO", "SV"):
+            n, year = ek[3], (o.issued or now).year
+            return dict(key=f"ww:{year}:{n}", page=feeds.watch_page(n, year), token=f"ww{n:04d}",
+                        fallbacks=(f"ww{n:04d}_radar.gif",), limit=3, who="SPC")
+    if k == "outlook" and o.get("day"):
+        d = int(o["day"])
+        return dict(key=f"otlk:{d}:{int(time.time() // 1800)}", page=feeds.outlook_page(d), token=f"day{d}otlk",
+                    fallbacks=(f"day{d}otlk.gif",), limit=1, who="SPC")
+    return None
+
+
+class _Body(QTextBrowser):
+    """The details text; downloaded pictures are served to it from [images] ("rfimg:<n>" -> QImage)."""
+
+    def __init__(self):
+        super().__init__()
+        self.images: dict = {}
+
+    def loadResource(self, typ, url):
+        if typ == QTextDocument.ImageResource and url.scheme() == "rfimg":
+            return self.images.get(url.toString())
+        return super().loadResource(typ, url)
+
+
 def _get_text(url: str) -> str:
     import requests
     r = requests.get(url, timeout=20, headers={"User-Agent": "RadarForge (NEXRAD viewer)"})
@@ -94,10 +130,12 @@ def _get_text(url: str) -> str:
 
 class _Relay(QObject):
     done = Signal(str, str, bool)          # key, text, ok
+    pictures = Signal(str, object, str)    # key, [(url, QImage)], error
 
 
 class InfoPanel(QDialog):
     _texts: dict = {}                      # downloaded texts, by key (kept for the session)
+    _pics: dict = {}                       # downloaded pictures, by key: [(url, QImage)]
 
     def __init__(self, main):
         super().__init__(main)
@@ -113,6 +151,11 @@ class InfoPanel(QDialog):
         self._placed = False
         self._relay = _Relay(self)
         self._relay.done.connect(self._loaded)
+        self._relay.pictures.connect(self._pics_loaded)
+        self._pics_loading: set = set()
+        self._pics_failed: dict = {}
+        self._refit = QTimer(self, singleShot=True, interval=120)
+        self._refit.timeout.connect(self._rerender)
 
         self.list = QListWidget()
         self.list.currentRowChanged.connect(self._show)
@@ -120,7 +163,7 @@ class InfoPanel(QDialog):
         self.head.setWordWrap(True)
         self.head.setTextFormat(Qt.RichText)
         self.head.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.body = QTextBrowser()
+        self.body = _Body()
         self.body.setOpenExternalLinks(True)
         self.go = QPushButton("Go to it")
         self.go.setToolTip("Zoom the map to it")
@@ -184,7 +227,9 @@ class InfoPanel(QDialog):
         k, o = it["kind"], it["obj"]
         rows, area, text, note = [], "", None, ""
         sub = ""
-        self.web.setVisible(k == "mcd")
+        gfx = graphic_source(it)
+        self._gfx = gfx
+        self.web.setVisible(gfx is not None)
         self.go.setVisible(k != "outlook")
         if k == "alert":
             rows, area, text, sub, note = self._alert(o)
@@ -212,6 +257,8 @@ class InfoPanel(QDialog):
             h.append(f"<tr><td style='padding-right:10px; color:{dim}'>{html.escape(lab)}</td>"
                      f"<td>{linkify(str(val))}</td></tr>")
         h.append("</table>")
+        if gfx is not None:
+            h.append(self._pictures_html(gfx))
         if area:
             h.append(f"<p><b>Areas:</b> {html.escape(area)}</p>")
         if note:
@@ -223,6 +270,62 @@ class InfoPanel(QDialog):
                                [f"{a}: {b}" if a else str(b) for a, b in rows] +
                                ([f"Areas: {area}"] if area else []) + ([text] if text else []))
 
+    def _pictures_html(self, gfx) -> str:
+        """The issuer's pictures (each opens its page when clicked), or a note while they load."""
+        key = gfx["key"]
+        pics = self._pics.get(key)
+        if pics is None:
+            if key in self._pics_failed and key not in self._pics_loading:
+                return f"<p><i>{html.escape(self._pics_failed.pop(key))}</i></p>"
+            if key not in self._pics_loading:
+                self._pics_loading.add(key)
+
+                def work(g=dict(gfx)):
+                    try:
+                        got = feeds.fetch_graphics(g["page"], g["token"], g["fallbacks"], g["limit"])
+                        imgs = [(u, QImage.fromData(b)) for u, b in got]
+                        imgs = [(u, im) for u, im in imgs if not im.isNull()]
+                        self._relay.pictures.emit(g["key"], imgs, "" if imgs else "unreadable picture")
+                    except Exception as exc:
+                        from ..data.aws import friendly_error
+                        self._relay.pictures.emit(g["key"], [], friendly_error(exc))
+                threading.Thread(target=work, daemon=True).start()
+            return f"<p><i>Loading the {html.escape(gfx['who'])} graphic…</i></p>"
+        avail = max(160, self.body.viewport().width() - 2 * int(self.body.document().documentMargin()) - 8)
+        out = []
+        for i, (url, im) in enumerate(pics):
+            name = f"rfimg:{key}:{i}"
+            self.body.images[name] = im
+            w = min(im.width(), avail)
+            out.append(f"<p><a href=\"{html.escape(gfx['page'], quote=True)}\">"
+                       f"<img src=\"{html.escape(name, quote=True)}\" width=\"{w}\" "
+                       f"height=\"{round(im.height() * w / max(1, im.width()))}\"></a></p>")
+        return "".join(out)
+
+    def _pics_loaded(self, key, imgs, err):
+        self._pics_loading.discard(key)
+        if imgs:
+            self._pics[key] = imgs
+        else:
+            self._pics_failed[key] = f"Couldn't load the SPC graphic ({err})." if err else "No SPC graphic for this one."
+        if self.isVisible() and self.cur is not None and getattr(self, "_gfx", None) and self._gfx["key"] == key:
+            self._rerender()
+
+    def _rerender(self):
+        """Show the current item again, keeping the scroll position (new pictures, or a new width)."""
+        if self.cur is None:
+            return
+        sb = self.body.verticalScrollBar()
+        pos = sb.value()
+        self._show(max(0, self.list.currentRow()))
+        sb.setValue(pos)
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        g = getattr(self, "_gfx", None)
+        if g is not None and g["key"] in self._pics:
+            self._refit.start()
+
     def _now(self):
         wo = self.main.warnings
         if wo.mode == "live" or wo.frame_time is None:
@@ -232,7 +335,9 @@ class InfoPanel(QDialog):
     def _alert(self, a):
         info = a.info or {}
         rows = []
-        if a.office:
+        if a.office in ("KWNS", "WNS"):
+            rows.append(("From", "Storm Prediction Center"))
+        elif a.office:
             rows.append(("From", ("NWS " + a.office) if not a.office.startswith("NWS") else a.office))
         if a.issued:
             rows.append(("Issued", when(a.issued)))
@@ -360,11 +465,9 @@ class InfoPanel(QDialog):
             view.set_view(float(o["xy"][0]), float(o["xy"][1]), max(view.scale, 4.0))
 
     def _open_web(self):
-        it = self.cur
-        if it is not None and it["kind"] == "mcd":
-            m = it["obj"]
-            year = (m.get("issue") or datetime.now(timezone.utc)).year
-            QDesktopServices.openUrl(QUrl(feeds.mcd_page(m["number"], year)))
+        g = graphic_source(self.cur) if self.cur is not None else None
+        if g is not None:
+            QDesktopServices.openUrl(QUrl(g["page"]))
 
     def _copy(self):
         QGuiApplication.clipboard().setText(getattr(self, "_text", ""))

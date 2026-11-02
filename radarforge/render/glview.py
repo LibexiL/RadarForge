@@ -1493,24 +1493,45 @@ class RadarView(QOpenGLWindow):
         self._hover_doc = (key, doc)
         return doc
 
-    def _paint_hover_box(self, painter):
-        text, pos = self._hover_box
+    def _hover_image(self, text):
+        """The hover box drawn once into an image with the raster engine. Rich text drawn straight onto the
+        OpenGL surface comes out smeared on some Windows drivers; an image draws the same everywhere."""
+        dpr = self.devicePixelRatioF()
+        key = (text, dpr, self.colors["label_bg"].rgba(), self.colors["panel_border"].rgba())
+        cached = getattr(self, "_hover_img", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
         doc = self._hover_document(text)
         w = min(doc.idealWidth(), HOVER_MAX_W) + 16
         h = doc.size().height() + 12
+        img = QImage(max(1, int(round(w * dpr))) + 1, max(1, int(round(h * dpr))) + 1,
+                     QImage.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(dpr)
+        img.fill(Qt.transparent)
+        bg = QColor(self.colors["label_bg"])
+        bg.setAlpha(max(bg.alpha(), 228))
+        p = QPainter(img)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        p.setPen(QPen(self.colors["panel_border"], 1))
+        p.setBrush(bg)
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 5, 5)
+        p.translate(8, 6)
+        doc.drawContents(p)
+        p.end()
+        self._hover_img = (key, img)
+        return img
+
+    def _paint_hover_box(self, painter):
+        text, pos = self._hover_box
+        img = self._hover_image(text)
+        dpr = img.devicePixelRatio() or 1.0
+        w, h = img.width() / dpr, img.height() / dpr
         W, H = self.width(), self.height()
         x = pos.x() + 16 if pos.x() + 16 + w <= W - 2 else pos.x() - 12 - w
         y = pos.y() + 20 if pos.y() + 20 + h <= H - 2 else pos.y() - 10 - h
         x, y = max(2.0, min(x, W - w - 2)), max(2.0, min(y, H - h - 2))
-        bg = QColor(self.colors["label_bg"])
-        bg.setAlpha(max(bg.alpha(), 228))
-        painter.save()
-        painter.setPen(QPen(self.colors["panel_border"], 1))
-        painter.setBrush(bg)
-        painter.drawRoundedRect(QRectF(x, y, w, h), 5, 5)
-        painter.translate(x + 8, y + 6)
-        doc.drawContents(painter)
-        painter.restore()
+        painter.drawImage(QPointF(round(x), round(y)), img)
 
     def mouseReleaseEvent(self, ev):
         if self._track_drag is not None:

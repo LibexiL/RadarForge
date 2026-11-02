@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.26.3 – 2026-11-02
+
+- **SPC graphics in the details window.** Click a watch, a mesoscale discussion or an SPC outlook area and its
+  official SPC picture shows with the details: the watch graphic (threat, counties, population) and map, the
+  discussion's annotated map, the day's outlook map. Click a picture to open its page on the SPC website.
+  "Open on the SPC website" now works for watches and outlooks too.
+- **Fixed: smeared text in the map's hover boxes on Windows** (seen with some graphics drivers). The box is now
+  drawn as a finished picture, so it looks the same everywhere.
+- Watches say they're from the Storm Prediction Center instead of "NWS KWNS".
+
 ## 1.26.2 – 2026-10-31
 
 **Panels can be dragged out and resized again.**

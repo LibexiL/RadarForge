@@ -451,7 +451,8 @@ class DataLayersMixin:
             txt = self.spc.describe_outlook(lat, lon, cat)
             if txt:
                 lines = txt.split("\n")
-                items.append(dict(kind="outlook", obj=dict(title=lines[0], cat=cat, lines=lines[1:])))
+                items.append(dict(kind="outlook", obj=dict(title=lines[0], cat=cat, lines=lines[1:],
+                                                       day=self.spc.outlook_day)))
         return items
 
     def _clickable_at(self, x, y, tol) -> bool:

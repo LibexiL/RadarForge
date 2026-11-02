@@ -20,7 +20,66 @@ def mcd_text_url(product_id: str) -> str:
 
 
 def mcd_page(number: int, year: int) -> str:
-    return f"https://www.spc.noaa.gov/products/md/{year}/md{number:04d}.html"
+    return f"{SPC}/products/md/{year}/md{number:04d}.html"
+
+
+SPC = "https://www.spc.noaa.gov"
+_IMG = re.compile(r"""(?i)(?:src|href)\s*=\s*["']([^"'<>]+?\.(?:png|gif|jpe?g))["']""")
+
+
+def watch_page(number: int, year: int) -> str:
+    return f"{SPC}/products/watch/{year}/ww{number:04d}.html"
+
+
+def outlook_page(day: int) -> str:
+    return f"{SPC}/products/outlook/day{day}otlk.html"
+
+
+def graphic_urls(page_html: str, page_url: str, token: str, limit: int = 3) -> list:
+    """The product's own pictures on an SPC page: images whose file name holds [token] (e.g. "mcd2430",
+    "ww0701", "day1otlk"), in page order, without print versions or thumbnails, at most [limit]."""
+    from urllib.parse import urljoin
+    out = []
+    for m in _IMG.finditer(page_html or ""):
+        url = urljoin(page_url, m.group(1).strip())
+        name = url.rsplit("/", 1)[-1].lower()
+        if token.lower() not in name or any(t in name for t in ("_prt", "thumb", "_sm.", "_small")):
+            continue
+        if url not in out:
+            out.append(url)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def fetch_graphics(page_url: str, token: str, fallbacks=(), limit: int = 3, session=None) -> list:
+    """[(url, image bytes)] for a product's pictures: found on its page, else the usual file names
+    ([fallbacks], relative to the page). Raises when none could be downloaded."""
+    import requests
+    from urllib.parse import urljoin
+    get = (session or requests).get
+    hdr = {"User-Agent": "RadarForge (NEXRAD viewer)"}
+    urls, err = [], None
+    try:
+        r = get(page_url, timeout=15, headers=hdr)
+        r.raise_for_status()
+        urls = graphic_urls(r.text, page_url, token, limit)
+    except Exception as exc:
+        err = exc
+    if not urls:
+        urls = [urljoin(page_url, f) for f in fallbacks][:limit]
+    out = []
+    for url in urls:
+        try:
+            r = get(url, timeout=20, headers=hdr)
+            r.raise_for_status()
+            if r.content and not r.headers.get("Content-Type", "image").startswith("text"):
+                out.append((url, r.content))
+        except Exception as exc:
+            err = exc
+    if not out:
+        raise err or RuntimeError("no picture on the page")
+    return out
 
 
 def _utc(s):
