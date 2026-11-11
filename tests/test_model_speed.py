@@ -57,3 +57,27 @@ def test_fetch_inputs_downloads_without_decoding(monkeypatch):
     assert models.fetch_inputs("hrrr", run, 2, "cape_sb") == 1
     assert got == ["CAPE"]
     assert models.fetch_inputs("hrrr", run, 2, "qpf") == 0          # running totals aren't fetched ahead
+
+
+def test_fast_decoder_matches_eccodes_on_a_real_hrrr_message():
+    import numpy as np
+    from pathlib import Path
+    from radarforge.features import grib2
+    data = Path(__file__).parent / "data"
+    g = grib2.decode((data / "hrrr_real_message.grib2").read_bytes())    # complex packing, 2nd-order differences
+    truth = np.load(data / "hrrr_real_truth.npz")
+    assert g.values.size == int(truth["n"]) and g.values.shape == (1059, 1799)
+    got = g.values.ravel()[truth["idx"]].astype(np.float64)
+    assert np.max(np.abs(got - truth["vals"]) / np.maximum(1.0, np.abs(truth["vals"]))) < 1e-6
+
+
+def test_colour_lookup_matches_the_stops():
+    import numpy as np
+    from radarforge.features import georaster
+    fd = models.FIELDS["cape_sb"]
+    v = np.linspace(-100, 7000, 20001, dtype=np.float32)
+    v[::50] = np.nan
+    a = models.colorize(fd, v).astype(int)
+    b = georaster.colorize(v, fd.stops).astype(int)
+    assert np.percentile(np.abs(a - b).max(axis=-1), 99.5) <= 3
+    assert (a[np.isnan(v)] == 0).all() and (a[v < fd.stops[0][0]] == 0).all()

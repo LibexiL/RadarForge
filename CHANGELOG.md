@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.27.1 – 2026-11-11
+
+**Model maps, properly faster.** Measured on real HRRR data this time.
+
+- **The GRIB decoder is 3× faster** (about 140 → 47 ms per HRRR field, checked value for value against ECMWF's
+  eccodes on real HRRR messages). It reads each packed value with one lookup instead of five, and undoes the
+  spatial differencing in place.
+- **Decoding uses all your CPU cores:** model fields decode in separate worker processes (up to 4), so a
+  multi-panel layout no longer decodes one field at a time, and the window stays responsive meanwhile. The
+  maps on screen always go ahead of the look-ahead. The processes start when you open the Models view.
+- **Stepping an hour is instant:** the look-ahead now also *draws* the hours either side for each panel, and
+  they're swapped in the moment you step (4 panels: about 1.4 s in 1.26.3, now immediate).
+- **Colouring a map is ~10× faster:** one lookup per pixel in a precomputed colour table.
+
 ## 1.27.0 – 2026-11-11
 
 **Model maps open and step much faster.**

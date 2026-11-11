@@ -172,6 +172,8 @@ def _unpack_bits(data: bytes, nbits: int, count: int) -> np.ndarray:
     if nbits in (8, 16, 32):
         dt = {8: ">u1", 16: ">u2", 32: ">u4"}[nbits]
         return np.frombuffer(data, dt, count).astype(np.uint32)
+    if nbits <= 25:
+        return _read_bits_fast(np.frombuffer(data, np.uint8), np.arange(count, dtype=np.int64) * nbits, nbits, nbits)
     return _read_bits(np.frombuffer(data, np.uint8), np.arange(count, dtype=np.int64) * nbits,
                       np.full(count, nbits, np.int64))
 
@@ -194,6 +196,33 @@ def _read_bits(buf: np.ndarray, offsets: np.ndarray, widths: np.ndarray) -> np.n
     out[:] = vals.astype(np.uint32)
     out[widths == 0] = 0
     return out
+
+
+def _read_bits_fast(buf: np.ndarray, offsets: np.ndarray, widths, max_width: int) -> np.ndarray:
+    """_read_bits for widths up to 25 bits: each value sits inside the 4 bytes starting at its first byte, so
+    one overlapping big-endian 32-bit view of the buffer and one lookup per value do it (instead of five
+    byte lookups and 64-bit shifts). [widths] may be one number for all."""
+    if offsets.size == 0:
+        return np.zeros(0, np.uint32)
+    pad = np.concatenate([buf, np.zeros(4, np.uint8)])
+    byte = offsets >> 3
+    if int(byte[-1] if offsets.size else 0) + 4 > pad.size or int(byte.max()) + 4 > pad.size:
+        raise GribError("packed data is shorter than expected")
+    win = np.lib.stride_tricks.as_strided(pad, shape=(pad.size - 3, 4), strides=(1, 1))
+    words = win.view(">u4")[:, 0]
+    w = words[byte].astype(np.uint32)
+    del byte
+    widths = np.asarray(widths)
+    shift = (offsets & 7).astype(np.uint32)
+    shift += widths.astype(np.uint32)
+    np.subtract(np.uint32(32), shift, out=shift)
+    w >>= shift
+    del shift
+    if widths.ndim == 0:
+        w &= np.uint32((1 << int(widths)) - 1) if int(widths) else np.uint32(0)
+    else:
+        w &= (np.left_shift(np.uint32(1), widths.astype(np.uint32)) - np.uint32(1))
+    return w
 
 
 def _image_values(data: bytes, nbits: int) -> np.ndarray:
@@ -243,25 +272,51 @@ def _complex_unpack(drs: dict, data: bytes, nvals: int):
         lens[-1] = drs["gl_last"]
     if int(lens.sum()) != nvals:
         raise GribError(f"complex packing: group lengths add up to {int(lens.sum())}, not {nvals}")
-    # value i belongs to group g: its bit offset is the start of g plus (i - first of g) * width of g
-    gidx = np.repeat(np.arange(ng), lens)
+    # value i of group g starts at bit: start of g + (i - first of g) * width of g
+    #                                 = (start of g - first of g * width of g) + i * width of g
     gstart_bits = pos_bits + np.concatenate([[0], np.cumsum(lens * widths)[:-1]])
     first = np.concatenate([[0], np.cumsum(lens)[:-1]])
-    within = np.arange(nvals, dtype=np.int64) - first[gidx]
-    w = widths[gidx]
-    raw = _read_bits(buf, gstart_bits[gidx] + within * w, w).astype(np.int64)
+    maxw = int(widths.max()) if ng else 0
+    # bit offsets fit 32 bits for anything under 256 MB of packed data (all model fields): half the memory
+    it = np.int32 if buf.size < (1 << 28) and maxw <= 25 else np.int64
+    w = np.repeat(widths.astype(it), lens)
+    offs = np.repeat((gstart_bits - first * widths).astype(it), lens)
+    offs += np.arange(nvals, dtype=it) * w
+    if maxw <= 25:
+        raw = _read_bits_fast(buf, offs, w, maxw).astype(np.int64)
+    else:
+        raw = _read_bits(buf, offs, w).astype(np.int64)
+    del offs
     mm = drs["miss_mgmt"]
     missing = np.zeros(nvals, bool)
+    gref = np.repeat(refs, lens)
     if mm in (1, 2):
         maxv = (np.int64(1) << w) - 1
         gref_all = (np.int64(1) << drs["nbits"]) - 1
         zero_w = w == 0
         if mm == 1:
-            missing = np.where(zero_w, refs[gidx] == gref_all, raw == maxv)
+            missing = np.where(zero_w, gref == gref_all, raw == maxv)
         else:
-            missing = np.where(zero_w, (refs[gidx] == gref_all) | (refs[gidx] == gref_all - 1),
+            missing = np.where(zero_w, (gref == gref_all) | (gref == gref_all - 1),
                                (raw == maxv) | (raw == maxv - 1))
-    vals = raw + refs[gidx]
+    vals = raw
+    vals += gref
+    del gref
+    if drs["tmpl"] == 3 and drs["order"] > 0 and not missing.any() and vals.size > 2:
+        # (the usual case: nothing missing) undo the differencing in place, without copies
+        if drs["order"] == 1:
+            vals[1:] += minsd
+            vals[0] = ival1
+            np.cumsum(vals, out=vals)
+        else:
+            vals[2:] += minsd
+            vals[0] = 0
+            vals[1] = ival2 - ival1
+            np.cumsum(vals[1:], out=vals[1:])          # first differences f[n] - f[n-1], n >= 1
+            np.cumsum(vals[1:], out=vals[1:])
+            vals[1:] += ival1
+            vals[0] = ival1
+        return vals, missing
     if drs["tmpl"] == 3 and drs["order"] > 0:
         good = np.flatnonzero(~missing)
         d = vals[good]

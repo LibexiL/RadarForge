@@ -176,6 +176,9 @@ class ModelsMixin:
             self.set_tool("pan") if self.view.tool not in ("pan", "measure") else None
             self._radar_view_state = (self.view.cx, self.view.cy, self.view.scale)
             self.models.active = True
+            import threading
+            from ..features import models as _mdl
+            threading.Thread(target=_mdl.warm_decoders, daemon=True).start()
             self._fill_run_combo()
             self.set_model_region(self.settings["model_region"] or "CONUS", save=False)
             if not self.models.run_list():

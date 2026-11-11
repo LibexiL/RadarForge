@@ -244,6 +244,8 @@ class ModelLayer(QObject):
         self._group_timer.setInterval(1500)
         self._group_timer.timeout.connect(self._fetch_group)
         self._idx_done = set()               # runs whose index files have been fetched ahead
+        self._spare = {}                     # (panel, key) -> picture made ahead for the hours either side
+        self._spare_lock = threading.Lock()
         self._runs_busy = set()
         self._runs_failed = {}                # model id -> time of the last search that found nothing
         self._runs_error = {}                 # model id -> why
@@ -399,6 +401,14 @@ class ModelLayer(QObject):
             if cur is not None and cur.key == key and self._covers(cur.bounds, (x0, y0, x1, y1)) and \
                     (cur.bounds[2] - cur.bounds[0]) / max(x1 - x0, 1e-6) < 2.2:
                 continue
+            with self._spare_lock:
+                ready = self._spare.get((p.index, key))
+            if ready is not None and self._covers(ready.bounds, (x0, y0, x1, y1)) and \
+                    (ready.bounds[2] - ready.bounds[0]) / max(x1 - x0, 1e-6) < 2.2:
+                self.pictures[p.index] = ready           # made ahead: no wait at all
+                self.errors.pop(p.index, None)
+                self.changed.emit()
+                continue
             self._start(gen, p.index, key, bounds, px_w, px_h)
 
     @staticmethod
@@ -467,7 +477,8 @@ class ModelLayer(QObject):
         for fid in {self.fields()[p.index] for p in self.view.panels}:
             def work(fid=fid):
                 try:
-                    self._field(mid, r, fh, fid)
+                    with models.background():
+                        self._field(mid, r, fh, fid)
                 except Exception:
                     pass
             _BG.submit(work)
@@ -492,14 +503,37 @@ class ModelLayer(QObject):
         def still():
             return self.active and self._ahead == token
 
+        # what each panel shows, to draw its pictures for the hours either side
+        lat0, lon0 = self.view.lat0, self.view.lon0
+        dpr = self.view.devicePixelRatioF()
+        panels = []
+        for p in self.view.panels:
+            vt = self.view.transform(p)
+            x0, y0, x1, y1 = vt.world_bounds()
+            mx, my = (x1 - x0) * 0.15, (y1 - y0) * 0.15
+            panels.append((p.index, self.fields()[p.index], (x0 - mx, y0 - my, x1 + mx, y1 + my),
+                           p.rect.width() * dpr * 1.3, p.rect.height() * dpr * 1.3))
+        with self._spare_lock:
+            keep = {(pi, (mid, r, h, fid, lat0, lon0)) for h in make for pi, fid, *_ in panels}
+            self._spare = {k: v for k, v in self._spare.items() if k in keep}
         for h in make:
-            for fid in fids:
-                def job(h=h, fid=fid):
-                    if still():
-                        try:
-                            self._field(mid, r, h, fid)
-                        except Exception:
-                            pass
+            for pi, fid, bounds, pw, ph in panels:
+                def job(h=h, pi=pi, fid=fid, bounds=bounds, pw=pw, ph=ph):
+                    if not still():
+                        return
+                    key = (mid, r, h, fid, lat0, lon0)
+                    with self._spare_lock:
+                        if (pi, key) in self._spare:
+                            return
+                    try:
+                        with models.background():
+                            mf = self._field(mid, r, h, fid)
+                        if still():
+                            pic = make_picture(mf, lat0, lon0, bounds, pw, ph, key)
+                            with self._spare_lock:
+                                self._spare[(pi, key)] = pic
+                    except Exception:
+                        pass
                 _BG.submit(job)
         for h in fetch:
             for fid in fids:

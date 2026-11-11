@@ -671,6 +671,91 @@ _GRID_LOCK = threading.Lock()
 _POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="model")      # downloads: mostly waiting
 
 
+# ---- decoding in worker processes: Python decodes one field at a time per process (the GIL), so a few
+# processes let a six-panel layout use the whole CPU, and keep the window responsive while they work
+_DEC_LOCK = threading.Lock()
+_DEC_POOL = None
+_DEC_FAILED = False
+_DEC_CTX = threading.local()          # .background: look-ahead work (waits for the screen's decodes)
+
+
+def decode_slots() -> int:
+    """Model decoder processes: one less than the CPU's threads, 2 to 4 (none on a dual core: threads)."""
+    forced = os.environ.get("RADARFORGE_MODEL_DECODERS")
+    if forced and forced.isdigit():
+        return int(forced)
+    n = (os.cpu_count() or 2) - 1
+    return 0 if n < 2 else min(4, n)
+
+
+def _gate():
+    from ..data import level2
+    g = getattr(_gate, "g", None)
+    if g is None:
+        g = _gate.g = level2._Gate()
+    return g
+
+
+def _dec_pool():
+    global _DEC_POOL
+    with _DEC_LOCK:
+        if _DEC_POOL is None:
+            from ..data import level2
+            _DEC_POOL = level2._new_pool(decode_slots())
+        return _DEC_POOL
+
+
+def warm_decoders():
+    """Start the decoder processes ahead of the first map (each takes a moment to start)."""
+    if decode_slots() and not _DEC_FAILED:
+        try:
+            pool = _dec_pool()
+            for _ in range(decode_slots()):
+                pool.submit(int)
+        except Exception:
+            pass
+
+
+class background:
+    """with models.background(): decodes in this thread give way to the ones a map on screen waits for."""
+    def __enter__(self):
+        self._old = getattr(_DEC_CTX, "background", False)
+        _DEC_CTX.background = True
+
+    def __exit__(self, *exc):
+        _DEC_CTX.background = self._old
+        return False
+
+
+def decode_message(raw: bytes) -> grib2.GribGrid:
+    global _DEC_FAILED, _DEC_POOL
+    slots = decode_slots()
+    if not slots or _DEC_FAILED:
+        return grib2.decode(raw)
+    gate = _gate()
+    gate.acquire(slots, gate.BACKGROUND if getattr(_DEC_CTX, "background", False) else 0)
+    try:
+        pool = _dec_pool()
+        try:
+            return pool.submit(grib2.decode, raw).result(timeout=60)
+        except grib2.GribError:
+            raise
+        except Exception as exc:
+            from ..data import level2
+            if not level2._is_pool_problem(exc) and not isinstance(exc, RuntimeError):
+                raise
+            import sys
+            print("radarforge: model decoder processes unavailable, using threads:", exc, file=sys.stderr)
+            with _DEC_LOCK:
+                _DEC_FAILED = True
+                if _DEC_POOL is not None:
+                    level2._kill(_DEC_POOL)
+                    _DEC_POOL = None
+            return grib2.decode(raw)
+    finally:
+        gate.release()
+
+
 def _decoded(model, run, fh, entry: IdxEntry) -> grib2.GribGrid:
     k = (model.id, run, fh, entry.start)
     with _GRID_LOCK:
@@ -678,7 +763,7 @@ def _decoded(model, run, fh, entry: IdxEntry) -> grib2.GribGrid:
         if g is not None:
             _GRIDS.move_to_end(k)
             return g
-    g = grib2.decode(get_message(model, run, fh, entry))
+    g = decode_message(get_message(model, run, fh, entry))
     with _GRID_LOCK:
         _GRIDS[k] = g
         while len(_GRIDS) > 36:
@@ -871,18 +956,47 @@ def _palette(name):
         return None
 
 
-def colorize(fd: FieldDef, values: np.ndarray) -> np.ndarray:
+_LUTS: dict = {}
+_LUT_N = 4096
+
+
+def _lut(fd: FieldDef):
+    """(colours, lowest value, steps per unit): the field's colours sampled at 4096 values, row 0 transparent
+    (below the first colour, or no data). One lookup per pixel instead of a search and a blend."""
     from . import georaster
-    if isinstance(fd.stops, str):
-        ct = _palette(fd.stops)
-        if ct is not None:
-            rgba = np.zeros(values.shape + (4,), np.uint8)
-            ok = np.isfinite(values)
-            if ok.any():
-                rgba[ok] = ct.color_at(values[ok])
-            return rgba
-        return georaster.colorize(values, REF_STOPS)
-    return georaster.colorize(values, fd.stops)
+    ct = _palette(fd.stops) if isinstance(fd.stops, str) else None
+    key = (fd.id, id(ct))
+    hit = _LUTS.get(key)
+    if hit is not None:
+        return hit
+    if ct is not None and ct.entries:
+        lo, hi = float(ct.vmin), float(ct.vmax)
+        xs = np.linspace(lo, hi, _LUT_N)
+        cols = ct.color_at(xs)
+    else:
+        stops = REF_STOPS if isinstance(fd.stops, str) else fd.stops
+        lo, hi = float(stops[0][0]), float(stops[-1][0])
+        if hi <= lo:
+            hi = lo + 1.0
+        xs = np.linspace(lo, hi, _LUT_N)
+        cols = georaster.colorize(xs, stops)
+    lut = np.zeros((_LUT_N + 1, 4), np.uint8)
+    lut[1:] = cols
+    hit = (lut, lo, (_LUT_N - 1) / (hi - lo))
+    if len(_LUTS) > 64:
+        _LUTS.clear()
+    _LUTS[key] = hit
+    return hit
+
+
+def colorize(fd: FieldDef, values: np.ndarray) -> np.ndarray:
+    lut, lo, k = _lut(fd)
+    t = np.asarray(values, np.float32) - np.float32(lo)
+    t *= np.float32(k)
+    np.nan_to_num(t, copy=False, nan=-1.0)
+    np.clip(t, -1.0, _LUT_N - 1, out=t)
+    t += 1.0                                # below the first colour -> row 0 (transparent)
+    return lut[t.astype(np.int32)]
 
 
 REF_STOPS = _ramp((5, (40, 80, 90, 120)), (15, (0, 155, 100)), (30, (0, 60, 0)), (31, (255, 213, 0)),
