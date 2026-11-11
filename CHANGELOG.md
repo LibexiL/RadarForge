@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.27.2 – 2026-11-11
+
+**Model downloads: fewer round trips, and the map you're waiting on always comes first.**
+
+- **Connections are opened before you need them:** when you open the Models view (or switch model), a few
+  connections to NOAA's bucket are set up straight away, so the first map doesn't wait for DNS, TCP and TLS.
+  All model downloads now share one pool of kept-alive connections.
+- **Neighbouring pieces come in one request:** a field's inputs that sit next to each other in the file (U and
+  V wind, CAPE and CIN, the helicity layers…) are downloaded as one range instead of one request each.
+- **The look-ahead never slows you down:** background downloads wait while anything for the screen is in
+  flight, run on their own small pool, and are dropped for hours you've already moved past. The hours either
+  side are made first, then the next two, then the other fields of the same kind, then the rest of the run
+  (a day of steps ahead) at the lowest priority, so playing through a run never waits on the network.
+- **The status bar says what a map cost:** "HRRR 12Z hour 3: 6.1 MB in 2.5 s" (or "from the cache"), so you can
+  tell a slow connection from a slow app.
+
 ## 1.27.1 – 2026-11-11
 
 **Model maps, properly faster.** Measured on real HRRR data this time.

@@ -30,20 +30,25 @@ _NS = "{http://s3.amazonaws.com/doc/2006-03-01/}"
 _local = threading.local()
 
 
+def make_session(pool_maxsize: int = 16) -> requests.Session:
+    """A session with our User-Agent, retries for dropped connections and S3's 500/503s, and a pool of
+    kept-alive connections (urllib3's pool is safe to share between threads)."""
+    s = requests.Session()
+    s.headers["User-Agent"] = USER_AGENT
+    from urllib3.util.retry import Retry
+    retry = Retry(total=4, connect=3, read=2, status=3, backoff_factor=0.4,
+                  status_forcelist=(500, 502, 503, 504), allowed_methods=frozenset(["GET", "HEAD"]),
+                  raise_on_status=False)
+    adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=pool_maxsize, max_retries=retry)
+    s.mount("https://", adapter)
+    s.mount("http://", adapter)
+    return s
+
+
 def session() -> requests.Session:
     s = getattr(_local, "session", None)
     if s is None:
-        s = requests.Session()
-        s.headers["User-Agent"] = USER_AGENT
-        # retry dropped connections and S3's occasional 500/503 ("slow down") with a short back-off
-        from urllib3.util.retry import Retry
-        retry = Retry(total=4, connect=3, read=2, status=3, backoff_factor=0.4,
-                      status_forcelist=(500, 502, 503, 504), allowed_methods=frozenset(["GET", "HEAD"]),
-                      raise_on_status=False)
-        adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=16, max_retries=retry)
-        s.mount("https://", adapter)
-        s.mount("http://", adapter)
-        _local.session = s
+        s = _local.session = make_session()
     return s
 
 

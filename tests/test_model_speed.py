@@ -51,7 +51,7 @@ def test_fetch_inputs_downloads_without_decoding(monkeypatch):
                             "2:100:d=2026111100:HLCY:1000-0 m above ground:2 hour fcst:\n")
     monkeypatch.setattr(models, "get_idx", lambda m, r, fh: rows)
     got = []
-    monkeypatch.setattr(models, "get_message", lambda m, r, fh, e: got.append(e.var) or b"")
+    monkeypatch.setattr(models, "fetch_entries", lambda m, r, fh, entries: got.extend(e.var for e in entries))
     monkeypatch.setattr(models.grib2, "decode", lambda raw: (_ for _ in ()).throw(AssertionError("decoded")))
     run = datetime(2026, 11, 11, tzinfo=timezone.utc)
     assert models.fetch_inputs("hrrr", run, 2, "cape_sb") == 1
@@ -81,3 +81,61 @@ def test_colour_lookup_matches_the_stops():
     b = georaster.colorize(v, fd.stops).astype(int)
     assert np.percentile(np.abs(a - b).max(axis=-1), 99.5) <= 3
     assert (a[np.isnan(v)] == 0).all() and (a[v < fd.stops[0][0]] == 0).all()
+
+
+def test_fetch_entries_coalesces_neighbours(monkeypatch, tmp_path):
+    """U and V (next to each other in the file) come in one request; a far-away piece in its own."""
+    monkeypatch.setattr(models, "_cache_dir", lambda: tmp_path)
+    rows = models.parse_idx("1:0:d=2026111100:CAPE:surface:2 hour fcst:\n"
+                            "2:1000:d=2026111100:UGRD:10 m above ground:2 hour fcst:\n"
+                            "3:1600:d=2026111100:VGRD:10 m above ground:2 hour fcst:\n"
+                            "4:2200:d=2026111100:REFC:entire atmosphere:2 hour fcst:\n"
+                            "5:9000000:d=2026111100:TMP:2 m above ground:2 hour fcst:\n")
+    blob = bytes(range(256)) * 40000
+    calls = []
+
+    def fake(url, headers=None, timeout=60):
+        a, b = headers["Range"][6:].split("-")
+        calls.append((int(a), int(b) if b else None))
+        return blob[int(a):(int(b) + 1 if b else len(blob))]
+    monkeypatch.setattr(models, "_http_get", fake)
+    run = datetime(2026, 11, 11, tzinfo=timezone.utc)
+    hrrr = models.MODELS["hrrr"]
+    n = models.fetch_entries(hrrr, run, 2, [rows[1], rows[2], rows[4]])
+    assert n == 2 and sorted(calls) == [(1000, 2199), (9000000, None)]
+    # each piece landed in the cache under its own name, byte-exact
+    assert models.get_message(hrrr, run, 2, rows[1]) == blob[1000:1600]
+    assert models.get_message(hrrr, run, 2, rows[2]) == blob[1600:2200]
+    assert models.get_message(hrrr, run, 2, rows[4]) == blob[9000000:]
+    assert len(calls) == 2                                      # (served from disk, no new requests)
+    assert models.fetch_entries(hrrr, run, 2, [rows[1], rows[2]]) == 0
+
+
+def test_background_downloads_wait_for_the_foreground(monkeypatch):
+    import threading
+    order = []
+    monkeypatch.setattr(models, "_http_get", lambda url, headers=None, timeout=60: order.append(url) or b"x")
+    gate = threading.Event()
+
+    def slow_fg(url, headers=None, timeout=60):
+        order.append("fg-start")
+        gate.wait(2)
+        order.append("fg-end")
+        return b"x"
+    monkeypatch.setattr(models, "_http_get", slow_fg)
+    t_fg = threading.Thread(target=lambda: models._fetch("u1"))
+    t_fg.start()
+    while "fg-start" not in order:
+        time.sleep(0.01)
+
+    def bg():
+        with models.background():
+            models._fetch("u2")
+    t_bg = threading.Thread(target=bg)
+    t_bg.start()
+    time.sleep(0.25)
+    assert order == ["fg-start"]                                # the background request is still waiting
+    gate.set()
+    t_fg.join(3)
+    t_bg.join(3)
+    assert order == ["fg-start", "fg-end", "fg-start", "fg-end"]

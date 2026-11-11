@@ -30,7 +30,47 @@ class _Relay(QObject):
 # meant a new TLS handshake every time). The background pool looks ahead (next hours, other fields) and is
 # kept small so it never holds up the map you asked for.
 _FG = ThreadPoolExecutor(max_workers=4, thread_name_prefix="model-map")
-_BG = ThreadPoolExecutor(max_workers=2, thread_name_prefix="model-ahead")
+
+
+class _Ahead:
+    """The look-ahead workers: jobs run lowest priority number first (the hours either side before the rest
+    of the run), and everything they download or decode gives way to the maps on screen."""
+
+    def __init__(self, workers=2):
+        import heapq
+        self._heapq = heapq
+        self._cv = threading.Condition()
+        self._q = []
+        self._seq = 0
+        for i in range(workers):
+            threading.Thread(target=self._run, name=f"model-ahead-{i}", daemon=True).start()
+
+    def submit(self, prio, fn, *args):
+        with self._cv:
+            self._seq += 1
+            self._heapq.heappush(self._q, (prio, self._seq, fn, args))
+            self._cv.notify()
+
+    def drop(self, keep):
+        """Forgets queued jobs that [keep](args) says are stale."""
+        with self._cv:
+            self._q = [j for j in self._q if keep(j[3])]
+            self._heapq.heapify(self._q)
+
+    def _run(self):
+        while True:
+            with self._cv:
+                while not self._q:
+                    self._cv.wait()
+                _p, _s, fn, args = self._heapq.heappop(self._q)
+            try:
+                with models.background():
+                    fn(*args)
+            except Exception:
+                pass
+
+
+_BG = _Ahead(1)
 
 
 class ModelPicture:
@@ -241,7 +281,7 @@ class ModelLayer(QObject):
         self._ahead = None                   # what the look-ahead is for: (model, run, fh, fields)
         self._group_timer = QTimer(self)
         self._group_timer.setSingleShot(True)
-        self._group_timer.setInterval(1500)
+        self._group_timer.setInterval(2500)
         self._group_timer.timeout.connect(self._fetch_group)
         self._idx_done = set()               # runs whose index files have been fetched ahead
         self._spare = {}                     # (panel, key) -> picture made ahead for the hours either side
@@ -281,6 +321,7 @@ class ModelLayer(QObject):
         self.settings["model_run"] = ""
         self.settings.save()
         self.pictures.clear()
+        _FG.submit(models.warm_connections, models.MODELS[mid])
         self.refresh_runs()
         self.changed.emit()
 
@@ -419,6 +460,7 @@ class ModelLayer(QObject):
         mid, run, fh, fid, lat0, lon0 = key
         self._busy += 1
         if self._busy == 1:
+            self._load_t0 = (time.perf_counter(), models.download_stats()[0])
             self.busyChanged.emit(True)
 
         def work():
@@ -476,12 +518,8 @@ class ModelLayer(QObject):
         mid = self.model_id
         for fid in {self.fields()[p.index] for p in self.view.panels}:
             def work(fid=fid):
-                try:
-                    with models.background():
-                        self._field(mid, r, fh, fid)
-                except Exception:
-                    pass
-            _BG.submit(work)
+                self._field(mid, r, fh, fid)
+            _BG.submit(0, work)
 
     # ---------------------------------------------------------------- looking ahead
     def _look_ahead(self):
@@ -496,6 +534,7 @@ class ModelLayer(QObject):
         if token == self._ahead:
             return
         self._ahead = token
+        _BG.drop(lambda args: args and args[0] == token)        # queued work for the hour you just left
         i = hrs.index(fh) if fh in hrs else 0
         make = [hrs[j] for j in (i + 1, i - 1) if 0 <= j < len(hrs)]
         fetch = [hrs[j] for j in (i + 2, i + 3) if 0 <= j < len(hrs)]
@@ -516,44 +555,45 @@ class ModelLayer(QObject):
         with self._spare_lock:
             keep = {(pi, (mid, r, h, fid, lat0, lon0)) for h in make for pi, fid, *_ in panels}
             self._spare = {k: v for k, v in self._spare.items() if k in keep}
-        for h in make:
+        def draw(_tok, h, pi, fid, bounds, pw, ph):
+            if not still():
+                return
+            key = (mid, r, h, fid, lat0, lon0)
+            with self._spare_lock:
+                if (pi, key) in self._spare:
+                    return
+            mf = self._field(mid, r, h, fid)
+            if still():
+                pic = make_picture(mf, lat0, lon0, bounds, pw, ph, key)
+                with self._spare_lock:
+                    self._spare[(pi, key)] = pic
+
+        def fetch_hour(_tok, h, fid):
+            if still():
+                models.fetch_inputs(mid, r, h, fid)
+
+        for k, h in enumerate(make):
             for pi, fid, bounds, pw, ph in panels:
-                def job(h=h, pi=pi, fid=fid, bounds=bounds, pw=pw, ph=ph):
-                    if not still():
-                        return
-                    key = (mid, r, h, fid, lat0, lon0)
-                    with self._spare_lock:
-                        if (pi, key) in self._spare:
-                            return
-                    try:
-                        with models.background():
-                            mf = self._field(mid, r, h, fid)
-                        if still():
-                            pic = make_picture(mf, lat0, lon0, bounds, pw, ph, key)
-                            with self._spare_lock:
-                                self._spare[(pi, key)] = pic
-                    except Exception:
-                        pass
-                _BG.submit(job)
-        for h in fetch:
+                _BG.submit(k, draw, token, h, pi, fid, bounds, pw, ph)
+        for k, h in enumerate(fetch):
             for fid in fids:
-                def job2(h=h, fid=fid):
-                    if still():
-                        try:
-                            models.fetch_inputs(mid, r, h, fid)
-                        except Exception:
-                            pass
-                _BG.submit(job2)
+                _BG.submit(2 + k, fetch_hour, token, h, fid)
         # the index files of the hours around this one (small; each saves a round trip when you get there)
         ik = (mid, r, fh // 12)
         if ik not in self._idx_done:
             self._idx_done.add(ik)
             near = [h for h in hrs if abs(h - fh) <= 12]
 
-            def idx_job():
+            def idx_job(_tok):
                 m = models.MODELS[mid]
-                list(models._POOL.map(lambda h: _quiet(models.get_idx, m, r, h), near))
-            _BG.submit(idx_job)
+                list(models._pmap(lambda h: _quiet(models.get_idx, m, r, h), near))
+            _BG.submit(4, idx_job, token)
+        # then, at the lowest priority, the rest of the run for these fields (ahead first, up to a day of
+        # steps), so playing through the run and stepping far never wait on the network
+        far = [hrs[j] for j in range(i + 4, min(len(hrs), i + 28))] + [hrs[j] for j in range(i - 2, max(-1, i - 8), -1)]
+        for k, h in enumerate(far):
+            for fid in fids:
+                _BG.submit(10 + k, fetch_hour, token, h, fid)
         self._group_timer.start()
 
     def _fetch_group(self):
@@ -564,13 +604,13 @@ class ModelLayer(QObject):
             return
         mid, r, fh, fids = token
         groups = {models.FIELDS[f].group for f in fids}
-        others = [f.id for f in models.FIELDS.values() if f.group in groups and f.id not in fids and not f.accum][:12]
+        others = [f.id for f in models.FIELDS.values() if f.group in groups and f.id not in fids and not f.accum][:6]
 
-        def job(fid):
+        def job(_tok, fid):
             if self._ahead == token:
-                _quiet(models.fetch_inputs, mid, r, fh, fid)
+                models.fetch_inputs(mid, r, fh, fid)
         for fid in others:
-            _BG.submit(job, fid)
+            _BG.submit(6, job, token, fid)
 
     def _done(self, msg):
         if msg[0] == "runs":
@@ -601,6 +641,14 @@ class ModelLayer(QObject):
         self._busy = max(0, self._busy - 1)
         if self._busy == 0:
             self.busyChanged.emit(False)
+            t0 = getattr(self, "_load_t0", None)
+            if t0 is not None and pic is not None:
+                took = time.perf_counter() - t0[0]
+                mb = (models.download_stats()[0] - t0[1]) / 1e6
+                r, _h = self.run()
+                if r is not None and took >= 0.4:
+                    what = f"{mb:.1f} MB in {took:.1f} s" if mb >= 0.05 else f"from the cache in {took:.1f} s"
+                    self.status.emit(f"{self.model.name} {r:%HZ} hour {self.fh()}: {what}")
         if pic is not None:
             self.pictures[panel] = pic
             self.errors.pop(panel, None)

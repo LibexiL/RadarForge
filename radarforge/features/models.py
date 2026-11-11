@@ -162,6 +162,72 @@ def find_entry(rows: list, var: str, level: str, stat: str = "fcst", fh: int | N
 
 # --------------------------------------------------------------------------- downloads + caches
 _CACHE_LOCK = threading.Lock()
+_CTX = threading.local()              # .background: look-ahead work (gives way to what's on screen)
+
+
+class background:
+    """with models.background(): downloads and decodes in this thread give way to the ones a map on screen
+    is waiting for."""
+    def __enter__(self):
+        self._old = getattr(_CTX, "background", False)
+        _CTX.background = True
+
+    def __exit__(self, *exc):
+        _CTX.background = self._old
+        return False
+
+
+def is_background() -> bool:
+    return bool(getattr(_CTX, "background", False))
+
+
+# one shared pool of kept-alive connections to NOAA's buckets (a thread-local session each meant every new
+# thread paid DNS + TCP + TLS again, ~0.3-0.5 s, before its first byte)
+_SESSION = None
+_SESSION_LOCK = threading.Lock()
+
+
+def _session():
+    global _SESSION
+    with _SESSION_LOCK:
+        if _SESSION is None:
+            from ..data import aws
+            _SESSION = aws.make_session(pool_maxsize=24)
+        return _SESSION
+
+
+class _Downloads:
+    """Who's downloading: the maps on screen (foreground) or the look-ahead. Look-ahead requests wait while
+    anything foreground is in flight, so what you asked for always has the whole connection. Also counts
+    bytes and requests (for the status line)."""
+
+    def __init__(self):
+        self.cv = threading.Condition()
+        self.fg = 0
+        self.bytes = 0
+        self.count = 0
+        self.last_rate = 0.0        # bytes / s of the last big download
+
+    def start(self, bg: bool):
+        with self.cv:
+            if bg:
+                while self.fg > 0:
+                    self.cv.wait(0.1)
+            else:
+                self.fg += 1
+
+    def end(self, bg: bool, n: int, dt: float):
+        with self.cv:
+            self.bytes += n
+            self.count += 1
+            if n > 200_000 and dt > 0:
+                self.last_rate = n / dt
+            if not bg:
+                self.fg -= 1
+                self.cv.notify_all()
+
+
+_DL = _Downloads()
 
 
 def _cache_dir():
@@ -172,12 +238,62 @@ def _cache_dir():
 
 
 def _http_get(url, headers=None, timeout=60):
-    from ..data import aws
-    r = aws.session().get(url, headers=headers or {}, timeout=timeout)
+    r = _session().get(url, headers=headers or {}, timeout=timeout)
     if r.status_code == 404:
         raise FileNotFoundError(url)
     r.raise_for_status()
     return r.content
+
+
+def _fetch(url, headers=None, timeout=60):
+    """_http_get behind the foreground-first gate, with accounting."""
+    bg = is_background()
+    _DL.start(bg)
+    t = time.perf_counter()
+    n = 0
+    try:
+        data = _http_get(url, headers=headers, timeout=timeout)
+        n = len(data)
+        return data
+    finally:
+        _DL.end(bg, n, time.perf_counter() - t)
+
+
+def warm_connections(model: "ModelDef", n: int = 6):
+    """Opens [n] connections to the model's bucket ahead of the first download (DNS, TCP and TLS once each,
+    all at the same time, instead of in front of the first map)."""
+    url = f"https://{model.bucket}.s3.amazonaws.com/"
+
+    def one(_i):
+        try:
+            _session().head(url, timeout=8)
+        except Exception:
+            pass
+    list(_POOL.map(one, range(n)))
+
+
+def download_stats():
+    """(bytes downloaded so far, requests, bytes/s of the last big download)."""
+    with _DL.cv:
+        return _DL.bytes, _DL.count, _DL.last_rate
+
+
+def _store(name: str, data: bytes):
+    path = _cache_dir() / name
+    try:
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def _have(name: str, max_age_s=None) -> bool:
+    try:
+        st = (_cache_dir() / name).stat()
+        return st.st_size > 0 and (max_age_s is None or time.time() - st.st_mtime < max_age_s)
+    except OSError:
+        return False
 
 
 def _cached(name: str, fetch, max_age_s=None):
@@ -189,12 +305,7 @@ def _cached(name: str, fetch, max_age_s=None):
     except OSError:
         pass
     data = fetch()
-    try:
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.part")
-        tmp.write_bytes(data)
-        os.replace(tmp, path)
-    except OSError:
-        pass
+    _store(name, data)
     return data
 
 
@@ -225,15 +336,52 @@ def s3_url(model: ModelDef, key: str) -> str:
 
 def get_idx(model: ModelDef, run: datetime, fh: int) -> list:
     key = model.key(run, fh) + ".idx"
-    raw = _cached("idx_" + _h(model.bucket + key), lambda: _http_get(s3_url(model, key), timeout=30))
+    raw = _cached("idx_" + _h(model.bucket + key), lambda: _fetch(s3_url(model, key), timeout=30))
     return parse_idx(raw.decode("utf-8", "replace"))
+
+
+def _msg_name(model: ModelDef, key: str, e: IdxEntry) -> str:
+    return "msg_" + _h(f"{model.bucket}/{key}/{e.start}/{e.end}")
 
 
 def get_message(model: ModelDef, run: datetime, fh: int, e: IdxEntry) -> bytes:
     key = model.key(run, fh)
     rng = f"bytes={e.start}-" + ("" if e.end is None else str(e.end))
-    return _cached("msg_" + _h(f"{model.bucket}/{key}/{e.start}/{e.end}"),
-                   lambda: _http_get(s3_url(model, key), headers={"Range": rng}, timeout=90))
+    return _cached(_msg_name(model, key, e), lambda: _fetch(s3_url(model, key), headers={"Range": rng}, timeout=90))
+
+
+COALESCE_GAP = 256_000          # bytes between two wanted pieces worth downloading to save a round trip
+
+
+def fetch_entries(model: ModelDef, run: datetime, fh: int, entries: list) -> int:
+    """Downloads the pieces of a file a field needs (those not already on disk) with as few requests as
+    possible: pieces that sit next to each other in the file (U and V wind, CAPE and CIN…) come in one range
+    request and are then split into the cache. Returns the number of requests made."""
+    key = model.key(run, fh)
+    todo = sorted({e.start: e for e in entries if not _have(_msg_name(model, key, e))}.values(),
+                  key=lambda e: e.start)
+    if not todo:
+        return 0
+    groups, cur = [], [todo[0]]
+    for e in todo[1:]:
+        last = cur[-1]
+        if last.end is not None and 0 <= e.start - (last.end + 1) <= COALESCE_GAP:
+            cur.append(e)
+        else:
+            groups.append(cur)
+            cur = [e]
+    groups.append(cur)
+
+    def get(group):
+        a, b = group[0].start, group[-1].end
+        rng = f"bytes={a}-" + ("" if b is None else str(b))
+        data = _fetch(s3_url(model, key), headers={"Range": rng}, timeout=120)
+        for e in group:
+            lo = e.start - a
+            hi = len(data) if e.end is None else e.end + 1 - a
+            _store(_msg_name(model, key, e), data[lo:hi])
+    list(_pmap(get, groups))
+    return len(groups)
 
 
 _RUNS: dict = {}            # model id -> (time fetched, [(run, sorted hours)])
@@ -668,7 +816,24 @@ class ModelField:
 
 _GRIDS: "OrderedDict" = OrderedDict()           # decoded messages (they are big: keep a few)
 _GRID_LOCK = threading.Lock()
-_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="model")      # downloads: mostly waiting
+_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="model")      # downloads for the screen
+_BG_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="model-bg")  # downloads for the look-ahead
+
+
+def _pmap(fn, items):
+    """Runs fn over items in parallel on the pool for this thread's priority (the look-ahead's own pool, so
+    its requests waiting for the screen's never hold up the screen's pool); keeps the priority flag."""
+    bg = is_background()
+    items = list(items)
+    if len(items) <= 1:
+        return [fn(x) for x in items]
+
+    def run(x):
+        if bg:
+            with background():
+                return fn(x)
+        return fn(x)
+    return list((_BG_POOL if bg else _POOL).map(run, items))
 
 
 # ---- decoding in worker processes: Python decodes one field at a time per process (the GIL), so a few
@@ -676,7 +841,6 @@ _POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="model")      # dow
 _DEC_LOCK = threading.Lock()
 _DEC_POOL = None
 _DEC_FAILED = False
-_DEC_CTX = threading.local()          # .background: look-ahead work (waits for the screen's decodes)
 
 
 def decode_slots() -> int:
@@ -716,24 +880,13 @@ def warm_decoders():
             pass
 
 
-class background:
-    """with models.background(): decodes in this thread give way to the ones a map on screen waits for."""
-    def __enter__(self):
-        self._old = getattr(_DEC_CTX, "background", False)
-        _DEC_CTX.background = True
-
-    def __exit__(self, *exc):
-        _DEC_CTX.background = self._old
-        return False
-
-
 def decode_message(raw: bytes) -> grib2.GribGrid:
     global _DEC_FAILED, _DEC_POOL
     slots = decode_slots()
     if not slots or _DEC_FAILED:
         return grib2.decode(raw)
     gate = _gate()
-    gate.acquire(slots, gate.BACKGROUND if getattr(_DEC_CTX, "background", False) else 0)
+    gate.acquire(slots, gate.BACKGROUND if is_background() else 0)
     try:
         pool = _dec_pool()
         try:
@@ -842,7 +995,7 @@ def fetch_inputs(model_id: str, run: datetime, fh: int, fid: str) -> int:
     for rec, picks in _recipes(model, fd, rows, fh):
         if rec is None:
             return 0
-        list(_POOL.map(lambda e: get_message(model, run, fh, e), picks.values()))
+        fetch_entries(model, run, fh, list(picks.values()))
         return len(picks)
     return 0
 
@@ -857,7 +1010,8 @@ def compute(model_id: str, run: datetime, fh: int, fid: str, rows: list | None =
         if rec is None:
             last_err = picks
             break
-        grids = dict(zip(picks, _POOL.map(lambda e: _decoded(model, run, fh, e), picks.values())))
+        fetch_entries(model, run, fh, list(picks.values()))          # as few requests as possible
+        grids = dict(zip(picks, _pmap(lambda e: _decoded(model, run, fh, e), picks.values())))
         shapes = {g.values.shape for g in grids.values()}
         if len(shapes) != 1:
             raise FieldUnavailable("the inputs are on different grids")

@@ -178,7 +178,11 @@ class ModelsMixin:
             self.models.active = True
             import threading
             from ..features import models as _mdl
-            threading.Thread(target=_mdl.warm_decoders, daemon=True).start()
+
+            def warm(m=self.models.model):
+                _mdl.warm_connections(m)
+                _mdl.warm_decoders()
+            threading.Thread(target=warm, daemon=True).start()
             self._fill_run_combo()
             self.set_model_region(self.settings["model_region"] or "CONUS", save=False)
             if not self.models.run_list():
