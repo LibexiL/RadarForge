@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.27.0 – 2026-11-11
+
+**Model maps open and step much faster.**
+
+- **Opening a model is quicker:** the search for its newest runs checks every candidate run at once, instead of
+  one after another (up to ten round trips). The run list is also remembered, so the next time you open a model
+  its newest known run starts drawing straight away while the list is refreshed.
+- **Stepping through the hours is near-instant:** once a map is up, the hours either side are prepared in the
+  background, the two after that downloaded, and the index files of the hours around it fetched.
+- **Switching fields is quicker:** after a moment on the same hour, the other fields of the same kind (Severe,
+  Surface…) for that hour are downloaded in the background.
+- **Connections are reused:** model downloads run on long-lived workers that keep their connection to NOAA open,
+  instead of opening a new secure connection for every map.
+- **Less work per map:** a field's inputs download in parallel (up to 8 at once), and the wind-direction
+  correction for each model grid is worked out once instead of for every wind map.
+
 ## 1.26.3 – 2026-11-02
 
 - **SPC graphics in the details window.** Click a watch, a mesoscale discussion or an SPC outlook area and its

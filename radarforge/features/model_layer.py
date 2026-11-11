@@ -9,6 +9,7 @@ import math
 import threading
 import time
 from collections import OrderedDict
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import timedelta
 
 import numpy as np
@@ -23,6 +24,13 @@ DEFAULT_FIELDS = ["refc", "cape_sb", "srh01", "stp", "shear06", "td2m"]
 
 class _Relay(QObject):
     done = Signal(object)
+
+
+# Long-lived workers: each keeps its own connection to NOAA's buckets open between maps (a new thread per map
+# meant a new TLS handshake every time). The background pool looks ahead (next hours, other fields) and is
+# kept small so it never holds up the map you asked for.
+_FG = ThreadPoolExecutor(max_workers=4, thread_name_prefix="model-map")
+_BG = ThreadPoolExecutor(max_workers=2, thread_name_prefix="model-ahead")
 
 
 class ModelPicture:
@@ -159,6 +167,13 @@ def make_picture(mf: models.ModelField, lat0, lon0, bounds, px_w, px_h, key):
     return ModelPicture(key, image, bounds, vals, contours, barbs, fd.name, mf.note)
 
 
+def _quiet(f, *a):
+    try:
+        return f(*a)
+    except Exception:
+        return None
+
+
 def mf_sample(mf, name, lat, lon):
     g = mf.grid
     tmp = models.grib2.GribGrid(values=mf.extra[name], ni=g.ni, nj=g.nj, la1=g.la1, lo1=g.lo1, la2=g.la2,
@@ -221,6 +236,14 @@ class ModelLayer(QObject):
         self._runs_timer.timeout.connect(lambda: self.refresh_runs(quiet=True))
         self._runs_timer.start(5 * 60_000)
         self._sem = threading.Semaphore(3)
+        self._flock = threading.Lock()
+        self._inflight = {}                  # (model, run, fh, fid) -> Future of a field being computed
+        self._ahead = None                   # what the look-ahead is for: (model, run, fh, fields)
+        self._group_timer = QTimer(self)
+        self._group_timer.setSingleShot(True)
+        self._group_timer.setInterval(1500)
+        self._group_timer.timeout.connect(self._fetch_group)
+        self._idx_done = set()               # runs whose index files have been fetched ahead
         self._runs_busy = set()
         self._runs_failed = {}                # model id -> time of the last search that found nothing
         self._runs_error = {}                 # model id -> why
@@ -326,6 +349,15 @@ class ModelLayer(QObject):
         if mid in self._runs_busy or now - self._runs_failed.get(mid, 0.0) < 60:
             return
         self._runs_busy.add(mid)
+        if not self.runs.get(mid):
+            # the list found last time: the map starts now, and moves to a newer run if the search finds one
+            known = models.cached_runs(models.MODELS[mid])
+            if known:
+                self.runs[mid] = known
+                self._clamp_hour()
+                self.runsChanged.emit()
+                self.changed.emit()
+                self.request_soon(0)
         if not quiet:
             self.status.emit(f"Looking for the newest {self.model.name} runs…")
 
@@ -336,7 +368,7 @@ class ModelLayer(QObject):
             except Exception as exc:
                 from ..data.aws import friendly_error
                 self._relay.done.emit(("runs", mid, [], friendly_error(exc)))
-        threading.Thread(target=work, daemon=True).start()
+        _FG.submit(work)
 
     # ---------------------------------------------------------------- pictures
     def request_soon(self, delay=200):
@@ -395,20 +427,39 @@ class ModelLayer(QObject):
                 except Exception as exc:
                     from ..data.aws import friendly_error
                     self._relay.done.emit(("pic", gen, panel, None, friendly_error(exc)))
-        threading.Thread(target=work, daemon=True).start()
+        _FG.submit(work)
 
     def _field(self, mid, run, fh, fid):
+        """The computed field (cached); when another thread is already making it, waits for that one."""
         k = (mid, run, fh, fid)
-        mf = self._fields.get(k)
-        if mf is None:
+        with self._flock:
+            mf = self._fields.get(k)
+            if mf is not None:
+                self._fields[k] = self._fields.pop(k)          # most recently used last
+                return mf
+            fut = self._inflight.get(k)
+            mine = fut is None
+            if mine:
+                fut = self._inflight[k] = Future()
+        if not mine:
+            return fut.result()
+        try:
             mf = models.compute(mid, run, fh, fid)
+        except BaseException as exc:
+            with self._flock:
+                self._inflight.pop(k, None)
+            fut.set_exception(exc)
+            raise
+        with self._flock:
             self._fields[k] = mf
-            while len(self._fields) > 12:
+            while len(self._fields) > 14:
                 self._fields.pop(next(iter(self._fields)))
+            self._inflight.pop(k, None)
+        fut.set_result(mf)
         return mf
 
     def prefetch(self, fh):
-        """Download (not draw) the next hour's fields while a loop plays."""
+        """Make (not draw) an hour's fields ahead of time: the next frame while a loop plays."""
         r, _h = self.run()
         if r is None:
             return
@@ -416,11 +467,76 @@ class ModelLayer(QObject):
         for fid in {self.fields()[p.index] for p in self.view.panels}:
             def work(fid=fid):
                 try:
-                    with self._sem:
-                        self._field(mid, r, fh, fid)
+                    self._field(mid, r, fh, fid)
                 except Exception:
                     pass
-            threading.Thread(target=work, daemon=True).start()
+            _BG.submit(work)
+
+    # ---------------------------------------------------------------- looking ahead
+    def _look_ahead(self):
+        """After a map is up: the hours either side are made in the background (stepping is then instant),
+        the two after that downloaded, and every hour's index of the run fetched."""
+        r, hrs = self.run()
+        if r is None or not hrs:
+            return
+        mid, fh = self.model_id, self.fh()
+        fids = tuple(sorted({self.fields()[p.index] for p in self.view.panels}))
+        token = (mid, r, fh, fids)
+        if token == self._ahead:
+            return
+        self._ahead = token
+        i = hrs.index(fh) if fh in hrs else 0
+        make = [hrs[j] for j in (i + 1, i - 1) if 0 <= j < len(hrs)]
+        fetch = [hrs[j] for j in (i + 2, i + 3) if 0 <= j < len(hrs)]
+
+        def still():
+            return self.active and self._ahead == token
+
+        for h in make:
+            for fid in fids:
+                def job(h=h, fid=fid):
+                    if still():
+                        try:
+                            self._field(mid, r, h, fid)
+                        except Exception:
+                            pass
+                _BG.submit(job)
+        for h in fetch:
+            for fid in fids:
+                def job2(h=h, fid=fid):
+                    if still():
+                        try:
+                            models.fetch_inputs(mid, r, h, fid)
+                        except Exception:
+                            pass
+                _BG.submit(job2)
+        # the index files of the hours around this one (small; each saves a round trip when you get there)
+        ik = (mid, r, fh // 12)
+        if ik not in self._idx_done:
+            self._idx_done.add(ik)
+            near = [h for h in hrs if abs(h - fh) <= 12]
+
+            def idx_job():
+                m = models.MODELS[mid]
+                list(models._POOL.map(lambda h: _quiet(models.get_idx, m, r, h), near))
+            _BG.submit(idx_job)
+        self._group_timer.start()
+
+    def _fetch_group(self):
+        """Still on the same hour after a moment: download the other fields of the same kind (Severe,
+        Surface…) for this hour, so switching between them is quick."""
+        token = self._ahead
+        if not self.active or token is None:
+            return
+        mid, r, fh, fids = token
+        groups = {models.FIELDS[f].group for f in fids}
+        others = [f.id for f in models.FIELDS.values() if f.group in groups and f.id not in fids and not f.accum][:12]
+
+        def job(fid):
+            if self._ahead == token:
+                _quiet(models.fetch_inputs, mid, r, fh, fid)
+        for fid in others:
+            _BG.submit(job, fid)
 
     def _done(self, msg):
         if msg[0] == "runs":
@@ -454,6 +570,8 @@ class ModelLayer(QObject):
         if pic is not None:
             self.pictures[panel] = pic
             self.errors.pop(panel, None)
+            if gen == self._gen and self._busy == 0:
+                self._look_ahead()
         elif err:
             self.errors[panel] = err
             if gen == self._gen:

@@ -249,8 +249,12 @@ def list_run(model: ModelDef, run: datetime) -> list:
     return sorted(h for h in hours if h in allowed)
 
 
+_LIST_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="model-list")
+
+
 def latest_runs(model: ModelDef, count: int = 4, now: datetime | None = None, max_age_s: float = 120) -> list:
-    """[(run time, [available hours])], newest first: the runs that have at least their first hours."""
+    """[(run time, [available hours])], newest first: the runs that have at least their first hours.
+    Every candidate cycle is listed at once (one round trip instead of up to ten in a row)."""
     live = now is None
     now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     if live:
@@ -260,21 +264,55 @@ def latest_runs(model: ModelDef, count: int = 4, now: datetime | None = None, ma
     step = model.cycle_every
     t = now.replace(minute=0, second=0, microsecond=0)
     t -= timedelta(hours=t.hour % step)
-    out = []
-    tries = 0
-    while len(out) < count and tries < count + 6:
-        tries += 1
+    cands = []
+    for _ in range(count + 6):
         if t <= now - timedelta(hours=model.delay_h * 0.25) or not live:
-            try:
-                hrs = list_run(model, t)
-            except Exception:
-                hrs = []
-            if hrs and 0 in hrs:
-                out.append((t, hrs))
+            cands.append(t)
         t -= timedelta(hours=step)
+
+    def hours_of(run):
+        try:
+            return list_run(model, run)
+        except Exception:
+            return None
+
+    results = list(_LIST_POOL.map(hours_of, cands))
+    if cands and all(r is None for r in results):
+        raise ConnectionError(f"couldn't reach {model.bucket}")
+    out = [(run, hrs) for run, hrs in zip(cands, results) if hrs and 0 in hrs][:count]
     if live:
         _RUNS[model.id] = (time.time(), out)
+        if out:
+            save_runs(model, out)
     return out
+
+
+def _runs_path(model: ModelDef):
+    return _cache_dir() / f"runs_{model.id}.json"
+
+
+def save_runs(model: ModelDef, runs: list):
+    import json
+    try:
+        data = {"t": time.time(), "runs": [[r.strftime("%Y%m%d%H"), list(h)] for r, h in runs]}
+        tmp = _runs_path(model).with_suffix(".part")
+        tmp.write_text(json.dumps(data))
+        os.replace(tmp, _runs_path(model))
+    except OSError:
+        pass
+
+
+def cached_runs(model: ModelDef, max_age_s: float = 12 * 3600) -> list:
+    """The run list found last time (kept on disk), so a model opens straight away while it's looked up again."""
+    import json
+    try:
+        data = json.loads(_runs_path(model).read_text())
+        if time.time() - float(data["t"]) > max_age_s:
+            return []
+        return [(datetime.strptime(r, "%Y%m%d%H").replace(tzinfo=timezone.utc), [int(x) for x in h])
+                for r, h in data["runs"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
 
 
 # --------------------------------------------------------------------------- the field catalog
@@ -630,7 +668,7 @@ class ModelField:
 
 _GRIDS: "OrderedDict" = OrderedDict()           # decoded messages (they are big: keep a few)
 _GRID_LOCK = threading.Lock()
-_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="model")
+_POOL = ThreadPoolExecutor(max_workers=8, thread_name_prefix="model")      # downloads: mostly waiting
 
 
 def _decoded(model, run, fh, entry: IdxEntry) -> grib2.GribGrid:
@@ -648,25 +686,40 @@ def _decoded(model, run, fh, entry: IdxEntry) -> grib2.GribGrid:
     return g
 
 
+_ROT: "OrderedDict" = OrderedDict()            # grid -> (cos, sin) of the turn from grid to earth axes
+
+
+def _rotation(g: grib2.GribGrid, shape):
+    k = (g.ni, g.nj, round(g.la1, 5), round(g.lo1, 5), g.scan, round(g.lcc["lov"], 5), round(g.lcc["n"], 8))
+    with _GRID_LOCK:
+        hit = _ROT.get(k)
+        if hit is not None:
+            _ROT.move_to_end(k)
+            return hit
+    rows, cols = np.indices(shape)
+    _lat, lon = g.latlon(rows, cols)
+    a = g.lcc["n"] * np.radians((lon - g.lcc["lov"] + 540.0) % 360.0 - 180.0)
+    hit = (np.cos(a).astype(np.float32), np.sin(a).astype(np.float32))
+    with _GRID_LOCK:
+        _ROT[k] = hit
+        while len(_ROT) > 4:
+            _ROT.popitem(last=False)
+    return hit
+
+
 def _earth_winds(g: grib2.GribGrid, u, v):
     """Grid-relative Lambert winds -> earth-relative (east, north)."""
     if g.lcc is None or not g.lcc.get("uv_grid", True):
         return u, v
-    rows, cols = np.indices(u.shape)
-    _lat, lon = g.latlon(rows, cols)
-    a = g.lcc["n"] * np.radians((lon - g.lcc["lov"] + 540.0) % 360.0 - 180.0)
-    ca, sa = np.cos(a), np.sin(a)
+    ca, sa = _rotation(g, u.shape)
     return (ca * u + sa * v).astype(np.float32), (-sa * u + ca * v).astype(np.float32)
 
 
 _WIND_PAIRS = (("u", "v"), ("u5", "v5"), ("u10", "v10"), ("su", "sv"))
 
 
-def compute(model_id: str, run: datetime, fh: int, fid: str, rows: list | None = None) -> ModelField:
-    """Downloads what a field needs for one forecast hour and computes it on the model's own grid."""
-    model = MODELS[model_id]
-    fd = FIELDS[fid]
-    rows = rows if rows is not None else get_idx(model, run, fh)
+def _recipes(model, fd, rows, fh):
+    """Yields (recipe, {input name: index entry}) for each recipe this hour's file can feed, then (None, why)."""
     last_err = None
     for rec in fd.recipes:
         picks = {}
@@ -688,8 +741,37 @@ def compute(model_id: str, run: datetime, fh: int, fid: str, rows: list | None =
                 last_err = f"{model.name} has no {specs[0].var} at {specs[0].level}"
                 break
             picks[key] = hit
-        if not ok:
-            continue
+        if ok:
+            yield rec, picks
+    yield None, last_err
+
+
+def fetch_inputs(model_id: str, run: datetime, fh: int, fid: str) -> int:
+    """Downloads (into the disk cache, without decoding) what a field needs for one hour; returns how many
+    pieces. For looking ahead: the map itself is then quick to make."""
+    model = MODELS[model_id]
+    fd = FIELDS[fid]
+    if fd.accum:
+        return 0
+    rows = get_idx(model, run, fh)
+    for rec, picks in _recipes(model, fd, rows, fh):
+        if rec is None:
+            return 0
+        list(_POOL.map(lambda e: get_message(model, run, fh, e), picks.values()))
+        return len(picks)
+    return 0
+
+
+def compute(model_id: str, run: datetime, fh: int, fid: str, rows: list | None = None) -> ModelField:
+    """Downloads what a field needs for one forecast hour and computes it on the model's own grid."""
+    model = MODELS[model_id]
+    fd = FIELDS[fid]
+    rows = rows if rows is not None else get_idx(model, run, fh)
+    last_err = None
+    for rec, picks in _recipes(model, fd, rows, fh):
+        if rec is None:
+            last_err = picks
+            break
         grids = dict(zip(picks, _POOL.map(lambda e: _decoded(model, run, fh, e), picks.values())))
         shapes = {g.values.shape for g in grids.values()}
         if len(shapes) != 1:
