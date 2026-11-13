@@ -569,6 +569,43 @@ def read_level2(data: bytes | str, site_hint: str = "") -> Level2Volume:
     return vol
 
 
+def read_level2_prefix(path: str, nbytes: int, site_hint: str = "") -> Level2Volume | None:
+    """The first [nbytes] of a Level II file still being downloaded: the complete records in them, decoded,
+    keeping only the sweeps that are complete. Shows the lowest tilt(s) while the rest of the file comes in.
+    None when nothing complete is in there yet (or the file is one of the old whole-file .gz ones)."""
+    with open(path, "rb") as fh:
+        data = fh.read(nbytes)
+    if data[:2] == b"\x1f\x8b" or len(data) < 64:
+        return None
+    offset = 24 if data[:4] in (b"AR2V", b"ARCH") else 0
+    if data[offset + 4:offset + 7] != b"BZh":
+        return None
+    pos = offset
+    end = offset
+    while pos + 4 <= len(data):                  # complete records only
+        size = abs(struct.unpack_from(">i", data, pos)[0])
+        pos += 4
+        if size == 0:
+            continue
+        if pos + size > len(data):
+            break
+        pos += size
+        end = pos
+    if end <= offset:
+        return None
+    b = SweepBuilder()
+    b.add_bytes(data[:end])
+    vol = b.build(site_hint, path)
+    sweeps = [sw for sw in vol.sweeps if sw.complete]
+    if not sweeps:
+        return None
+    for i, sw in enumerate(sweeps):
+        sw.index = i
+    vol.sweeps = sweeps
+    vol.complete = False
+    return vol
+
+
 def add_chunks(builder, datas: list, site_hint: str = "", source: str = ""):
     """Adds live chunks (bytes, in order) to [builder] (None: a new one) and builds the volume so far. Runs in a
     decoder process for a batch of chunks (catching up on a volume). Returns (builder, [chunk decoded ok],

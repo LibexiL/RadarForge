@@ -149,10 +149,12 @@ class Cancelled(Exception):
     """A download stopped because it was no longer wanted (another radar was chosen)."""
 
 
-def fetch_file(bucket: str, key: str, timeout: float = 60, cancelled=None) -> Path:
+def fetch_file(bucket: str, key: str, timeout: float = 60, cancelled=None, progress=None) -> Path:
     """Downloads an object into the cache (streamed straight to disk, never held whole in memory) and returns
     its path; a file already cached isn't read at all. `cancelled()` (optional) is checked as the data comes
-    in, so a download nobody wants any more stops part-way and frees the connection."""
+    in, so a download nobody wants any more stops part-way and frees the connection. `progress(part_path,
+    bytes_so_far, total_bytes)` (optional; total -1 when unknown) is called as the data lands, with the part
+    written out, so the beginning of the file can be used before the end has arrived."""
     path = cached_path(bucket, key)
     try:
         if path.stat().st_size > 0:
@@ -177,12 +179,18 @@ def fetch_file(bucket: str, key: str, timeout: float = 60, cancelled=None) -> Pa
             import tempfile
             fd, name = tempfile.mkstemp(prefix="rf_", suffix="_" + key.rsplit("/", 1)[-1])
             tmp, path, fh = Path(name), None, os.fdopen(fd, "wb")
+        total = int(getattr(r, "headers", {}).get("Content-Length") or -1)
+        got = 0
         try:
             with fh:
                 for block in r.iter_content(1 << 18):
                     if cancelled is not None and cancelled():
                         raise Cancelled(key)
                     fh.write(block)
+                    got += len(block)
+                    if progress is not None:
+                        fh.flush()
+                        progress(tmp, got, total)
         except BaseException:
             try:
                 tmp.unlink()
@@ -193,6 +201,41 @@ def fetch_file(bucket: str, key: str, timeout: float = 60, cancelled=None) -> Pa
             return tmp
         os.replace(tmp, path)
         return path
+    finally:
+        r.close()
+
+
+def fetch_range(bucket: str, key: str, start: int, end: int | None, part: Path, cancelled=None,
+                progress=None, timeout: float = 60) -> int:
+    """Downloads bytes [start, end] (end None: to the end) of an object onto the end of [part] (start 0:
+    a fresh file), streamed. Returns the number of bytes written. `cancelled()` and `progress(part,
+    bytes_in_file, total_bytes)` as in fetch_file."""
+    if cancelled is not None and cancelled():
+        raise Cancelled(key)
+    rng = f"bytes={start}-" + ("" if end is None else str(end))
+    r = session().get(f"{bucket_url(bucket)}/{key}", timeout=timeout, stream=True, headers={"Range": rng})
+    try:
+        if r.status_code == 416:                 # nothing there (the file is shorter than start)
+            return 0
+        r.raise_for_status()
+        total = -1
+        cr = r.headers.get("Content-Range", "")
+        if "/" in cr and cr.rsplit("/", 1)[1].isdigit():
+            total = int(cr.rsplit("/", 1)[1])
+        part.parent.mkdir(parents=True, exist_ok=True)
+        got = 0
+        with open(part, "wb" if start == 0 else "ab") as fh:
+            if start and fh.tell() != start:
+                raise OSError(f"{part.name}: expected {start} bytes on disk, found {fh.tell()}")
+            for block in r.iter_content(1 << 18):
+                if cancelled is not None and cancelled():
+                    raise Cancelled(key)
+                fh.write(block)
+                got += len(block)
+                if progress is not None:
+                    fh.flush()
+                    progress(part, start + got, total)
+        return got
     finally:
         r.close()
 

@@ -1211,6 +1211,8 @@ class MainWindow(MenusMixin, ModelsMixin, WinterTropicalMixin, PresetsMixin, Lay
                 tags += "  (earlier volume)"          # this volume's own product hasn't come in yet
             if img.extra.get("filled"):
                 tags += "  (scanning)"                # new radials over the volume before
+            if frame is not None and frame.gaps and not frame.live and self.data.mode == "archive":
+                tags += "  (first tilts – the rest of this volume is still downloading)"
             if img.extra.get("dealiased") and p.product in ("VEL", "L3G", "L3S"):
                 tags += "  dealiased"
             if img.extra.get("ptype"):

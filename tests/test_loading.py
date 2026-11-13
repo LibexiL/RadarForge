@@ -365,3 +365,63 @@ def test_archive_level3_waits_for_all_its_volumes(dm):
     dm._insert_frame(late)
     dm._flush_pending_l3()
     assert late.l3["N0G"] is prod and "N0G" not in dm.frames[0].l3
+
+
+def test_prefix_decodes_only_complete_records_and_sweeps(tmp_path, monkeypatch):
+    """The start of a file being downloaded: whole records only, and only the sweeps that are finished."""
+    import bz2
+    import struct
+    from radarforge.data import level2
+    from tests.test_memory import _radials
+    recs = [b"one" * 1000, b"two" * 1000, b"three" * 1000]
+    blob = bytearray(b"AR2V0006." + bytes(15))
+    for i, r in enumerate(recs):
+        c = bz2.compress(r)
+        blob += struct.pack(">i", len(c) if i < len(recs) - 1 else -len(c)) + c
+    path = tmp_path / "KABC_V06"
+    path.write_bytes(blob)
+    rads = {b"one": _radials(1, status_last=2), b"two": _radials(2, status_last=1), b"three": _radials(3, status_last=4)}
+
+    def fake_iter(msgs, meta):
+        for key, rs in rads.items():
+            if key * 3 in msgs:
+                yield from rs
+    monkeypatch.setattr(level2, "iter_radials", fake_iter)
+    first_len = 24 + 4 + len(bz2.compress(recs[0]))
+    assert level2.read_level2_prefix(str(path), 40, "KABC") is None            # the header only
+    v = level2.read_level2_prefix(str(path), first_len + 10, "KABC")           # record 1 and a bit of 2
+    assert [s.elev_num for s in v.sweeps] == [1] and not v.complete
+    v = level2.read_level2_prefix(str(path), len(blob), "KABC")
+    assert [s.elev_num for s in v.sweeps] == [1, 2, 3]                        # (record 3 ends the volume)
+
+
+def test_fetch_range_appends(tmp_path, monkeypatch):
+    from radarforge.data import aws
+    blob = bytes(range(256)) * 100
+
+    class R:
+        def __init__(self, a, b):
+            self.status_code = 206
+            self.headers = {"Content-Range": f"bytes {a}-{b}/{len(blob)}"}
+            self._d = blob[a:b + 1]
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, n):
+            for i in range(0, len(self._d), n):
+                yield self._d[i:i + n]
+
+        def close(self):
+            pass
+
+    class Sess:
+        def get(self, url, timeout=60, stream=False, headers=None):
+            a, b = headers["Range"][6:].split("-")
+            return R(int(a), int(b) if b else len(blob) - 1)
+    monkeypatch.setattr(aws, "session", lambda: Sess())
+    part = tmp_path / "x.part"
+    seen = []
+    assert aws.fetch_range("b", "k", 0, 999, part, progress=lambda p, got, tot: seen.append((got, tot))) == 1000
+    assert aws.fetch_range("b", "k", 1000, None, part) == len(blob) - 1000
+    assert part.read_bytes() == blob and seen[-1] == (1000, len(blob))

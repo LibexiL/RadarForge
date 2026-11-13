@@ -12,7 +12,8 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 from ..data import aws
 from ..data.frames import VOLUMES, Frame, volume_capacity
-from ..data.level2 import DecodeCancelled, decode_slot, decoder_count
+from ..data import level2
+from ..data.level2 import DecodeCancelled, decode_slot, decoder_count, run_isolated
 from ..data.level3 import read_level3_isolated as read_level3
 from ..data.live import ChunkTracker
 from ..data.sites import get_site
@@ -137,6 +138,46 @@ class DataManager(QObject):
         with self._lock:
             if self.mode == "live" and len(self.frames) > n:
                 self.frames = self.frames[-n:]
+
+    def _early_frame(self, gen, f, tmp, nbytes, early, total):
+        """A frame from the first part of an archive file (its complete lowest sweeps), shown until the
+        whole file is in and replaces it."""
+        def stale():
+            return gen != self._gen
+
+        def job():
+            if stale():
+                return
+            try:
+                with decode_slot(5, cancelled=stale):
+                    if stale():
+                        return
+                    vol = run_isolated(level2.read_level2_prefix, tmp, nbytes, self.site_id)
+            except (DecodeCancelled, Exception):
+                return
+            if vol is None or stale():
+                return
+            with self._lock:
+                if stale():
+                    return
+                frame = self._find_frame(f.time, 60)
+                if frame is None:
+                    frame = Frame(self.site_id, f.time, l2_volume=vol, label=f.name)
+                    frame.gaps = 1                       # (marks it as partial: the full file replaces it)
+                    self._insert_frame(frame)
+                elif frame.from_chunks and frame.gaps and not frame.live:
+                    frame.set_level2(vol)
+                else:
+                    return                               # the full file already landed
+                if f.key not in early["pending"]:
+                    early["pending"].add(f.key)
+                    early["ready"] += 1
+                ready = early["ready"]
+            self._emit_frames()
+            if ready and ready < total:
+                self.status.emit(f"Archive: lowest tilt ready for {ready} of {total} volumes, full files "
+                                 "still downloading…")
+        self._decode_pool.submit(job)
 
     def _decode_ahead(self, gen, frame):
         """Decode a frame's downloaded volume now, so the loop is ready about when its last file arrives
@@ -569,14 +610,73 @@ class DataManager(QObject):
         def stale():
             return gen != self._gen
 
+        early = {"ready": 0, "pending": set()}
+        archive = self.mode == "archive"
+        if archive:
+            self.status.emit(f"Archive: downloading {total} volumes… the lowest tilt shows as each file's "
+                             "first part arrives")
+
         def one(f):
             return f, aws.fetch_file(aws.L2_BUCKET, f.key, cancelled=stale)
-        # the first file on its own (it's what shows first), then the rest several at once
-        futures = [self._dl_pool.submit(one, f) for f in files[:1]]
-        if futures:
+
+        # archive: the first fifth of every file first (the lowest tilts live there: each is decoded and
+        # shown as soon as it's in), then the rest of each file; live: whole files, several at once
+        parts = {}
+
+        def head(f):
+            path = aws.cached_path(aws.L2_BUCKET, f.key)
+            try:
+                if path.stat().st_size > 0:
+                    return f, path
+            except OSError:
+                pass
+            part = path.with_name(path.name + ".part")
+            h = max(2_000_000, int(f.size * 0.2)) if f.size else 3_000_000
+            if f.size and h >= f.size:
+                h = f.size
+            parts[f.key] = (part, h)
+            got = aws.fetch_range(aws.L2_BUCKET, f.key, 0, h - 1, part, cancelled=stale)
+            if f.size and h >= f.size:
+                os.replace(part, path)
+                return f, path
+            self._early_frame(gen, f, str(part), got, early, total)
+            return f, None
+
+        def tail(f):
+            path = aws.cached_path(aws.L2_BUCKET, f.key)
+            try:
+                if path.stat().st_size > 0:
+                    return f, path
+            except OSError:
+                pass
+            part, h = parts.get(f.key, (None, 0))
+            if part is None or not part.exists():
+                return f, aws.fetch_file(aws.L2_BUCKET, f.key, cancelled=stale)
+            tried = {"again": False}
+
+            def prog(p, got, tot):
+                # the first fifth had no complete sweep (an unusual scan): one more try further in
+                if not tried["again"] and f.key not in early["pending"] and tot > 0 and got >= tot * 0.45:
+                    tried["again"] = True
+                    self._early_frame(gen, f, str(p), got, early, total)
+            aws.fetch_range(aws.L2_BUCKET, f.key, h, None, part, cancelled=stale, progress=prog)
+            os.replace(part, path)
+            return f, path
+
+        if archive:
+            # the first file's start on its own (it's what shows first), then every file's start, then the rest
+            futures = [self._dl_pool.submit(head, f) for f in files[:1]]
             wait(futures, timeout=1.5)
-        if not stale():
-            futures += [self._dl_pool.submit(one, f) for f in files[1:]]
+            if not stale():
+                futures += [self._dl_pool.submit(head, f) for f in files[1:]]
+                futures += [self._dl_pool.submit(tail, f) for f in files]
+        else:
+            # the first file on its own (it's what shows first), then the rest several at once
+            futures = [self._dl_pool.submit(one, f) for f in files[:1]]
+            if futures:
+                wait(futures, timeout=1.5)
+            if not stale():
+                futures += [self._dl_pool.submit(one, f) for f in files[1:]]
         failed = 0
         try:
             for fut in futures:
@@ -592,9 +692,12 @@ class DataManager(QObject):
                         self.status.emit(f"Download failed – {aws.friendly_error(exc)}")
                     done += 1
                     continue
+                if path is None:                 # (a head: its early frame is made elsewhere)
+                    continue
                 with self._lock:
                     if stale():                  # (checked under the lock: _reset clears the list under it)
                         return
+                    early["pending"].discard(f.key)
                     frame = self._find_frame(f.time, 60)
                     if frame is None:
                         frame = Frame(self.site_id, f.time, l2_path=str(path), label=f.name)
@@ -604,11 +707,14 @@ class DataManager(QObject):
                         frame.l2_rev += 1
                         frame.revision += 1
                     elif frame.from_chunks and frame.gaps and not frame.live:
-                        frame.replace_with_file(str(path))
+                        frame.replace_with_file(str(path))      # (the early, lowest-tilt version goes)
                     else:
                         frame = None
                 done += 1
                 self.progress.emit(done, total)
+                if self.mode == "archive" and done < total:
+                    self.status.emit(f"Archive: {done} of {total} volumes complete"
+                                     + (f", lowest tilt ready for {early['ready']}" if early["ready"] > done else "") + "…")
                 self._emit_frames()
                 if frame is not None:
                     self._decode_ahead(gen, frame)

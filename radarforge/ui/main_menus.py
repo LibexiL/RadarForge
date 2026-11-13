@@ -12,7 +12,7 @@ Where things live (one home per topic):
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QKeyCombination, QSize, Qt
+from PySide6.QtCore import QEvent, QKeyCombination, QObject, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QMenu, QMessageBox, QProgressBar, QSizePolicy,
                                QSlider, QToolBar, QToolButton, QWidget)
@@ -25,6 +25,45 @@ LAYOUT_NAMES = {1: "1 panel", 2: "2 panels side by side", 3: "3 panels side by s
                 5: "5 panels (3 over 2)", 6: "6 panels (3 × 2)"}
 LOOP_FPS = (2, 4, 6, 8, 10, 15)
 LOOP_FRAMES = (6, 10, 12, 15, 20, 24, 30, 36, 48, 60)    # 10 is the default (1.14)
+
+
+class _Arrows(QObject):
+    """Application-wide arrow keys: ← → step through the scans, ↑ ↓ through the tilts."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win = win
+
+    def eventFilter(self, obj, ev):
+        if ev.type() != QEvent.KeyPress:
+            return False
+        key = ev.key()
+        if key not in (Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down) or ev.modifiers() & ~Qt.KeypadModifier:
+            return False
+        from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QApplication, QComboBox, QLineEdit,
+                                       QMenu, QPlainTextEdit, QTextEdit)
+        w = self.win
+        if QApplication.activeModalWidget() is not None or QApplication.activePopupWidget() is not None:
+            return False
+        fw = QApplication.focusWidget()
+        if fw is not None:
+            if fw.window() is not w:
+                return False                                   # a dialog or a floating panel's own window
+            if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QAbstractItemView, QComboBox, QMenu)):
+                return False
+            if isinstance(fw.parent(), (QAbstractItemView, QComboBox)):
+                return False
+        elif QApplication.activeWindow() is not w:
+            return False
+        if key == Qt.Key_Left:
+            w.step_frame(-1)
+        elif key == Qt.Key_Right:
+            w.step_frame(1)
+        elif key == Qt.Key_Up:
+            w.step_tilt(1)
+        else:
+            w.step_tilt(-1)
+        return True
 
 
 class MenusMixin:
@@ -836,6 +875,11 @@ class MenusMixin:
         sc(Qt.Key_Right, lambda: self.step_frame(1))
         sc(Qt.Key_Up, lambda: self.step_tilt(1))
         sc(Qt.Key_Down, lambda: self.step_tilt(-1))
+        # the arrows work wherever the keyboard focus is (a drawer page, the timeline, a chip…), not only
+        # over the map: anything that would otherwise scroll or move with them hands them over, except
+        # text boxes, number boxes, lists and open menus
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().installEventFilter(_Arrows(self))
         sc(Qt.Key_Space, self.toggle_play)
         sc(Qt.Key_End, lambda: self.goto_frame(len(self.data.frames) - 1))
         sc("P", lambda: self.set_tool("pan"))

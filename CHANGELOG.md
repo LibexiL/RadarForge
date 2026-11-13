@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.28.0 – 2026-11-12
+
+**Archive loops show up in a fraction of the time.**
+
+- **The lowest tilt appears while the files are still downloading.** An archive volume is 10–25 MB and its
+  0.5° cuts sit in the first fifth of the file, so RadarForge now downloads the first fifth of *every* file
+  first (the first one on its own), decodes the finished sweeps in it and puts the frame on screen, then
+  fetches the rest of each file and swaps in the complete volume. On a 20 Mbps connection a 12-volume loop
+  used to show its first frame after 12 s and all frames after 41 s; now the first frame is up in about a
+  second and every frame is showing by 11 s (higher tilts arrive as the full files come in; the panel says
+  "first tilts – the rest of this volume is still downloading" until then).
+- The status bar counts both: "lowest tilt ready for 9 of 12 volumes, full files still downloading".
+- **Arrow keys everywhere:** ← → step through the scans and ↑ ↓ through the tilts wherever the keyboard
+  focus is (a drawer page, the timeline, a button), not only when the map was last clicked. Text boxes,
+  number boxes and lists keep the arrows for themselves.
+
 ## 1.27.2 – 2026-11-11
 
 **Model downloads: fewer round trips, and the map you're waiting on always comes first.**
