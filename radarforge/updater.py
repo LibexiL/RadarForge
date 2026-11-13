@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import zipfile
+import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -130,8 +131,51 @@ def fetch_releases(timeout: float = 15) -> list:
         raise UpdateError("GitHub's answer could not be read.")
 
 
+CHANGELOG_URL = "https://raw.githubusercontent.com/LibexiL/RadarForge/main/CHANGELOG.md"
+
+
+def changelog_section(text: str, version: str) -> str:
+    """The "## <version> …" section of a changelog, without its heading ("" when there's none)."""
+    lines = text.replace("\r\n", "\n").split("\n")
+    out, on = [], False
+    for line in lines:
+        if line.startswith("## "):
+            if on:
+                break
+            head = line[3:].strip()
+            on = head == version or head.startswith(version + " ") or head.startswith(version + " –")
+            continue
+        if on:
+            out.append(line)
+    return "\n".join(out).strip()
+
+
+def fill_notes_from_changelog(releases: list, timeout: float = 10) -> list:
+    """Releases published without notes get them from the changelog in the repository (a release's notes
+    were empty on earlier releases of the PC app)."""
+    if not any(not (r.notes or "").strip() for r in releases):
+        return releases
+    try:
+        import requests
+        r = requests.get(CHANGELOG_URL, timeout=timeout, headers=UA)
+        if r.status_code != 200:
+            return releases
+        text = r.text
+    except Exception:
+        return releases
+    out = []
+    for rel in releases:
+        if not (rel.notes or "").strip():
+            sec = changelog_section(text, rel.version)
+            if sec:
+                rel = dataclasses.replace(rel, notes=sec)
+        out.append(rel)
+    return out
+
+
 def combined_notes(releases: list, limit: int = 6) -> str:
     """Markdown with the notes of every newer release, newest first."""
+    releases = fill_notes_from_changelog(releases)
     parts = []
     for r in releases[:limit]:
         body = (r.notes or "").strip().replace("\r\n", "\n")

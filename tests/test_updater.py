@@ -448,3 +448,21 @@ def test_clean_env_for_frozen_builds(monkeypatch):
     assert env["LD_LIBRARY_PATH"] == "/opt/mine"
     monkeypatch.setenv("LD_LIBRARY_PATH", "/tmp/.mount_abc/usr/lib/radarforge/_internal")
     assert "LD_LIBRARY_PATH" not in updater.clean_env()
+
+
+def test_notes_fall_back_to_the_changelog(monkeypatch):
+    from radarforge import updater
+    text = "# Changelog\n\n## 1.28.0 – 2026-11-12\n\n- faster archive\n- arrows\n\n## 1.27.2 – 2026-11-11\n\n- downloads\n"
+    assert updater.changelog_section(text, "1.28.0") == "- faster archive\n- arrows"
+    assert updater.changelog_section(text, "1.27.2") == "- downloads"
+    assert updater.changelog_section(text, "1.0.0") == ""
+
+    class R:
+        status_code = 200
+    R.text = text
+    import requests
+    monkeypatch.setattr(requests, "get", lambda *a, **k: R())
+    rels = updater.parse_releases([{"tag_name": "v1.28.0", "body": "", "assets": []},
+                                   {"tag_name": "v1.27.2", "body": "already has notes", "assets": []}])
+    out = updater.combined_notes(rels)
+    assert "faster archive" in out and "already has notes" in out and "(no notes)" not in out

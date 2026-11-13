@@ -70,7 +70,15 @@ jobs:
         with:
           name: linux-appimage
           path: dist/RadarForge-*.AppImage
+      - name: This version's notes from the changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '$0 ~ "^## "v"( |$)" {on=1; next} on && /^## / {exit} on {print}' CHANGELOG.md > dist/notes.md
+          [ -s dist/notes.md ] || echo "See CHANGELOG.md." > dist/notes.md
+          cat dist/notes.md
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/RadarForge-*.AppImage
+          body_path: dist/notes.md

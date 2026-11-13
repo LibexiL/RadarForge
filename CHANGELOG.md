@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.28.1 – 2026-11-13
+
+- **The update window shows what changed again.** The PC releases were published without notes (the Android
+  workflow put the changelog in, the PC one never did), so the updater said "(no notes)". Releases now carry
+  their changelog section, and for releases that have none the app reads it from the changelog on GitHub.
+
 ## 1.28.0 – 2026-11-12
 
 **Archive loops show up in a fraction of the time.**
