@@ -12,7 +12,7 @@ placefiles and colour tables, cross sections, a 3-D storm view, warnings, and th
 
 | Windows 10 / 11 | Linux |
 |---|---|
-| **`RadarForge-Setup-<version>.exe`** – run it, click through, done. No Python needed, no admin rights. | **`RadarForge-<version>-x86_64.AppImage`** – right-click → Properties → *Allow executing as program* (or `chmod +x`), then double-click. |
+| **`RadarForge-Setup-<version>.exe`** – run it, click through, done. No Python needed, no admin rights. | **`RadarForge-<version>-x86_64.AppImage`** – install `libfuse2` (Ubuntu 24.04 / Mint 22: `libfuse2t64`) once, right-click → Properties → *Allow executing as program* (or `chmod +x`), then double-click. |
 
 Windows may show *"Windows protected your PC"* for a new download: click **More info → Run anyway**.
 

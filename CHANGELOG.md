@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.28.2 – 2026-11-15
+
+- **Linux: the AppImage starts on Linux Mint (and other current distributions) again.** It used to carry its own
+  copies of system libraries (GLib, libstdc++, OpenGL, X11, fontconfig…); on a system with newer ones the
+  graphics driver and GTK pieces loaded into the app found the old copies and it aborted during the OpenGL
+  set-up, before the window appeared. Those libraries now come from the system, as AppImages are meant to.
+  The AppImage needs `libfuse2` (Mint 21) or `libfuse2t64` (Mint 22) installed, like every AppImage.
+
 ## 1.28.1 – 2026-11-13
 
 - **The update window shows what changed again.** The PC releases were published without notes (the Android
