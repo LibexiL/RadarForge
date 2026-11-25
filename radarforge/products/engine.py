@@ -21,6 +21,17 @@ from .geometry import slant_range
 RF = np.float32(np.inf)   # range-folded marker
 
 
+_RAM = []
+
+
+def _ram_gb() -> float:
+    """Installed memory (GB), looked up once."""
+    if not _RAM:
+        from ..data.frames import total_ram_gb
+        _RAM.append(total_ram_gb())
+    return _RAM[0]
+
+
 @dataclass
 class SweepImage:
     key: tuple
@@ -254,9 +265,14 @@ class ProductEngine:
                 while len(self._missing) > 4000:
                     self._missing.popitem(last=False)
             return
-        # the setting, but never less than the loop on screen needs (frames x panels, ~3 MB an image)
+        # the setting (on a computer with under 8 GB, at most ~45 MB per GB, so a 4 GB laptop keeps ~180 MB),
+        # but never less than the loop on screen needs (frames x panels, ~3 MB an image)
         s = self.settings
-        budget = max(float(s["image_cache_mb"]), int(s["loop_frames"] or 10) * int(s["layout"] or 1) * 3.2) * 1e6
+        want = float(s["image_cache_mb"])
+        ram = _ram_gb()
+        if 0 < ram < 8:
+            want = min(want, ram * 45.0)
+        budget = max(want, int(s["loop_frames"] or 10) * int(s["layout"] or 1) * 3.2) * 1e6
         n = img.nbytes
         with self._lock:
             old = self._sizes.pop(key, None)

@@ -10,7 +10,7 @@ from __future__ import annotations
 import heapq
 
 import numpy as np
-from scipy import ndimage
+from ._lazy import ndimage
 
 
 def dealias_region(vel: np.ndarray, nyq: float, splits: int = 3,

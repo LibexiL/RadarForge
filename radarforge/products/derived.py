@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy import ndimage
+from ._lazy import ndimage
 
 from .geometry import beam_height, fold, slant_range
 

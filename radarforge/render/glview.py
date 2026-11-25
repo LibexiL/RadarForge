@@ -57,6 +57,11 @@ def default_format():
     return make_format("core-msaa")
 
 
+def _text(log) -> str:
+    """A GL info log as text (PyOpenGL gives bytes or str depending on version)."""
+    return log.decode(errors="replace") if isinstance(log, (bytes, bytearray)) else str(log or "")
+
+
 @dataclass
 class Panel:
     index: int
@@ -369,6 +374,16 @@ class RadarView(QOpenGLWindow):
     # ------------------------------------------------------------------ GL setup
     def initializeGL(self):
         try:
+            self._init_gl()
+        except Exception as exc:
+            # A driver that can't build our shaders: say so on the map rather than failing every frame
+            import logging
+            logging.getLogger(__name__).exception("OpenGL setup failed")
+            self._gl_ready = False
+            self._gl_error = str(exc)[:300] or type(exc).__name__
+
+    def _init_gl(self):
+        try:
             self.gl_info = (GL.glGetString(GL.GL_VERSION) or b"").decode(errors="replace") + " / " + \
                            (GL.glGetString(GL.GL_RENDERER) or b"").decode(errors="replace")
         except Exception:
@@ -405,7 +420,7 @@ class RadarView(QOpenGLWindow):
             GL.glShaderSource(s, src)
             GL.glCompileShader(s)
             if not GL.glGetShaderiv(s, GL.GL_COMPILE_STATUS):
-                raise RuntimeError(GL.glGetShaderInfoLog(s).decode())
+                raise RuntimeError(_text(GL.glGetShaderInfoLog(s)))
             return s
         prog = GL.glCreateProgram()
         objs = [comp(vs, GL.GL_VERTEX_SHADER), comp(fs, GL.GL_FRAGMENT_SHADER)]
@@ -415,7 +430,7 @@ class RadarView(QOpenGLWindow):
             GL.glAttachShader(prog, o)
         GL.glLinkProgram(prog)
         if not GL.glGetProgramiv(prog, GL.GL_LINK_STATUS):
-            raise RuntimeError(GL.glGetProgramInfoLog(prog).decode())
+            raise RuntimeError(_text(GL.glGetProgramInfoLog(prog)))
         for o in objs:
             GL.glDeleteShader(o)
         return prog
@@ -567,6 +582,15 @@ class RadarView(QOpenGLWindow):
         return ok
 
     def paintGL(self):
+        if not self._gl_ready:
+            painter = QPainter(self)
+            painter.fillRect(QRectF(0, 0, self.width(), self.height()), QColor(20, 22, 26))
+            painter.setPen(QColor(230, 230, 230))
+            painter.drawText(QRectF(20, 20, self.width() - 40, self.height() - 40), Qt.AlignCenter | Qt.TextWordWrap,
+                             "The map couldn't start on this graphics driver.\n\n" + getattr(self, "_gl_error", "") +
+                             "\n\nUpdating the graphics driver usually fixes this.")
+            painter.end()
+            return
         dpr = self.devicePixelRatioF()
         fw, fh = int(round(self.width() * dpr)), int(round(self.height() * dpr))
         GL.glViewport(0, 0, fw, fh)

@@ -16,8 +16,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install
@@ -34,11 +34,11 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           & $iscc "/DAppVersion=$version" packaging/radarforge.iss
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: windows-installer
           path: dist/RadarForge-Setup-*.exe
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/RadarForge-Setup-*.exe
@@ -47,8 +47,8 @@ jobs:
     runs-on: ubuntu-22.04          # older glibc: the AppImage then runs on more distributions
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Qt system libraries
@@ -66,7 +66,7 @@ jobs:
         run: QT_QPA_PLATFORM=offscreen dist/RadarForge/RadarForge --check
       - name: Build the AppImage
         run: bash packaging/build_appimage.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: linux-appimage
           path: dist/RadarForge-*.AppImage
@@ -77,7 +77,7 @@ jobs:
           awk -v v="$ver" '$0 ~ "^## "v"( |$)" {on=1; next} on && /^## / {exit} on {print}' CHANGELOG.md > dist/notes.md
           [ -s dist/notes.md ] || echo "See CHANGELOG.md." > dist/notes.md
           cat dist/notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/RadarForge-*.AppImage

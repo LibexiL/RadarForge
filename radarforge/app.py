@@ -311,6 +311,8 @@ def main(argv=None):
     tee.counting = True              # only count problems from the real window onwards
     win = MainWindow(settings)
     win.show()
+    from .products import _lazy
+    QTimer.singleShot(1500, lambda: threading.Thread(target=_lazy.warm, name="warm-imports", daemon=True).start())
     if f"qtmsg:{key}:{kind}" in simulated:        # testing: pretend the driver complained
         from PySide6.QtCore import qWarning
         for ms in (300, 400, 500):

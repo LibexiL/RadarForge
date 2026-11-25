@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.28.3 – 2026-11-25
+
+**Upkeep: steadier on small computers, quicker to open.**
+
+- The window opens about a third sooner: the image-processing library (SciPy) now loads in the background once the
+  window is up, instead of before it.
+- On computers with less than 8 GB of memory (like a 4 GB Chromebook), the cache of drawn radar images is sized
+  to the memory (about 180 MB on 4 GB instead of 300 MB), so long sessions leave more room for everything else.
+  It still always holds the whole loop on screen.
+- If the graphics driver can't set up the map, the map says so (and suggests a driver update) instead of failing
+  silently on every redraw.
+- The build tools are updated ahead of GitHub retiring the old versions, and the tests also run on Python 3.14.
+  Checked against the newest PySide6, NumPy, SciPy and Pillow.
+
 ## 1.28.2 – 2026-11-15
 
 - **Linux: the AppImage starts on Linux Mint (and other current distributions) again.** It used to carry its own
