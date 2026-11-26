@@ -81,8 +81,8 @@ PRODUCTS = [
     P("DIV", "Radial Divergence", "Div", "Derived", "derived", "/s x1e-3", "SHEAR", "VEL", decimals=1,
       description="Along-radial derivative of velocity (positive = divergence)."),
     P("PTYPE", "Precipitation Type Reflectivity", "PType", "Derived", "derived", "dBZ", "PTYPE", "REF", smooth=False,
-      description="Reflectivity coloured by what's falling – rain, snow, sleet or freezing rain – from the HRRR "
-                  "analysis for the hour of the scan."),
+      description="Reflectivity coloured by what's falling – rain, snow, sleet or freezing rain – from the HRRR's "
+                  "newest forecast for the hour of the scan."),
     # --- volume products ---------------------------------------------------------
     P("CREF", "Composite Reflectivity", "CR", "Volume", "volume", "dBZ", "REF", tilted=False),
     P("ET18", "Echo Tops (18 dBZ)", "ET", "Volume", "volume", "kft", "ET", tilted=False),

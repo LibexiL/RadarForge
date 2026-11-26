@@ -164,6 +164,41 @@ def test_ptype_values():
     assert winter.ptype_values(ref, az, 10.0, 20.0, 0.5, None)[0, 0] == pytest.approx(30.0)
 
 
+def test_ptype_hours_skip_the_analysis_first():
+    # the analysis has no precipitation types: the newest forecast valid at the hour comes first
+    c = winter._hours_for(utc(2026, 11, 26, 1, 48))
+    assert c[0] == (utc(2026, 11, 26, 1), 1) and c[-1] == (utc(2026, 11, 26, 2), 0)
+    assert all(run + timedelta(hours=fh) == utc(2026, 11, 26, 2) for run, fh in c)
+
+
+def test_wet_bulb():
+    assert winter.wet_bulb_c(5.0, 5.0) == pytest.approx(5.0, abs=0.3)          # saturated: the temperature
+    assert winter.wet_bulb_c(1.7, -2.0) < 0.5                                     # 35 °F, dry: snow is likely
+    assert winter.wet_bulb_c(3.0) == pytest.approx(3.0)
+
+
+def test_ptype_classify():
+    n = 40
+    t2 = np.full((n, n), 274.0, np.float32)            # ~33.5 °F everywhere
+    td = np.full((n, n), 271.0, np.float32)            # dry enough for a wet bulb near freezing: snow
+    snow = np.zeros((n, n), np.float32)
+    snow[:5, :5] = 1                                   # the model snows in one corner only
+    rain = np.zeros((n, n), np.float32)
+    codes = winter.classify(t2, td, {"csnow": snow, "crain": rain}, 2.0)
+    assert codes[0, 0] == winter.SNOW
+    assert codes[10, 10] == winter.SNOW                 # carried to the radar's echoes nearby
+    assert codes[n - 1, n - 1] == winter.SNOW           # beyond reach: the wet bulb says snow
+    warm = np.full((n, n), 280.0, np.float32)
+    codes = winter.classify(warm, warm - 1, {"csnow": snow}, 2.0)
+    assert codes[0, 0] == winter.SNOW and codes[10, 10] == winter.RAIN   # model snow isn't carried into 45 °F air
+    assert codes[n - 1, n - 1] == winter.RAIN
+    fz = np.zeros((n, n), np.float32)
+    fz[20, 20] = 1
+    codes = winter.classify(np.full((n, n), 271.0, np.float32), None, {"cfrzr": fz, "csnow": fz * 0}, 2.0)
+    assert codes[22, 22] == winter.FRZR
+    assert winter.classify(np.full((2, 2), np.nan, np.float32), None, {}, 2.0)[0, 0] == -1
+
+
 def test_snowfall_listing():
     html = ('<a href="sfav2_CONUS_24h_2026011512.grb2">x</a> <a href="sfav2_CONUS_24h_2026011512_grid184.grb2">x</a>'
             '<a href="sfav2_CONUS_48h_2026011600_grid184.grb2">x</a> <a href="sfav2_CONUS_24h_2026011600_grid184.grb2">')

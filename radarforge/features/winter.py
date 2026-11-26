@@ -1,8 +1,11 @@
 """Winter weather: precipitation type on the radar, the freezing line, and NOAA's snowfall analysis.
 
-* Precipitation type comes from the HRRR's analysis for the hour of the scan (categorical rain / snow / sleet /
-  freezing rain, plus its 2 m temperature where it shows no precipitation). The radar's own reflectivity is then
-  coloured by type: the PTYPE product.
+* Precipitation type comes from the HRRR's newest forecast valid at the hour of the scan (categorical rain / snow /
+  sleet / freezing rain). Its analysis hour can't be used for this: the model has made no precipitation yet at
+  that point, so every type flag is off. Where the radar sees precipitation the model doesn't have, the nearest
+  type the model does have (within 60 km) is used, and beyond that the 2 m wet-bulb temperature decides between
+  snow and rain (snow often falls at 33-36 °F). The radar's own reflectivity is then coloured by type: the PTYPE
+  product.
 * The freezing line is the HRRR's 32 °F isotherm at 2 m for the hour of the scan.
 * Snowfall totals are the National Operational Hydrologic Remote Sensing Center's gridded snowfall analysis
   (24 / 48 / 72 hours, updated at 00 and 12 UTC): https://www.nohrsc.noaa.gov/snowfall_v2/
@@ -60,9 +63,58 @@ VERSION = [0]                       # bumps when a new grid arrives (the PTYPE i
 
 
 def _hours_for(t: datetime):
-    """(run, forecast hour) candidates for the hour nearest t: its analysis first, then older runs' forecasts."""
+    """(run, forecast hour) candidates valid at the hour nearest t: the newest runs' forecasts first (1, 2, 3 hours
+    ahead), the analysis only as a last resort (it has no precipitation types, only temperatures)."""
     h = (t + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
-    return [(h - timedelta(hours=k), k) for k in range(0, 4)]
+    return [(h - timedelta(hours=k), k) for k in (1, 2, 3, 0)]
+
+
+REACH_KM = 60.0                     # how far the model's nearest precipitation type is carried to the radar's echoes
+SNOW_TW_C = 1.0                     # wet-bulb temperature (°C) at or below which precipitation is taken as snow
+
+
+def wet_bulb_c(t_c, td_c=None):
+    """2 m wet-bulb temperature (°C) from temperature and dewpoint (Stull 2011); the temperature without a dewpoint."""
+    t_c = np.asarray(t_c, np.float64)
+    if td_c is None:
+        return t_c.astype(np.float32)
+    td_c = np.minimum(np.asarray(td_c, np.float64), t_c)
+
+    def es(x):
+        return 6.112 * np.exp(17.62 * x / (243.12 + x))
+    rh = np.clip(100.0 * es(td_c) / es(t_c), 5.0, 100.0)
+    tw = (t_c * np.arctan(0.151977 * np.sqrt(rh + 8.313659)) + np.arctan(t_c + rh) - np.arctan(rh - 1.676331)
+          + 0.00391838 * rh ** 1.5 * np.arctan(0.023101 * rh) - 4.686035)
+    return np.minimum(tw, t_c).astype(np.float32)
+
+
+def classify(t2_k, td2_k, flags: dict, cell_km: float):
+    """Type codes on a grid from the model's 2 m temperature / dewpoint (K) and its categorical flags (0 / 1).
+
+    Where the model has precipitation its own type counts (in rising order: rain, snow, sleet, freezing rain; a
+    rain / snow mix shows as snow). Elsewhere the nearest model type within REACH_KM is used (the radar's
+    precipitation and the model's rarely line up exactly), unless the air there plainly disagrees; and beyond
+    that the wet-bulb temperature decides between snow and rain."""
+    t2_k = np.asarray(t2_k, np.float32)
+    tw = wet_bulb_c(t2_k - 273.15, None if td2_k is None else np.asarray(td2_k, np.float32) - 273.15)
+    tw = np.where(np.isfinite(tw), tw, 99.0)
+    codes = np.where(tw <= SNOW_TW_C, SNOW, RAIN).astype(np.int8)
+    model = np.full(t2_k.shape, -1, np.int8)
+    for code, name in ((RAIN, "crain"), (SNOW, "csnow"), (SLEET, "cicep"), (FRZR, "cfrzr")):
+        f = flags.get(name)
+        if f is not None:
+            model = np.where(np.nan_to_num(np.asarray(f, np.float32)) > 0.5, np.int8(code), model)
+    have = model >= 0
+    if have.all():
+        codes = model
+    elif have.any():
+        from scipy import ndimage
+        dist, (ri, ci) = ndimage.distance_transform_edt(~have, return_indices=True)
+        near = model[ri, ci]
+        near = np.where((near != RAIN) & (tw > 3.0), np.int8(RAIN), near)      # frozen types into warm air: rain
+        near = np.where((near == RAIN) & (tw < -2.0), np.int8(SNOW), near)     # rain into cold air: snow
+        codes = np.where(have, model, np.where(dist * cell_km <= REACH_KM, near, codes)).astype(np.int8)
+    return np.where(np.isfinite(t2_k), codes, -1).astype(np.int8)
 
 
 def surface_grid(lat0, lon0, t: datetime | None, wait=True):
@@ -90,14 +142,15 @@ def surface_grid(lat0, lon0, t: datetime | None, wait=True):
             continue
         picks = {}
         for name, var in (("crain", "CRAIN"), ("csnow", "CSNOW"), ("cicep", "CICEP"), ("cfrzr", "CFRZR"),
-                          ("t2", "TMP")):
-            lev = "2 m above ground" if var == "TMP" else "surface"
+                          ("t2", "TMP"), ("td2", "DPT")):
+            lev = "2 m above ground" if var in ("TMP", "DPT") else "surface"
             e = models.find_entry(rows, var, lev, "fcst") or models.find_entry(rows, var, lev, "any")
             if e is not None:
                 picks[name] = e
         if "t2" not in picks:
             continue
         try:
+            models.fetch_entries(m, run, fh, list(picks.values()))     # neighbours in the file: one request
             grids = {k: models._decoded(m, run, fh, e) for k, e in picks.items()}
         except Exception as exc:
             last = exc
@@ -105,29 +158,19 @@ def surface_grid(lat0, lon0, t: datetime | None, wait=True):
         g0 = grids["t2"]
         lat, lon = _square(lat0, lon0)
         rc = g0.index(lat, lon)
+        r = np.rint(rc[0]).astype(np.int64)
+        c = np.rint(rc[1]).astype(np.int64)
+        ok = (r >= 0) & (r < g0.nj) & (c >= 0) & (c < g0.ni)
 
         def samp(name):
             if name not in grids:
                 return None
-            r = np.rint(rc[0]).astype(np.int64)
-            c = np.rint(rc[1]).astype(np.int64)
-            ok = (r >= 0) & (r < g0.nj) & (c >= 0) & (c < g0.ni)
             out = np.full(r.shape, np.nan, np.float32)
             out[ok] = grids[name].values[r[ok], c[ok]]
             return out
         t2 = samp("t2")
-        codes = np.where(t2 <= 273.15, SNOW, RAIN).astype(np.int8)        # no model precip: by temperature
         flags = {k: samp(k) for k in ("crain", "csnow", "cicep", "cfrzr")}
-        # the model's own types, in rising order of importance (a rain / snow mix shows as snow)
-        if flags["crain"] is not None:
-            codes = np.where(flags["crain"] > 0.5, RAIN, codes)
-        if flags["csnow"] is not None:
-            codes = np.where(flags["csnow"] > 0.5, SNOW, codes)
-        if flags["cicep"] is not None:
-            codes = np.where(flags["cicep"] > 0.5, SLEET, codes)
-        if flags["cfrzr"] is not None:
-            codes = np.where(flags["cfrzr"] > 0.5, FRZR, codes)
-        codes = np.where(np.isfinite(t2), codes, -1).astype(np.int8)
+        codes = classify(t2, samp("td2"), flags, 2 * PTYPE_HALF_KM / PTYPE_N)
         t2f = ((t2 - 273.15) * 1.8 + 32.0).astype(np.float32)
         label = f"HRRR {run:%HZ}" + (" analysis" if fh == 0 else f" +{fh} h")
         g = SurfaceGrid(codes, t2f, run + timedelta(hours=fh), PTYPE_HALF_KM, (lat0, lon0), label)

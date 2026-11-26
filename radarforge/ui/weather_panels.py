@@ -128,7 +128,7 @@ class WinterPanel(ChipPage):
 
         s = self.section("win_radar", "On the radar")
         s.chip(m.ptype_act, "Precip type", "Panel 1 shows reflectivity coloured by rain, snow, sleet and freezing "
-                                           "rain (HRRR analysis for each scan's hour)")
+                                           "rain (the HRRR's newest forecast for each scan's hour)")
         s.chip(m.winter_pal_act, "Winter colours", "A reflectivity colour table that spreads light snow over more "
                                                    "colours")
         s.chip(ov.get("melting_layer"), "Melting layer", "Where snow melts into rain aloft (Level III N0M)")

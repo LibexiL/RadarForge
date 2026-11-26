@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.28.4 – 2026-11-25
+
+**Precipitation type shows snow where it's snowing.**
+
+- It was taken from the HRRR's analysis for the scan's hour, but at that point the model hasn't made any
+  precipitation yet, so its rain / snow / sleet / freezing-rain flags are all off. Everything then fell back to
+  "32 °F or colder: snow, otherwise rain", and in a snowstorm at 33-35 °F that painted nearly all of it as rain.
+  It now uses the newest HRRR forecast valid at that hour (the run an hour or two earlier), which has the types.
+- Where the radar shows precipitation the model doesn't have, the model's nearest type within 60 km is used.
+  Beyond that, the wet-bulb temperature (temperature and dewpoint together) decides, so snow falling into
+  33-36 °F dry air shows as snow, not rain.
+
 ## 1.28.3 – 2026-11-25
 
 **Upkeep: steadier on small computers, quicker to open.**
